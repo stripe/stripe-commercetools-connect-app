@@ -13,6 +13,9 @@ export const config = {
   // Required by logger
   loggerLevel: process.env.LOGGER_LEVEL || 'info',
 
+  //Stripe
+  stripeClientSecret: process.env.STRIPE_CLIENT_SECRET,
+
   // Update with specific payment providers config
   mockClientKey: process.env.MOCK_CLIENT_KEY,
   mockEnvironment: process.env.MOCK_ENVIRONMENT,
