@@ -1,5 +1,13 @@
+import { StripeElements } from "@stripe/stripe-js";
+
+export type StripeElementConfiguration = {
+  elementType : string,
+  selector : string,
+  container? : HTMLElement
+}
+
 export interface PaymentComponent {
-  mount(selector: string): void;
+  createElements() : Promise<StripeElements | never>;
   submit(): void;
   showValidation?(): void;
   isValid?(): boolean;
@@ -12,27 +20,27 @@ export interface PaymentComponent {
   };
 }
 
+export interface PaymentComponentBuilder {
+  componentHasSubmit?: boolean;
+  build(config: ComponentOptions): PaymentComponent;
+}
+
 export type EnablerOptions = {
   processorUrl: string;
+  returnUrl: string; // URL in which Stripe redirects after a payment intent is confirmed
   sessionId: string;
-  config?: { 
-    locale?: string;
-    showPayButton?: boolean;
-  };
+  locale?: string;
   onActionRequired?: () => Promise<void>;
   onComplete?: (result: PaymentResult) => void;
   onError?: (error: any) => void;
 };
 
-
-export enum PaymentMethod {
-  applepay = "applepay",
+export enum PaymentMethods {
   card = "card",
-  dropin = "dropin",
+  oxxo = "oxxo",
+  link = "link",
+  applepay = "applepay",
   googlepay = "googlepay",
-  ideal = "ideal",
-  klarna = "klarna",
-  paypal = "paypal",
 }
 
 export type PaymentResult = {
@@ -41,14 +49,13 @@ export type PaymentResult = {
 } | { isSuccess: false };
 
 export type ComponentOptions = {
-  config: {
-    showPayButton?: boolean;
-  };
+  showPayButton?: boolean;
+  onClick?: () => boolean;
 };
 
 export interface PaymentEnabler {
   /** 
    * @throws {Error}
    */
-  createComponent: (type: string, opts: ComponentOptions) => Promise<PaymentComponent | never>
+  createComponentBuilder: (type: string) => Promise<PaymentComponentBuilder | never>
 }
