@@ -1,7 +1,7 @@
 import { paymentSDK } from '../payment-sdk';
-import { MockPaymentService } from '../services/mock-payment.service';
+import { StripePaymentService } from '../services/stripe-payment.service';
 
-const paymentService = new MockPaymentService({
+const paymentService = new StripePaymentService({
   ctCartService: paymentSDK.ctCartService,
   ctPaymentService: paymentSDK.ctPaymentService,
 });

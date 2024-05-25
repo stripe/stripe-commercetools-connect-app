@@ -117,6 +117,7 @@ export abstract class AbstractPaymentService {
     }
 
     const transactionType = this.getPaymentTransactionType(request.action);
+
     const updatedPayment = await this.ctPaymentService.updatePayment({
       id: ctPayment.id,
       transaction: {
@@ -125,6 +126,7 @@ export abstract class AbstractPaymentService {
         state: 'Initial',
       },
     });
+
     const res = await this.processPaymentModification(updatedPayment, transactionType, requestAmount);
 
     await this.ctPaymentService.updatePayment({
