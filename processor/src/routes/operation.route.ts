@@ -15,14 +15,14 @@ import {
   PaymentIntentResponseSchemaDTO,
 } from '../dtos/operations/payment-intents.dto';
 import { StatusResponseSchema, StatusResponseSchemaDTO } from '../dtos/operations/status.dto';
-import { AbstractPaymentService } from '../services/abstract-payment.service';
+import { StripePaymentService } from '../services/stripe-payment.service';
 
 type OperationRouteOptions = {
   sessionHeaderAuthHook: SessionHeaderAuthenticationHook;
   oauth2AuthHook: Oauth2AuthenticationHook;
   jwtAuthHook: JWTAuthenticationHook;
   authorizationHook: AuthorityAuthorizationHook;
-  paymentService: AbstractPaymentService;
+  paymentService: StripePaymentService;
 };
 
 export const operationsRoute = async (fastify: FastifyInstance, opts: FastifyPluginOptions & OperationRouteOptions) => {
