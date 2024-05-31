@@ -1,7 +1,4 @@
-import {
-  statusHandler,
-  healthCheckCommercetoolsPermissions,
-} from '@commercetools/connect-payments-sdk';
+import { statusHandler, healthCheckCommercetoolsPermissions } from '@commercetools/connect-payments-sdk';
 import {
   CancelPaymentRequest,
   CapturePaymentRequest,
@@ -21,7 +18,6 @@ import { paymentSDK } from '../payment-sdk';
 import { CreatePayment, StripePaymentServiceOptions } from './types/stripe-payment.type';
 import { PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/mock-payment.dto';
 import { getCartIdFromContext, getPaymentInterfaceFromContext } from '../libs/fastify/context/context';
-import { randomUUID } from 'crypto';
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 
 export class StripePaymentService extends AbstractPaymentService {
@@ -96,7 +92,7 @@ export class StripePaymentService extends AbstractPaymentService {
         name: packageJSON.name,
         description: packageJSON.description,
         '@commercetools/connect-payments-sdk': packageJSON.dependencies['@commercetools/connect-payments-sdk'],
-        'stripe': packageJSON.dependencies['stripe'],
+        stripe: packageJSON.dependencies['stripe'],
       }),
     })();
 
@@ -164,7 +160,7 @@ export class StripePaymentService extends AbstractPaymentService {
    * Create payment
    *
    * @remarks
-   * Implementation to provide the mocking data for payment creation in external PSPs
+   * Implementation to provide the initial data to cart for payment creation in external PSPs
    *
    * @param request - contains amount and {@link https://docs.commercetools.com/api/projects/payments | Payment } defined in composable commerce
    * @returns Promise with mocking data containing operation status and PSP reference
@@ -198,11 +194,10 @@ export class StripePaymentService extends AbstractPaymentService {
     });
 
     const paymentMethod = opts.data.paymentMethod;
-    const isAuthorized = this.isCreditCardAllowed(paymentMethod.cardNumber);
 
-    const resultCode = isAuthorized ? PaymentOutcome.AUTHORIZED : PaymentOutcome.REJECTED;
+    const resultCode = PaymentOutcome.INITIAL;
 
-    const pspReference = randomUUID().toString();
+    const pspReference = paymentMethod.paymentIntent;
 
     const paymentMethodType = paymentMethod.type;
 
@@ -214,7 +209,7 @@ export class StripePaymentService extends AbstractPaymentService {
         type: 'Authorization',
         amount: ctPayment.amountPlanned,
         interactionId: pspReference,
-        state: this.convertPaymentResultCode(resultCode as PaymentOutcome),
+        state: resultCode,
       },
     });
 
