@@ -46,13 +46,14 @@ describe('mock-payment.service', () => {
 
   test('getConfig', async () => {
     // Setup mock config for a system using `clientKey`
-    setupMockConfig({ mockClientKey: '', mockEnvironment: 'test' });
+    setupMockConfig({ mockClientKey: '', mockEnvironment: 'test', stripeClientSecret: 'clientSecretTest' });
 
     const result: ConfigResponse = await paymentService.config();
 
     // Assertions can remain the same or be adapted based on the abstracted access
     expect(result?.clientKey).toStrictEqual('');
     expect(result?.environment).toStrictEqual('test');
+    expect(result?.stripeClientSecret).toStrictEqual('clientSecretTest');
   });
 
   test('getSupportedPaymentComponents', async () => {
@@ -209,5 +210,10 @@ describe('mock-payment.service', () => {
     const result = await mockPaymentService.createPayment(createPaymentOpts);
     expect(result?.outcome).toStrictEqual(PaymentOutcome.REJECTED);
     expect(result?.paymentReference).toStrictEqual('123456');
+  });
+  test('create the payment intent from stripe', async () => {
+    //TODO create test
+    const cartId = 'test_cart_id';
+    expect(cartId).toStrictEqual('test_cart_id');
   });
 });

@@ -5,7 +5,7 @@ import { log } from '../libs/logger';
 
 export const stripeApi = (): Stripe => {
   return new Stripe(getConfig().stripeSecretKey);
-}
+};
 
 export const wrapStripeError = (e: any): Error => {
   if (e?.raw) {

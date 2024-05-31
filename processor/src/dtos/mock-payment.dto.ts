@@ -9,6 +9,10 @@ export const PaymentRequestSchema = Type.Object({
   paymentMethod: Type.Composite([CardPaymentMethodSchema]),
 });
 
+export const PaymentIntentResponseSchema = Type.Object({
+  client_secret: Type.String(),
+});
+
 export enum PaymentOutcome {
   AUTHORIZED = 'Authorized',
   REJECTED = 'Rejected',
@@ -24,3 +28,4 @@ export const PaymentResponseSchema = Type.Object({
 
 export type PaymentRequestSchemaDTO = Static<typeof PaymentRequestSchema>;
 export type PaymentResponseSchemaDTO = Static<typeof PaymentResponseSchema>;
+export type PaymentIntentResponseSchemaDTO = Static<typeof PaymentIntentResponseSchema>;

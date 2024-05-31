@@ -29,8 +29,30 @@ export const mockGetCartResult = () => {
     shippingInfo: shippingInfo,
     createdAt: '2024-01-01T00:00:00Z',
     lastModifiedAt: '2024-01-01T00:00:00Z',
+    paymentInfo: {
+      payments: [],
+    },
   };
   return mockGetCartResult;
+};
+
+export const mockGetCartWithPaymentResult = () => {
+  const mockGetCart = mockGetCartResult();
+  const newPaymentInfo = {
+    payments: [
+      ...(mockGetCart.paymentInfo?.payments ?? []),
+      {
+        id: 'paymentId',
+        typeId: 'payment',
+        obj: null,
+      },
+    ],
+  };
+
+  return {
+    ...mockGetCart,
+    paymentInfo: newPaymentInfo,
+  } as Cart;
 };
 
 const lineItem: LineItem = {
