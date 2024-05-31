@@ -8,10 +8,10 @@ import {
   PaymentResponseSchema,
   PaymentResponseSchemaDTO,
 } from '../dtos/mock-payment.dto';
-import { MockPaymentService } from '../services/mock-payment.service';
+import { StripePaymentService } from '../services/stripe-payment.service';
 
 type PaymentRoutesOptions = {
-  paymentService: MockPaymentService;
+  paymentService: StripePaymentService;
   sessionHeaderAuthHook: SessionHeaderAuthenticationHook;
 };
 
