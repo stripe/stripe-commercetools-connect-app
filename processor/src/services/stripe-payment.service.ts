@@ -159,40 +159,21 @@ export class StripePaymentService extends AbstractPaymentService {
   }
 
   /**
-   * Create payment
+   * Crate the 'Initial' payment to CT.
    *
    * @remarks
    * Implementation to provide the initial data to cart for payment creation in external PSPs
    *
-   * @param request - contains amount and {@link https://docs.commercetools.com/api/projects/payments | Payment } defined in composable commerce
-   * @returns Promise with mocking data containing operation status and PSP reference
+   * @param {CreatePayment} opts - The options for creating the payment.
+   * @returns {Promise<PaymentResponseSchemaDTO>} - The payment response.
    */
   public async createPayment(opts: CreatePayment): Promise<PaymentResponseSchemaDTO> {
     const ctCart = await this.ctCartService.getCart({
       id: getCartIdFromContext(),
     });
 
-    const ctPayment = await this.ctPaymentService.createPayment({
-      amountPlanned: await this.ctCartService.getPaymentAmount({
-        cart: ctCart,
-      }),
-      paymentMethodInfo: {
-        paymentInterface: getPaymentInterfaceFromContext() || 'mock',
-      },
-      ...(ctCart.customerId && {
-        customer: {
-          typeId: 'customer',
-          id: ctCart.customerId,
-        },
-      }),
-    });
-
-    await this.ctCartService.addPayment({
-      resource: {
-        id: ctCart.id,
-        version: ctCart.version,
-      },
-      paymentId: ctPayment.id,
+    const ctPayment = await this.ctPaymentService.getPayment({
+      id: ctCart.paymentInfo?.payments[0].id ?? '',
     });
 
     const paymentMethod = opts.data.paymentMethod;
@@ -205,7 +186,6 @@ export class StripePaymentService extends AbstractPaymentService {
 
     const updatedPayment = await this.ctPaymentService.updatePayment({
       id: ctPayment.id,
-      pspReference: pspReference,
       paymentMethod: paymentMethodType,
       transaction: {
         type: 'Authorization',
