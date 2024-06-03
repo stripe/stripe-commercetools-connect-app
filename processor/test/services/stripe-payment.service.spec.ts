@@ -16,7 +16,7 @@ import {
 import { mockEvent__paymentIntent_amountCapturableUpdated } from '../utils/mock-routes-data';
 import { mockGetCartResult, mockGetCartWithPaymentResult } from '../utils/mock-cart-data';
 import * as Config from '../../src/config/config';
-import { StripePaymentServiceOptions } from '../../src/services/types/stripe-payment.type';
+import { CreatePayment, StripePaymentServiceOptions } from '../../src/services/types/stripe-payment.type';
 import { AbstractPaymentService } from '../../src/services/abstract-payment.service';
 import { StripePaymentService } from '../../src/services/stripe-payment.service';
 import * as StatusHandler from '@commercetools/connect-payments-sdk/dist/api/handlers/status.handler';
@@ -542,5 +542,36 @@ describe('stripe-payment.service', () => {
     expect(getCartMock).toHaveBeenCalled();
     expect(getPaymentAmountMock).toHaveBeenCalled();
     expect(stripeApiMock).toHaveBeenCalled();
+  });
+
+  test('createPayment succeded', async () => {
+    const createPaymentOpts: CreatePayment = {
+      data: {
+        paymentMethod: {
+          type: 'card',
+          paymentIntent: 'paymentIntentId',
+        },
+      },
+    };
+    // mocking all the function calls
+    const getCartMock = jest
+      .spyOn(DefaultCartService.prototype, 'getCart')
+      .mockReturnValue(Promise.resolve(mockGetCartWithPaymentResult()));
+    const getPaymentMock = jest.spyOn(DefaultPaymentService.prototype, 'getPayment');
+    getPaymentMock.mockResolvedValue(mockGetPaymentResult);
+    const updatePaymentMock = jest
+      .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+      .mockReturnValue(Promise.resolve(mockGetPaymentResult));
+
+    const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
+    const result = await stripePaymentService.createPayment(createPaymentOpts);
+
+    expect(result.outcome).toStrictEqual('Initial');
+    expect(result).toBeDefined();
+
+    // Or check that the relevant mocks have been called
+    expect(getCartMock).toHaveBeenCalled();
+    expect(updatePaymentMock).toHaveBeenCalled();
+    expect(getPaymentMock).toBeCalledWith({ id: 'paymentId' });
   });
 });

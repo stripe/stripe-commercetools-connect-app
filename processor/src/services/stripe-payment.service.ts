@@ -20,7 +20,6 @@ import { paymentSDK } from '../payment-sdk';
 import { CreatePayment, StripePaymentServiceOptions } from './types/stripe-payment.type';
 import { PaymentIntentResponseSchemaDTO, PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/mock-payment.dto';
 import { getCartIdFromContext, getPaymentInterfaceFromContext } from '../libs/fastify/context/context';
-import { randomUUID } from 'crypto';
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
 
@@ -193,60 +192,39 @@ export class StripePaymentService extends AbstractPaymentService {
   }
 
   /**
-   * Create payment
+   * Crate the 'Initial' payment to CT.
    *
    * @remarks
-   * Implementation to provide the mocking data for payment creation in external PSPs
+   * Implementation to provide the initial data to cart for payment creation in external PSPs
    *
-   * @param request - contains amount and {@link https://docs.commercetools.com/api/projects/payments | Payment } defined in composable commerce
-   * @returns Promise with mocking data containing operation status and PSP reference
+   * @param {CreatePayment} opts - The options for creating the payment.
+   * @returns {Promise<PaymentResponseSchemaDTO>} - The payment response.
    */
   public async createPayment(opts: CreatePayment): Promise<PaymentResponseSchemaDTO> {
     const ctCart = await this.ctCartService.getCart({
       id: getCartIdFromContext(),
     });
 
-    const ctPayment = await this.ctPaymentService.createPayment({
-      amountPlanned: await this.ctCartService.getPaymentAmount({
-        cart: ctCart,
-      }),
-      paymentMethodInfo: {
-        paymentInterface: getPaymentInterfaceFromContext() || 'mock',
-      },
-      ...(ctCart.customerId && {
-        customer: {
-          typeId: 'customer',
-          id: ctCart.customerId,
-        },
-      }),
-    });
-
-    await this.ctCartService.addPayment({
-      resource: {
-        id: ctCart.id,
-        version: ctCart.version,
-      },
-      paymentId: ctPayment.id,
+    const ctPayment = await this.ctPaymentService.getPayment({
+      id: ctCart.paymentInfo?.payments[0].id ?? '',
     });
 
     const paymentMethod = opts.data.paymentMethod;
-    const isAuthorized = this.isCreditCardAllowed(paymentMethod.cardNumber);
 
-    const resultCode = isAuthorized ? PaymentOutcome.AUTHORIZED : PaymentOutcome.REJECTED;
+    const resultCode = PaymentOutcome.INITIAL;
 
-    const pspReference = randomUUID().toString();
+    const pspReference = paymentMethod.paymentIntent;
 
     const paymentMethodType = paymentMethod.type;
 
     const updatedPayment = await this.ctPaymentService.updatePayment({
       id: ctPayment.id,
-      pspReference: pspReference,
       paymentMethod: paymentMethodType,
       transaction: {
         type: 'Authorization',
         amount: ctPayment.amountPlanned,
         interactionId: pspReference,
-        state: this.convertPaymentResultCode(resultCode as PaymentOutcome),
+        state: resultCode,
       },
     });
 
