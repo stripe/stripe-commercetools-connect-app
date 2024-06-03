@@ -1,6 +1,5 @@
 import Stripe from 'stripe';
 import { statusHandler, healthCheckCommercetoolsPermissions } from '@commercetools/connect-payments-sdk';
-import { PaymentPagedQueryResponse } from '@commercetools/platform-sdk';
 import {
   CancelPaymentRequest,
   CapturePaymentRequest,
@@ -24,8 +23,6 @@ import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
 
 export class StripePaymentService extends AbstractPaymentService {
-  private allowedCreditCards = ['4111111111111111', '5555555555554444', '341925950237632'];
-
   constructor(opts: StripePaymentServiceOptions) {
     super(opts.ctCartService, opts.ctPaymentService);
   }
@@ -185,10 +182,6 @@ export class StripePaymentService extends AbstractPaymentService {
         error,
       );
     }
-  }
-
-  private isCreditCardAllowed(cardNumber: string) {
-    return this.allowedCreditCards.includes(cardNumber);
   }
 
   /**
