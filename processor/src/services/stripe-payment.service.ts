@@ -267,6 +267,11 @@ export class StripePaymentService extends AbstractPaymentService {
     }
   }
 
+  /**
+   * Retrieves or creates a payment intent for a cart.
+   *
+   * @returns {Promise<PaymentIntentResponseSchemaDTO>} The payment intent.
+   */
   async getPaymentIntent(): Promise<PaymentIntentResponseSchemaDTO> {
     const ctCart = await this.ctCartService.getCart({
       id: getCartIdFromContext(),
@@ -279,12 +284,13 @@ export class StripePaymentService extends AbstractPaymentService {
         const { interfaceId = '' } = await this.ctPaymentService.getPayment({
           id: ctCart.paymentInfo?.payments[0].id ?? '',
         });
+
+        const rest = await stripeApi().paymentIntents.retrieve(interfaceId);
         log.info(`PaymentIntent retrieve.`, {
           ctCartId: ctCart.id,
           stripePaymentIntentId: interfaceId,
+          payment_intent_metadata: rest.metadata,
         });
-        const rest = await stripeApi().paymentIntents.retrieve(interfaceId);
-
         return rest as PaymentIntentResponseSchemaDTO;
       } catch (e) {
         throw wrapStripeError(e);
@@ -330,6 +336,16 @@ export class StripePaymentService extends AbstractPaymentService {
         },
         paymentId: ctPayment.id,
       });
+
+      try {
+        await stripeApi().paymentIntents.update(paymentIntent.id, {
+          metadata: {
+            paymentId: ctPayment.id,
+          },
+        });
+      } catch (e) {
+        throw wrapStripeError(e);
+      }
 
       log.info(`PaymentIntent created and assigned to cart.`, {
         ctCartId: ctCart.id,
