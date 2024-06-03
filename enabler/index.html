@@ -43,7 +43,7 @@
 
       <div class="album py-5 bg-light">
         <div class="container">
-          <!--
+                    <!--
           <script type="module">
             import { Enabler } from '/src/main.ts';
       
@@ -72,76 +72,82 @@
           </script>
 
           -->
+
           <script type="module">
             import { Enabler } from '/src/main.ts';
             
             const card = document.getElementById("card-component")
-      
-            const onChangeEvent = (e) => {
-              const {target : {id, checked}} = e
-              console.log({checked, name})
-              console.log(e)
-              const handler = {
-                oxxo : () => {
-                  card.setAttribute("checked", false)
-                  stripe.mount({
-                    paymentMethod: "oxxo",
-                    containerSelector: "#payment-element",
-                    formSelector: "#payment-form"
-                  });
-                },
-                card : () => {
-                  oxxo.setAttribute("checked", false);
-                  stripe.mount({
-                    paymentMethod: "card",
-                    containerSelector: "#payment-element",
-                    formSelector: "#payment-form"
-                  });
-                },
-                default : () => {}
-              }
-              console.log("test")
-              handler[id]?.() ?? handler['default']()
-            }
-      
-            // oxxo.addEventListener("change", onChangeEvent)
-            card.addEventListener("change", onChangeEvent)
-      
+            const express = document.getElementById("express-checkout")
+            const payment = document.getElementById("payment")
+            const cartId = document.getElementById('cartId').value;
             
-            document.getElementById('createCheckout').addEventListener('click', async (event) => {
-                event.preventDefault();
-                const cartId = document.getElementById('cartId').value;
-                const sessionId = await getSessionId(cartId);
-  
-                const enabler = new Enabler({
-                  processorUrl: __VITE_PROCESSOR_URL__,
-                  sessionId: sessionId,
-                  config: {
-                    
-                  },
-                  onComplete: ({ isSuccess, paymentReference }) => {
-                    console.log('onComplete', { isSuccess, paymentReference });
-                  },
-                });
-                
-                // console.log({enabler})
+            const sessionId = await getSessionId("e813920a-d35b-46ce-8d12-d530b3b81d35");
+            
+            const onError = (e) => {
+              console.log({e})
+            }
 
-                enabler.createElements(['card', "address"])
-                  .then(element => {
-                      // element.mount('#card-component')\
-                      console.log({element})
-                  })
-              });
+            const enabler = new Enabler({
+              processorURL : __VITE_PROCESSOR_URL__, 
+              returnURL : "/success",
+              sessionId,
+              onActionRequired : () => {},
+              onComplete: () => {},
+              //TODO all errors thrown will be available on this CB
+              onError
+            })
+
+            let promises = []
+
+            
+            const paymentElement = enabler.createStripeElement({
+              type : "payment",
+              //See https://docs.stripe.com/js/elements_object/create_payment_element#payment_element_create-options for this element options
+              options : {
+
+              }
+            })
+            .then(paymentElement => {
+              paymentElement.mount("#payment")
+              return paymentElement
+            })
+
+            promises.push(paymentElement);
+            
+            const expressCheckoutElement = enabler.createStripeElement({
+              type : "expressCheckout",
+              //See https://docs.stripe.com/js/elements_object/create_express_checkout_element#express_checkout_element_create-options for this element options
+              options : {
+                
+              } 
+            })
+            .then(paymentElement => {
+              paymentElement.mount("#express-checkout")
+              return paymentElement
+            });
+
+            promises.push(expressCheckoutElement);
+
+            const submitButton = document.querySelector("#submit-payment")
+
+            Promise.all(promises)
+              .then(results => {
+                let [paymentElement, expressCheckoutElement] = results;
+                
+                submitButton.addEventListener("click", async (e) => {
+                  let result = await paymentElement.submit()
+                })
+              })
+          
           </script>
-          <div id="card-component"></div>
+          <div id="payment"></div>
+          <div id="card-component" style="padding-top: 25px; padding-bottom: 25px;"></div>
+          <div id="express-checkout"></div>
+          <button id="submit-payment">pay</button>
         </div>
       </div>
 
     </main>
-
-
-
-    
 
     
   </body>
