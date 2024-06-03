@@ -1,5 +1,6 @@
-import { Payment, Transaction } from '@commercetools/connect-payments-sdk';
 import Stripe from 'stripe';
+import { Payment, Transaction } from '@commercetools/connect-payments-sdk';
+import { PaymentPagedQueryResponse } from '@commercetools/platform-sdk';
 
 export const mockGetPaymentResult: Payment = {
   id: '123456',
@@ -182,4 +183,61 @@ export const mockCancelPaymentErrorResult = {
   },
   requestId: 'req_11111',
   statusCode: 404
+}
+
+export const mockCtPaymentByInterfaceId: PaymentPagedQueryResponse = {
+  limit: 20,
+  offset: 0,
+  count: 1,
+  total: 1,
+  results: [
+    {
+      id: '11111',
+      version: 5,
+      createdAt: '2024-05-14T18:22:42.391Z',
+      lastModifiedAt: '2024-05-30T15:45:26.746Z',
+      lastModifiedBy: {
+        clientId: 'aaaaa'
+      },
+      createdBy: {
+        clientId: 'aaaaa'
+      },
+      interfaceId: '22222',
+      amountPlanned: {
+        type: 'centPrecision',
+        currencyCode: 'USD',
+        centAmount: 20000,
+        fractionDigits: 2
+      },
+      paymentMethodInfo: {
+        paymentInterface: 'mock',
+        method: 'card'
+      },
+      paymentStatus: {},
+      transactions: [
+        {
+          id: '11111',
+          timestamp: '2024-05-14T18:22:42.748Z',
+          type: 'Authorization',
+          amount: {
+            type: 'centPrecision',
+            currencyCode: 'USD',
+            centAmount: 20000,
+            fractionDigits: 2
+          },
+          interactionId: '22222',
+          state: 'Initial'
+        }
+      ],
+      interfaceInteractions: []
+    }
+  ]
+}
+
+export const mockCtPaymentByInterfaceId_paymentNotFound: PaymentPagedQueryResponse = {
+  limit: 20,
+  offset: 0,
+  count: 0,
+  total: 0,
+  results: []
 }
