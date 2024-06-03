@@ -1,4 +1,4 @@
-import { statusHandler, healthCheckCommercetoolsPermissions } from '@commercetools/connect-payments-sdk';
+import { healthCheckCommercetoolsPermissions, statusHandler } from '@commercetools/connect-payments-sdk';
 import {
   CancelPaymentRequest,
   CapturePaymentRequest,
@@ -16,7 +16,7 @@ import { AbstractPaymentService } from './abstract-payment.service';
 import { getConfig } from '../config/config';
 import { paymentSDK } from '../payment-sdk';
 import { CreatePayment, MockPaymentServiceOptions } from './types/mock-payment.type';
-import { PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/mock-payment.dto';
+import { PaymentIntentResponseSchemaDTO, PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/mock-payment.dto';
 import { getCartIdFromContext, getPaymentInterfaceFromContext } from '../libs/fastify/context/context';
 import { randomUUID } from 'crypto';
 
@@ -40,7 +40,39 @@ export class MockPaymentService extends AbstractPaymentService {
     return {
       clientKey: config.stripeSecretKey,
       environment: config.mockEnvironment,
+      stripeClientSecret: config.stripeClientSecret,
     };
+  }
+
+  /**
+   * Get payment intent
+   *
+   * @remark
+   * Attempts to create and return a new payment intent if one does not already exist in the cart, otherwise the existing payment intent is returned
+   *
+   * @return {Promise<PaymentIntentResponseSchemaDTO>} - Promise with the {@link https://docs.stripe.com/api/payment_intents/object | PaymentIntent }
+   *
+   */
+  async getPaymentIntent(): Promise<PaymentIntentResponseSchemaDTO> {
+    const ctCart = await this.ctCartService.getCart({
+      id: getCartIdFromContext(),
+    });
+    const stripe = require('stripe')(getConfig().stripeClientSecret);
+    const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
+    //TODO verify if payment intent exist in cart in ct
+    //TODO obtain customer from ct to add to paymentIntent
+    //TODO add payment intent to cart in ct (custom field cart)
+    //TODO handle errors
+    return await stripe.paymentIntents.create({
+      amount: amountPlanned.centAmount,
+      currency: amountPlanned.currencyCode,
+      automatic_payment_methods: {
+        enabled: true,
+      },
+      metadata: {
+        cartId: ctCart.id,
+      },
+    });
   }
 
   /**
