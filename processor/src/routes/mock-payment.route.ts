@@ -35,7 +35,8 @@ export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPlugi
       return reply.status(200).send(resp);
     },
   );
-  fastify.get<{ Reply: PaymentIntentResponseSchemaDTO }>(
+  fastify.get<{ Reply: string }>(
+  // fastify.get<{ Reply: PaymentIntentResponseSchemaDTO }>(
     '/getPaymentIntent',
     {
       preHandler: [opts.sessionHeaderAuthHook.authenticate()],
@@ -46,9 +47,10 @@ export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPlugi
       },
     },
     async (request, reply) => {
+      console.log("test")
       const resp = await opts.paymentService.getPaymentIntent();
-
-      return reply.status(200).send(resp);
+      console.log(JSON.stringify(resp))
+      return reply.status(200).send(JSON.stringify({"client_secret" : resp?.client_secret}));
     },
   );
 };
