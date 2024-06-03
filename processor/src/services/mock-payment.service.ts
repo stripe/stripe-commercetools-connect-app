@@ -59,20 +59,52 @@ export class MockPaymentService extends AbstractPaymentService {
     });
     const stripe = require('stripe')(getConfig().stripeClientSecret);
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
-    //TODO verify if payment intent exist in cart in ct
-    //TODO obtain customer from ct to add to paymentIntent
-    //TODO add payment intent to cart in ct (custom field cart)
-    //TODO handle errors
-    return await stripe.paymentIntents.create({
-      amount: amountPlanned.centAmount,
-      currency: amountPlanned.currencyCode,
-      automatic_payment_methods: {
-        enabled: true,
-      },
-      metadata: {
-        cartId: ctCart.id,
-      },
-    });
+    // verify if payment intent exist in cart in ct
+    if (ctCart.paymentInfo?.payments[0]) {
+      const ctPayment = await this.ctPaymentService.getPayment({
+        id: ctCart.paymentInfo?.payments[0].id ?? '',
+      });
+
+      return await stripe.paymentIntents.retrieve(ctPayment?.interfaceId);
+    } else {
+      // obtain customer from ct to add to paymentIntent
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amountPlanned.centAmount,
+        currency: amountPlanned.currencyCode,
+        automatic_payment_methods: {
+          enabled: true,
+        },
+        metadata: {
+          order_id: ctCart.id,
+        },
+      });
+      // add payment intent to cart in ct (Payment)
+      const ctPayment = await this.ctPaymentService.createPayment({
+        amountPlanned: await this.ctCartService.getPaymentAmount({
+          cart: ctCart,
+        }),
+        interfaceId: paymentIntent.id,
+        paymentMethodInfo: {
+          paymentInterface: getPaymentInterfaceFromContext() || 'mock',
+        },
+        ...(ctCart.customerId && {
+          customer: {
+            typeId: 'customer',
+            id: ctCart.customerId,
+          },
+        }),
+      });
+      await this.ctCartService.addPayment({
+        resource: {
+          id: ctCart.id,
+          version: ctCart.version,
+        },
+        paymentId: ctPayment.id,
+      });
+
+      //TODO handle errors
+      return paymentIntent;
+    }
   }
 
   /**
