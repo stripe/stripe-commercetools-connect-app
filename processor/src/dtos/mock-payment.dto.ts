@@ -1,14 +1,8 @@
 import { Static, Type } from '@sinclair/typebox';
 
 export const CardPaymentMethodSchema = Type.Object({
-  // TODO: Remove the fields according to the payment provider solution,
-  //  Strongly recommend not to process PAN data to Connectors.
-  type: Type.Literal('card'),
-  cardNumber: Type.String(),
-  expiryMonth: Type.Number(),
-  expiryYear: Type.Number(),
-  cvc: Type.Number(),
-  holderName: Type.Optional(Type.String()),
+  type: Type.String(),
+  paymentIntent: Type.String(),
 });
 
 export const PaymentRequestSchema = Type.Object({
@@ -78,6 +72,7 @@ export const PaymentIntentResponseSchema = Type.Object({
 export enum PaymentOutcome {
   AUTHORIZED = 'Authorized',
   REJECTED = 'Rejected',
+  INITIAL = 'Initial',
 }
 
 export const PaymentOutcomeSchema = Type.Enum(PaymentOutcome);
