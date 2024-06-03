@@ -6,18 +6,18 @@ import { Stripe, StripeElements, StripeError, StripeExpressCheckoutElement, Stri
  */
 export abstract class BaseStripePaymentComponent implements BaseConfiguration{
 
-    protected stripeSDK : StripeElementConfiguration["stripeSDK"];    
-    protected elementsSDK : StripeElementConfiguration["elementsSDK"];
-    protected element : StripeElementConfiguration["element"];
-    protected environment : StripeElementConfiguration["environment"];
-    protected returnURL: StripeElementConfiguration['returnURL']; 
-    protected onComplete: StripeElementConfiguration["onComplete"];
-    protected onError: StripeElementConfiguration["onError"];
-    protected processorURL: StripeElementConfiguration["processorURL"];
-    protected sessionId: StripeElementConfiguration["sessionId"];
-    protected locale: StripeElementConfiguration["locale"];
-    protected onActionRequired: StripeElementConfiguration["onActionRequired"];
-    protected onConfirm: StripeElementConfiguration["onConfirm"];
+    stripeSDK : StripeElementConfiguration["stripeSDK"];    
+    elementsSDK : StripeElementConfiguration["elementsSDK"];
+    element : StripeElementConfiguration["element"];
+    environment : StripeElementConfiguration["environment"];
+    returnURL: StripeElementConfiguration['returnURL']; 
+    onComplete: StripeElementConfiguration["onComplete"];
+    onError: StripeElementConfiguration["onError"];
+    processorURL: StripeElementConfiguration["processorURL"];
+    sessionId: StripeElementConfiguration["sessionId"];
+    locale: StripeElementConfiguration["locale"];
+    onActionRequired: StripeElementConfiguration["onActionRequired"];
+    onConfirm: StripeElementConfiguration["onConfirm"];
   
     constructor(baseOptions: StripeElementConfiguration) {
         this.stripeSDK = baseOptions.stripeSDK;
