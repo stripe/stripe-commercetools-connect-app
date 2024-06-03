@@ -1,5 +1,5 @@
 import { Stripe, StripeElements } from '@stripe/stripe-js';
-import { PaymentComponent, PaymentMethods, PaymentResult, StripeElementConfiguration } from '../payment-enabler/payment-enabler';
+import { PaymentComponent, PaymentMethods, PaymentResult } from '../payment-enabler/payment-enabler';
 
 export type ElementOptions = {
   paymentMethod: PaymentMethods;

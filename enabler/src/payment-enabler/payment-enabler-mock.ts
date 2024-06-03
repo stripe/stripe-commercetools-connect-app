@@ -1,11 +1,10 @@
 import { BaseOptions } from '../components/base';
-import { CardBuilder } from '../components/payment-methods/card/card';
 // import { FakeSdk } from '../fake-sdk';
 import { PaymentComponentBuilder, PaymentEnabler } from './payment-enabler';
 
 declare global {
   interface ImportMeta {
-    env: any;
+    // env: any;
   }
 }
 
@@ -22,7 +21,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
     const { baseOptions } = await this.setupData;
 
     const supportedMethods = {
-      card: CardBuilder,
+      // card: CardBuilder,
       // invoice: InvoiceBuilder,
     };
 
