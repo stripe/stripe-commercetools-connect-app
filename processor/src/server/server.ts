@@ -7,6 +7,7 @@ import { join } from 'path';
 import { config } from '../config/config';
 import { requestContextPlugin } from '../libs/fastify/context/context';
 import { errorHandler } from '../libs/fastify/error-handler';
+const rawBody = import('fastify-raw-body');
 
 // const __filename = fileURLToPath(import.meta.url)
 // const __dirname = dirname(__filename)
@@ -24,6 +25,15 @@ export const setupFastify = async () => {
     genReqId: () => randomUUID().toString(),
     requestIdLogLabel: 'requestId',
     requestIdHeader: 'x-request-id',
+  });
+
+  // Config raw body for webhooks routes
+  await server.register(rawBody, {
+    field: 'rawBody', // change the default request.rawBody property name
+    global: false, // add the rawBody to every request. **Default true**
+    encoding: false, // set it to false to set rawBody as a Buffer **Default utf8**
+    runFirst: true, // get the body before any preParsing hook change/uncompress it. **Default false**
+    routes: ['/stripe/webhooks'], // array of routes, **`global`** will be ignored, wildcard routes not supported
   });
 
   // Setup error handler

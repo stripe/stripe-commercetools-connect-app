@@ -1,4 +1,6 @@
+import Stripe from 'stripe';
 import { statusHandler, healthCheckCommercetoolsPermissions } from '@commercetools/connect-payments-sdk';
+import { PaymentPagedQueryResponse } from '@commercetools/platform-sdk';
 import {
   CancelPaymentRequest,
   CapturePaymentRequest,
@@ -20,7 +22,6 @@ import { PaymentIntentResponseSchemaDTO, PaymentOutcome, PaymentResponseSchemaDT
 import { getCartIdFromContext, getPaymentInterfaceFromContext } from '../libs/fastify/context/context';
 import { randomUUID } from 'crypto';
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
-import Stripe from 'stripe';
 import { log } from '../libs/logger';
 
 export class StripePaymentService extends AbstractPaymentService {
@@ -152,6 +153,38 @@ export class StripePaymentService extends AbstractPaymentService {
       return { outcome: PaymentModificationStatus.RECEIVED, pspReference: request.payment.interfaceId as string };
     } catch (e) {
       throw wrapStripeError(e);
+    }
+  }
+
+  /**
+   * Set payment transaction type 'Authorization' to status 'success' (money is ready to be capture).
+   */
+  public async setAuthorizationSuccessPayment(event: Stripe.Event) {
+    const paymentIntent = event.data.object as Stripe.PaymentIntent;
+
+    try {
+      const ctPaymentId = paymentIntent.metadata.paymentId || '';
+      log.info(
+        `setAuthorizationSuccessPayment() function: get ct_payment[${ctPaymentId}] associated with payment_intent[${paymentIntent.id}]`,
+      );
+      const ctPayment = await this.ctPaymentService.getPayment({
+        id: ctPaymentId,
+      });
+
+      await this.ctPaymentService.updatePayment({
+        id: ctPayment.id,
+        transaction: {
+          type: 'Authorization',
+          amount: ctPayment.amountPlanned,
+          interactionId: paymentIntent.id,
+          state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
+        },
+      });
+    } catch (error) {
+      log.error(
+        `Error at setAuthorizationSuccessPayment() function, processing payment_intent[${paymentIntent.id}]:`,
+        error,
+      );
     }
   }
 
