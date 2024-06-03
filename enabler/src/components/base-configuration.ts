@@ -18,6 +18,7 @@ export abstract class BaseStripePaymentComponent implements BaseConfiguration{
     locale: StripeElementConfiguration["locale"];
     onActionRequired: StripeElementConfiguration["onActionRequired"];
     onConfirm: StripeElementConfiguration["onConfirm"];
+    protected clientSecret : string;
   
     constructor(baseOptions: StripeElementConfiguration) {
         this.stripeSDK = baseOptions.stripeSDK;
@@ -50,4 +51,5 @@ export interface StripeElementConfiguration extends BaseConfiguration {
     stripeSDK : SupportedSDK;
     elementsSDK : StripeElements;
     element : SupportedStripeElement;
+    clientSecret : string;
 }

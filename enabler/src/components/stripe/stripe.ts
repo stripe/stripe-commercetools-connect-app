@@ -1,4 +1,4 @@
-import { Stripe,  StripeCardElementOptions, StripeElements, StripeExpressCheckoutElementOptions, StripePaymentElementOptions, loadStripe } from "@stripe/stripe-js";
+import { Stripe, StripeElements, StripeExpressCheckoutElementOptions, StripePaymentElementOptions, loadStripe } from "@stripe/stripe-js";
 import { Card } from "../payment-elements/card";
 import { BaseConfiguration, StripeElementConfiguration } from "../base-configuration";
 import { ExpressCheckout } from "../payment-elements/express-checkout";
@@ -6,7 +6,7 @@ import { ExpressCheckout } from "../payment-elements/express-checkout";
 
 export type StripeElementType = {
     type : string
-    options : StripeExpressCheckoutElementOptions | StripeCardElementOptions
+    options : StripeExpressCheckoutElementOptions | StripePaymentElementOptions
 }
 
 export enum StripeElementTypes {
@@ -108,6 +108,7 @@ export class StripePayment {
                     element : this.elements.create(stripeElement.type, stripeElement.options as StripePaymentElementOptions),
                     stripeSDK,
                     elementsSDK : this.elements, 
+                    clientSecret : this.clientSecret,
                     ...configuration
                 });    
             }
@@ -116,6 +117,7 @@ export class StripePayment {
                     element : this.elements.create(stripeElement.type, stripeElement.options as StripeExpressCheckoutElementOptions),
                     stripeSDK,
                     elementsSDK : this.elements,
+                    clientSecret : this.clientSecret,
                     ...configuration
                 });    
             }

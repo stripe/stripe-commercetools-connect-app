@@ -12,6 +12,21 @@ export class Card extends BaseStripePaymentComponent {
 
     async submit(){
         //TODO call processor API to register payment url : /payments
+        // let _response = await fetch(`${this.processorURL}/payments`,{
+        //     method : "POST",
+        //     headers : {
+        //         "Content-Type": "application/json",
+        //         "x-session-id" : this.sessionId
+        //     },
+        //     body : JSON.stringify({
+        //         paymentMethod : {
+        //             type : "card",
+        //             paymentIntent : this.clientSecret
+        //         }
+        //     })
+        // })
+
+
         debugger
         let { error } = await this.stripeSDK.confirmPayment({
             elements: this.elementsSDK,
