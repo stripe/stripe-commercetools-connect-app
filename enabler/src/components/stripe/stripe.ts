@@ -1,5 +1,5 @@
 import { Stripe, StripeElements, StripeExpressCheckoutElementOptions, StripePaymentElementOptions, loadStripe } from "@stripe/stripe-js";
-import { Card } from "../payment-elements/card";
+import { PaymentElement } from "../payment-elements/payment-element";
 import { BaseConfiguration, StripeElementConfiguration } from "../base-configuration";
 import { ExpressCheckout } from "../payment-elements/express-checkout";
 
@@ -59,23 +59,20 @@ export class StripePayment {
     private async createIntent() : Promise<void>{
         const { configuration } = await this.setupData;
         
-        const clientSecret = await fetch(`${configuration.processorURL}/create-payment-intent`, {
-            method: "POST",
+        const clientSecret = await fetch(`${configuration.processorURL}/getPaymentIntent`, {
+            method: "GET",
             headers: {
                 "Content-Type" : "application/json",
-                "Authorization" : `Bearer ${configuration.sessionId}`
-            },
-            body : JSON.stringify({ 
-                paymentMethod : "card" 
-            })
+                "x-session-id" : configuration.sessionId
+            }
         })
         .then(res => res.json())
-        .then(({clientSecret}) => clientSecret);
-        
+        .then(({client_secret}) => client_secret);
+
         this.clientSecret = clientSecret;
     }
 
-    async createStripeElement(stripeElement : StripeElementType) : Promise<Card | ExpressCheckout | never> {
+    async createStripeElement(stripeElement : StripeElementType) : Promise<PaymentElement | ExpressCheckout | never> {
         const { configuration, stripeSDK } = await this.setupData;
         console.log({configuration})
         if (!StripeElementTypes[stripeElement.type]){
@@ -104,7 +101,7 @@ export class StripePayment {
         
         switch(stripeElement.type) {
             case StripeElementTypes.payment : {
-                return new Card({
+                return new PaymentElement({
                     element : this.elements.create(stripeElement.type, stripeElement.options as StripePaymentElementOptions),
                     stripeSDK,
                     elementsSDK : this.elements, 

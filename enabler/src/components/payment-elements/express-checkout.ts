@@ -10,7 +10,24 @@ export class ExpressCheckout extends BaseStripePaymentComponent {
     }
 
     async submit(){
-        //TODO call processor API to register payment url : /payments
+        let { errors : processorError } = await fetch(`${this.processorURL}/payments`,{
+            method : "POST",
+            headers : {
+                "Content-Type": "application/json",
+                "x-session-id" : this.sessionId
+            },
+            body : JSON.stringify({
+                paymentMethod : {
+                    type : "card",
+                    paymentIntent : this.clientSecret
+                }
+            })
+        }).then(res => res.json())
+
+        //This process does NOT cancel the payment confirm
+        if ( processorError ) {
+            console.warn(`Error in processor: ${processorError}`)
+        }
 
         let { error } = await this.stripeSDK.confirmPayment({
             elements: this.elementsSDK,

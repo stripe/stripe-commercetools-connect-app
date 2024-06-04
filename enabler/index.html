@@ -43,36 +43,6 @@
 
       <div class="album py-5 bg-light">
         <div class="container">
-                    <!--
-          <script type="module">
-            import { Enabler } from '/src/main.ts';
-      
-            document.getElementById('createCheckout').addEventListener('click', async (event) => {
-              event.preventDefault();
-              const cartId = document.getElementById('cartId').value;
-              const sessionId = await getSessionId(cartId);
-
-              const enabler = new Enabler({
-                processorUrl: __VITE_PROCESSOR_URL__,
-                sessionId: sessionId,
-                config: {
-                  
-                },
-                onComplete: ({ isSuccess, paymentReference }) => {
-                  console.log('onComplete', { isSuccess, paymentReference });
-                },
-              });
-        
-              enabler.createComponent('card', {
-                config: {},
-              })
-              .then(e => e.mount('#card-component'));
-            });
-      
-          </script>
-
-          -->
-
           <script type="module">
             import { Enabler } from '/src/main.ts';
             
@@ -81,7 +51,9 @@
             const payment = document.getElementById("payment")
             const cartId = document.getElementById('cartId').value;
             
-            const sessionId = await getSessionId("e813920a-d35b-46ce-8d12-d530b3b81d35");
+            const sessionId = await getSessionId("d5cdce4b-dd75-493b-9f3d-0d06a052bd37");
+
+            console.log({sessionId})
             
             const onError = (e) => {
               console.log({e})
@@ -93,7 +65,6 @@
               sessionId,
               onActionRequired : () => {},
               onComplete: () => {},
-              //TODO all errors thrown will be available on this CB
               onError
             })
 

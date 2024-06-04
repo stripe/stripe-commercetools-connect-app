@@ -1,7 +1,8 @@
 import { StripePaymentElement } from "@stripe/stripe-js";
+
 import { BaseStripePaymentComponent, StripeElementConfiguration } from "../base-configuration";
 
-export class Card extends BaseStripePaymentComponent {
+export class PaymentElement extends BaseStripePaymentComponent {
     
     private showPayButton : boolean;
 
@@ -11,23 +12,26 @@ export class Card extends BaseStripePaymentComponent {
     }
 
     async submit(){
-        //TODO call processor API to register payment url : /payments
-        // let _response = await fetch(`${this.processorURL}/payments`,{
-        //     method : "POST",
-        //     headers : {
-        //         "Content-Type": "application/json",
-        //         "x-session-id" : this.sessionId
-        //     },
-        //     body : JSON.stringify({
-        //         paymentMethod : {
-        //             type : "card",
-        //             paymentIntent : this.clientSecret
-        //         }
-        //     })
-        // })
+        
+        let { errors : processorError } = await fetch(`${this.processorURL}/payments`,{
+            method : "POST",
+            headers : {
+                "Content-Type": "application/json",
+                "x-session-id" : this.sessionId
+            },
+            body : JSON.stringify({
+                paymentMethod : {
+                    type : "card",
+                    paymentIntent : this.clientSecret
+                }
+            })
+        }).then(res => res.json())
 
+        //This process does NOT cancel the payment confirm
+        if ( processorError ) {
+            console.warn(`Error in processor: ${processorError}`)
+        }
 
-        debugger
         let { error } = await this.stripeSDK.confirmPayment({
             elements: this.elementsSDK,
             confirmParams : {
@@ -36,18 +40,12 @@ export class Card extends BaseStripePaymentComponent {
         });
 
         if (error) {
-
-            if(!this.onError){
-                console.warn('You must provide an "onError" callback');
-            } else {
-                this.onError?.(error);
-            }
+            this.onError?.(error);
             
             return;
         }
 
         this.onComplete();
-
     }
 
     mount(selector : string) {
