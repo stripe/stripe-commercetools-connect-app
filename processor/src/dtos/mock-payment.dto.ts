@@ -11,6 +11,7 @@ export const PaymentRequestSchema = Type.Object({
 
 export const PaymentIntentResponseSchema = Type.Object({
   client_secret: Type.String(),
+  id: Type.String(),
 });
 
 export enum PaymentOutcome {

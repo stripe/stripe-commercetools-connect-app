@@ -1,15 +1,20 @@
 import { statusHandler, healthCheckCommercetoolsPermissions } from '@commercetools/connect-payments-sdk';
 
 import Stripe from 'stripe';
+import Stripe from 'stripe';
 
 import { paymentSDK } from '../payment-sdk';
 import packageJSON from '../../package.json';
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
+import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { getConfig } from '../config/config';
 import { PaymentIntentResponseSchemaDTO, PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/mock-payment.dto';
+import { PaymentIntentResponseSchemaDTO, PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/mock-payment.dto';
+import { log } from '../libs/logger';
 import { log } from '../libs/logger';
 import { SupportedPaymentComponentsSchemaDTO } from '../dtos/operations/payment-componets.dto';
 import { PaymentModificationStatus } from '../dtos/operations/payment-intents.dto';
+import { getCartIdFromContext, getPaymentInterfaceFromContext } from '../libs/fastify/context/context';
 import { getCartIdFromContext, getPaymentInterfaceFromContext } from '../libs/fastify/context/context';
 
 import { AbstractPaymentService } from './abstract-payment.service';
@@ -25,8 +30,6 @@ import {
 import { CreatePayment, StripePaymentServiceOptions } from './types/stripe-payment.type';
 
 export class StripePaymentService extends AbstractPaymentService {
-  private allowedCreditCards = ['4111111111111111', '5555555555554444', '341925950237632'];
-
   constructor(opts: StripePaymentServiceOptions) {
     super(opts.ctCartService, opts.ctPaymentService);
   }
@@ -73,9 +76,11 @@ export class StripePaymentService extends AbstractPaymentService {
         }),
         async () => {
           try {
-            const paymentMethods = 'card';
+            const paymentMethods = await stripeApi().paymentMethods.list({
+              limit: 3,
+            });
             return {
-              name: 'Stripe Payment API',
+              name: 'Stripe Status check',
               status: 'UP',
               details: {
                 paymentMethods,
@@ -83,7 +88,7 @@ export class StripePaymentService extends AbstractPaymentService {
             };
           } catch (e) {
             return {
-              name: 'Stripe Payment API',
+              name: 'Stripe Status check',
               status: 'DOWN',
               details: {
                 error: e,
@@ -156,45 +161,54 @@ export class StripePaymentService extends AbstractPaymentService {
     }
   }
 
-  private isCreditCardAllowed(cardNumber: string) {
-    return this.allowedCreditCards.includes(cardNumber);
+  /**
+   * Set payment transaction type 'Authorization' to status 'success' (money is ready to be capture).
+   */
+  public async setAuthorizationSuccessPayment(event: Stripe.Event) {
+    const paymentIntent = event.data.object as Stripe.PaymentIntent;
+
+    try {
+      const ctPaymentId = paymentIntent.metadata.paymentId || '';
+      log.info(
+        `setAuthorizationSuccessPayment() function: get ct_payment[${ctPaymentId}] associated with payment_intent[${paymentIntent.id}]`,
+      );
+      const ctPayment = await this.ctPaymentService.getPayment({
+        id: ctPaymentId,
+      });
+
+      await this.ctPaymentService.updatePayment({
+        id: ctPayment.id,
+        transaction: {
+          type: 'Authorization',
+          amount: ctPayment.amountPlanned,
+          interactionId: paymentIntent.id,
+          state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
+        },
+      });
+    } catch (error) {
+      log.error(
+        `Error at setAuthorizationSuccessPayment() function, processing payment_intent[${paymentIntent.id}]:`,
+        error,
+      );
+    }
   }
 
   /**
-   * Create payment
+   * Crate the 'Initial' payment to CT.
    *
    * @remarks
    * Implementation to provide the initial data to cart for payment creation in external PSPs
    *
-   * @param request - contains amount and {@link https://docs.commercetools.com/api/projects/payments | Payment } defined in composable commerce
-   * @returns Promise with mocking data containing operation status and PSP reference
+   * @param {CreatePayment} opts - The options for creating the payment.
+   * @returns {Promise<PaymentResponseSchemaDTO>} - The payment response.
    */
   public async createPayment(opts: CreatePayment): Promise<PaymentResponseSchemaDTO> {
     const ctCart = await this.ctCartService.getCart({
       id: getCartIdFromContext(),
     });
 
-    const ctPayment = await this.ctPaymentService.createPayment({
-      amountPlanned: await this.ctCartService.getPaymentAmount({
-        cart: ctCart,
-      }),
-      paymentMethodInfo: {
-        paymentInterface: getPaymentInterfaceFromContext() || 'mock',
-      },
-      ...(ctCart.customerId && {
-        customer: {
-          typeId: 'customer',
-          id: ctCart.customerId,
-        },
-      }),
-    });
-
-    await this.ctCartService.addPayment({
-      resource: {
-        id: ctCart.id,
-        version: ctCart.version,
-      },
-      paymentId: ctPayment.id,
+    const ctPayment = await this.ctPaymentService.getPayment({
+      id: ctCart.paymentInfo?.payments[0].id ?? '',
     });
 
     const paymentMethod = opts.data.paymentMethod;
@@ -207,7 +221,6 @@ export class StripePaymentService extends AbstractPaymentService {
 
     const updatedPayment = await this.ctPaymentService.updatePayment({
       id: ctPayment.id,
-      pspReference: pspReference,
       paymentMethod: paymentMethodType,
       transaction: {
         type: 'Authorization',
@@ -234,6 +247,11 @@ export class StripePaymentService extends AbstractPaymentService {
     }
   }
 
+  /**
+   * Retrieves or creates a payment intent for a cart.
+   *
+   * @returns {Promise<PaymentIntentResponseSchemaDTO>} The payment intent.
+   */
   async getPaymentIntent(): Promise<PaymentIntentResponseSchemaDTO> {
     const ctCart = await this.ctCartService.getCart({
       id: getCartIdFromContext(),
@@ -246,12 +264,13 @@ export class StripePaymentService extends AbstractPaymentService {
         const { interfaceId = '' } = await this.ctPaymentService.getPayment({
           id: ctCart.paymentInfo?.payments[0].id ?? '',
         });
+
+        const rest = await stripeApi().paymentIntents.retrieve(interfaceId);
         log.info(`PaymentIntent retrieve.`, {
           ctCartId: ctCart.id,
           stripePaymentIntentId: interfaceId,
+          payment_intent_metadata: rest.metadata,
         });
-        const rest = await stripeApi().paymentIntents.retrieve(interfaceId);
-
         return rest as PaymentIntentResponseSchemaDTO;
       } catch (e) {
         throw wrapStripeError(e);
@@ -297,6 +316,16 @@ export class StripePaymentService extends AbstractPaymentService {
         },
         paymentId: ctPayment.id,
       });
+
+      try {
+        await stripeApi().paymentIntents.update(paymentIntent.id, {
+          metadata: {
+            paymentId: ctPayment.id,
+          },
+        });
+      } catch (e) {
+        throw wrapStripeError(e);
+      }
 
       log.info(`PaymentIntent created and assigned to cart.`, {
         ctCartId: ctCart.id,
