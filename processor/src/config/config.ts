@@ -15,10 +15,10 @@ export const config = {
   loggerLevel: process.env.LOGGER_LEVEL || 'info',
 
   // Update with specific payment providers config
-  stripeSecretKey: process.env.STRIPE_SECRET_KEY || 'xxx',
+  stripeSecretKey: process.env.STRIPE_SECRET_KEY || 'stripeSecretKey',
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET || 'xxx',
   stripeCaptureMethod: process.env.STRIPE_CAPTURE_METHOD,
-  mockEnvironment: process.env.MOCK_ENVIRONMENT,
+  mockEnvironment: process.env.MOCK_ENVIRONMENT || 'TEST',
 
   // Payment Providers config
   returnUrl: process.env.RETURN_URL,
