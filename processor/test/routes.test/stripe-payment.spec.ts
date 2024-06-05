@@ -19,7 +19,6 @@ import {
   mockEvent__paymentIntent_processing,
   mockEvent__paymentIntent_paymentFailed,
   mockEvent__paymentIntent_succeeded,
-  mockRoute__getPaymentIntent_succeed,
   mockRoute__payments_succeed,
 } from '../utils/mock-routes-data';
 import * as Config from '../../src/config/config';
@@ -240,31 +239,11 @@ describe('Stripe Payment APIs', () => {
   });
 
   describe('GET /getPaymentIntent', () => {
-    test('it should get the paymentIntent', async () => {
-      //Given
-      jest.spyOn(spiedPaymentService, 'getPaymentIntent').mockResolvedValue(mockRoute__getPaymentIntent_succeed);
-
-      //When
-      const responseGetConfig = await fastifyApp.inject({
-        method: 'GET',
-        url: `/getPaymentIntent`,
-        headers: {
-          'x-session-id': sessionId,
-          'content-type': 'application/json',
-        },
-      });
-
-      //Then
-      expect(responseGetConfig.statusCode).toEqual(200);
-      expect(responseGetConfig.json()).toEqual(mockRoute__getPaymentIntent_succeed);
-      expect(spiedPaymentService.getPaymentIntent).toHaveBeenCalled();
-    });
-
     it('should call /payment', async () => {
       const requestData: PaymentRequestSchemaDTO = {
         paymentMethod: {
           type: 'card',
-          paymentIntent: 'paymentIntent_mock',
+          confirmationToken: 'paymentIntent_mock',
         },
       };
 

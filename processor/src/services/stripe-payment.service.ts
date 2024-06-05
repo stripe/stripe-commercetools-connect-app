@@ -16,8 +16,8 @@ import packageJSON from '../../package.json';
 import { AbstractPaymentService } from './abstract-payment.service';
 import { getConfig } from '../config/config';
 import { paymentSDK } from '../payment-sdk';
-import { CreatePayment, StripePaymentServiceOptions } from './types/stripe-payment.type';
-import { PaymentIntentResponseSchemaDTO, PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/mock-payment.dto';
+import { CaptureMethod, CreatePayment, StripePaymentServiceOptions } from './types/stripe-payment.type';
+import { PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/mock-payment.dto';
 import { getCartIdFromContext, getPaymentInterfaceFromContext } from '../libs/fastify/context/context';
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
@@ -200,15 +200,54 @@ export class StripePaymentService extends AbstractPaymentService {
       id: getCartIdFromContext(),
     });
 
-    const ctPayment = await this.ctPaymentService.getPayment({
-      id: ctCart.paymentInfo?.payments[0].id ?? '',
+    const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
+    const paymentMethod = opts.data.paymentMethod;
+    const captureModeConfig = getConfig().stripeCaptureMethod;
+    let paymentIntent!: Stripe.PaymentIntent;
+    try {
+      // obtain customer from ct to add to paymentIntent
+      paymentIntent = await stripeApi().paymentIntents.create({
+        confirm: true,
+        amount: amountPlanned.centAmount,
+        currency: amountPlanned.currencyCode,
+        confirmation_token: paymentMethod.confirmationToken,
+        automatic_payment_methods: {
+          enabled: true,
+        },
+        capture_method: captureModeConfig as CaptureMethod,
+        metadata: {
+          order_id: ctCart.id,
+        },
+      });
+    } catch (e) {
+      throw wrapStripeError(e);
+    }
+
+    // add payment intent to cart in ct (Payment)
+    const ctPayment = await this.ctPaymentService.createPayment({
+      amountPlanned: await this.ctCartService.getPaymentAmount({
+        cart: ctCart,
+      }),
+      interfaceId: paymentIntent.id,
+      paymentMethodInfo: {
+        paymentInterface: getPaymentInterfaceFromContext() || 'mock',
+      },
+      ...(ctCart.customerId && {
+        customer: {
+          typeId: 'customer',
+          id: ctCart.customerId,
+        },
+      }),
+    });
+    await this.ctCartService.addPayment({
+      resource: {
+        id: ctCart.id,
+        version: ctCart.version,
+      },
+      paymentId: ctPayment.id,
     });
 
-    const paymentMethod = opts.data.paymentMethod;
-
     const resultCode = PaymentOutcome.INITIAL;
-
-    const pspReference = paymentMethod.paymentIntent;
 
     const paymentMethodType = paymentMethod.type;
 
@@ -218,14 +257,31 @@ export class StripePaymentService extends AbstractPaymentService {
       transaction: {
         type: 'Authorization',
         amount: ctPayment.amountPlanned,
-        interactionId: pspReference,
+        interactionId: paymentIntent.id,
         state: resultCode,
       },
     });
 
+    try {
+      await stripeApi().paymentIntents.update(paymentIntent.id, {
+        metadata: {
+          paymentId: updatedPayment.id,
+        },
+      });
+    } catch (e) {
+      throw wrapStripeError(e);
+    }
+
+    log.info(`PaymentIntent created and assigned to cart.`, {
+      ctCartId: ctCart.id,
+      stripePaymentIntentId: paymentIntent.id,
+      ctPaymentId: updatedPayment.id,
+    });
+
     return {
       outcome: resultCode,
-      paymentReference: updatedPayment.id,
+      ctPaymentReference: updatedPayment.id,
+      sClientSecret: paymentIntent.client_secret ?? '',
     };
   }
 
@@ -237,96 +293,6 @@ export class StripePaymentService extends AbstractPaymentService {
         return 'Failure';
       default:
         return 'Initial';
-    }
-  }
-
-  /**
-   * Retrieves or creates a payment intent for a cart.
-   *
-   * @returns {Promise<PaymentIntentResponseSchemaDTO>} The payment intent.
-   */
-  async getPaymentIntent(): Promise<PaymentIntentResponseSchemaDTO> {
-    const ctCart = await this.ctCartService.getCart({
-      id: getCartIdFromContext(),
-    });
-
-    const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
-    // verify if payment intent exist in cart in ct
-    if (ctCart.paymentInfo?.payments[0]) {
-      try {
-        const { interfaceId = '' } = await this.ctPaymentService.getPayment({
-          id: ctCart.paymentInfo?.payments[0].id ?? '',
-        });
-
-        const rest = await stripeApi().paymentIntents.retrieve(interfaceId);
-        log.info(`PaymentIntent retrieve.`, {
-          ctCartId: ctCart.id,
-          stripePaymentIntentId: interfaceId,
-          payment_intent_metadata: rest.metadata,
-        });
-        return rest as PaymentIntentResponseSchemaDTO;
-      } catch (e) {
-        throw wrapStripeError(e);
-      }
-    } else {
-      let paymentIntent!: Stripe.PaymentIntent;
-      try {
-        // obtain customer from ct to add to paymentIntent
-        paymentIntent = await stripeApi().paymentIntents.create({
-          amount: amountPlanned.centAmount,
-          currency: amountPlanned.currencyCode,
-          automatic_payment_methods: {
-            enabled: true,
-          },
-          metadata: {
-            order_id: ctCart.id,
-          },
-        });
-      } catch (e) {
-        throw wrapStripeError(e);
-      }
-
-      // add payment intent to cart in ct (Payment)
-      const ctPayment = await this.ctPaymentService.createPayment({
-        amountPlanned: await this.ctCartService.getPaymentAmount({
-          cart: ctCart,
-        }),
-        interfaceId: paymentIntent.id,
-        paymentMethodInfo: {
-          paymentInterface: getPaymentInterfaceFromContext() || 'mock',
-        },
-        ...(ctCart.customerId && {
-          customer: {
-            typeId: 'customer',
-            id: ctCart.customerId,
-          },
-        }),
-      });
-      await this.ctCartService.addPayment({
-        resource: {
-          id: ctCart.id,
-          version: ctCart.version,
-        },
-        paymentId: ctPayment.id,
-      });
-
-      try {
-        await stripeApi().paymentIntents.update(paymentIntent.id, {
-          metadata: {
-            paymentId: ctPayment.id,
-          },
-        });
-      } catch (e) {
-        throw wrapStripeError(e);
-      }
-
-      log.info(`PaymentIntent created and assigned to cart.`, {
-        ctCartId: ctCart.id,
-        stripePaymentIntentId: paymentIntent.id,
-        ctPaymentId: ctPayment.id,
-      });
-
-      return paymentIntent as PaymentIntentResponseSchemaDTO;
     }
   }
 }
