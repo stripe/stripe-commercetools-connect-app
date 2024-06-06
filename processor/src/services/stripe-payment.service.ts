@@ -113,7 +113,10 @@ export class StripePaymentService extends AbstractPaymentService {
     return {
       components: [
         {
-          type: 'card',
+          type: 'payment',
+        },
+        {
+          type: 'expressCheckout',
         },
       ],
     };
