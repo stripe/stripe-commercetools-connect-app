@@ -1,5 +1,10 @@
 import Stripe from 'stripe';
 import { PaymentOutcome, PaymentResponseSchemaDTO } from '../../src/dtos/mock-payment.dto';
+import { SupportedPaymentComponentsSchemaDTO } from '../../src/dtos/operations/payment-componets.dto';
+import {
+  PaymentIntentResponseSchemaDTO,
+  PaymentModificationStatus,
+} from '../../src/dtos/operations/payment-intents.dto';
 
 export const mockEvent__paymentIntent_amountCapturableUpdated: Stripe.Event = {
   id: 'evt_11111',
@@ -588,4 +593,19 @@ export const mockRoute__payments_succeed: PaymentResponseSchemaDTO = {
   outcome: PaymentOutcome.INITIAL,
   ctPaymentReference: 'mock_paymentReference',
   sClientSecret: 'mock_client_secret',
+};
+
+export const mockRoute__paymentsComponents_succeed: SupportedPaymentComponentsSchemaDTO = {
+  components: [
+    {
+      type: 'payment',
+    },
+    {
+      type: 'expressCheckout',
+    },
+  ],
+};
+
+export const mockRoute__paymentIntent_succeed: PaymentIntentResponseSchemaDTO = {
+  outcome: PaymentModificationStatus.APPROVED,
 };

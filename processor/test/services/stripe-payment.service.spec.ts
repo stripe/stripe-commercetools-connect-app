@@ -98,11 +98,12 @@ describe('stripe-payment.service', () => {
 
   test('getSupportedPaymentComponents', async () => {
     const result: SupportedPaymentComponentsSchemaDTO = await paymentService.getSupportedPaymentComponents();
-    expect(result?.components).toHaveLength(1);
-    expect(result?.components[0]?.type).toStrictEqual('card');
+    expect(result?.components).toHaveLength(2);
+    expect(result?.components[0]?.type).toStrictEqual('payment');
+    expect(result?.components[1]?.type).toStrictEqual('expressCheckout');
   });
 
-  test('getStatus', async () => {
+  test('getStatus DOWN', async () => {
     const mockHealthCheckFunction: () => Promise<HealthCheckResult> = async () => {
       const result: HealthCheckResult = {
         name: 'CoCo Permissions',
@@ -488,7 +489,9 @@ describe('stripe-payment.service', () => {
     Stripe.prototype.paymentIntents = {
       retrieve: jest.fn(),
     } as unknown as Stripe.PaymentIntentsResource;
-    jest.spyOn(Stripe.prototype.paymentIntents, 'retrieve').mockReturnValue(Promise.resolve(mockStripeRetrievePaymentResult));
+    jest
+      .spyOn(Stripe.prototype.paymentIntents, 'retrieve')
+      .mockReturnValue(Promise.resolve(mockStripeRetrievePaymentResult));
     jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
 
     await thisPaymentService.refundPaymentInCt(mockEvent__charge_refund_captured);
@@ -503,7 +506,9 @@ describe('stripe-payment.service', () => {
     Stripe.prototype.paymentIntents = {
       retrieve: jest.fn(),
     } as unknown as Stripe.PaymentIntentsResource;
-    jest.spyOn(Stripe.prototype.paymentIntents, 'retrieve').mockReturnValue(Promise.resolve(mockStripeRetrievePaymentResult));
+    jest
+      .spyOn(Stripe.prototype.paymentIntents, 'retrieve')
+      .mockReturnValue(Promise.resolve(mockStripeRetrievePaymentResult));
     jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
 
     await thisPaymentService.refundPaymentInCt(mockEvent__charge_refund_notCaptured);
@@ -529,7 +534,9 @@ describe('stripe-payment.service', () => {
     Stripe.prototype.paymentIntents = {
       retrieve: jest.fn(),
     } as unknown as Stripe.PaymentIntentsResource;
-    jest.spyOn(Stripe.prototype.paymentIntents, 'retrieve').mockReturnValue(Promise.resolve(mockStripeRetrievePaymentResult));
+    jest
+      .spyOn(Stripe.prototype.paymentIntents, 'retrieve')
+      .mockReturnValue(Promise.resolve(mockStripeRetrievePaymentResult));
     jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockImplementation(() => {
       throw new Error('error');
     });
