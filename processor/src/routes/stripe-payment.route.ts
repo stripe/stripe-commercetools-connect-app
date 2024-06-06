@@ -45,14 +45,12 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Payme
     { config: { rawBody: true } },
     async (request, reply) => {
       const signature = request.headers['stripe-signature'] as string;
+
+      const stApi = await stripeApi();
       let event: Stripe.Event;
 
       try {
-        event = await stripeApi().webhooks.constructEvent(
-          request.rawBody as string,
-          signature,
-          getConfig().stripeWebhookSecret,
-        );
+        event = stApi.webhooks.constructEvent(request.rawBody as string, signature, getConfig().stripeWebhookSecret);
       } catch (err: any) {
         log.error(JSON.stringify(err));
         return reply.status(400).send(`Webhook Error: ${err.message}`);
@@ -68,10 +66,16 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Payme
           log.info('--->>> payment_intent.succeeded');
           break;
         case 'payment_intent.amount_capturable_updated':
-          // The payment is ready for capture
-          log.info(`Handle ${event.type} event of payment_intent[${event.data.object.id}]`);
-
+          log.info(`Handle ${event.type} event of ${event.data.object.id}`);
           opts.paymentService.setAuthorizationSuccessPayment(event);
+          break;
+        case 'charge.refunded':
+          log.info(`Handle ${event.type} event of ${event.data.object.id}`);
+          opts.paymentService.refundPaymentInCt(event);
+          break;
+        case 'payment_intent.canceled':
+          log.info(`Handle ${event.type} event of ${event.data.object.id}`);
+          opts.paymentService.cancelAuthorizationInCt(event);
           break;
         default:
           // This event is not supported
