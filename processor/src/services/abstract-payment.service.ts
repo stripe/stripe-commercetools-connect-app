@@ -18,6 +18,7 @@ import {
   AmountSchemaDTO,
   PaymentIntentResponseSchemaDTO,
   PaymentModificationStatus,
+  PaymentTransactions,
 } from '../dtos/operations/payment-intents.dto';
 
 import { SupportedPaymentComponentsSchemaDTO } from '../dtos/operations/payment-componets.dto';
@@ -99,6 +100,7 @@ export abstract class AbstractPaymentService {
    *
    * @remarks
    * This method is used to execute Capture/Cancel/Refund payment in external PSPs and update composable commerce. The actual invocation to PSPs should be implemented in subclasses
+   * MVP - capture/refund the total of the order
    *
    * @param opts - input for payment modification including payment ID, action and payment amount
    * @returns Promise with outcome of payment modification after invocation to PSPs
@@ -111,7 +113,8 @@ export abstract class AbstractPaymentService {
 
     let requestAmount!: AmountSchemaDTO;
     if (request.action != 'cancelPayment') {
-      requestAmount = request.amount;
+      //requestAmount = request.amount; get the amount from the request to make partial modifications to the payment
+      requestAmount = ctPayment.amountPlanned; // MVP capture/refund the total of the order
     } else {
       requestAmount = ctPayment.amountPlanned;
     }
@@ -147,13 +150,13 @@ export abstract class AbstractPaymentService {
   protected getPaymentTransactionType(action: string): string {
     switch (action) {
       case 'cancelPayment': {
-        return 'CancelAuthorization';
+        return PaymentTransactions.CANCEL_AUTHORIZATION;
       }
       case 'capturePayment': {
-        return 'Charge';
+        return PaymentTransactions.CHARGE;
       }
       case 'refundPayment': {
-        return 'Refund';
+        return PaymentTransactions.REFUND;
       }
       // TODO: Handle Error case
       default: {
@@ -168,13 +171,13 @@ export abstract class AbstractPaymentService {
     requestAmount: AmountSchemaDTO,
   ) {
     switch (transactionType) {
-      case 'CancelAuthorization': {
+      case PaymentTransactions.CANCEL_AUTHORIZATION: {
         return await this.cancelPayment({ payment });
       }
-      case 'Charge': {
+      case PaymentTransactions.CHARGE: {
         return await this.capturePayment({ amount: requestAmount, payment });
       }
-      case 'Refund': {
+      case PaymentTransactions.REFUND: {
         return await this.refundPayment({ amount: requestAmount, payment });
       }
       default: {

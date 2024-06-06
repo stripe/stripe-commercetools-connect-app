@@ -46,6 +46,13 @@ export const PaymentIntentResponseSchema = Type.Object({
   outcome: PaymentModificationSchema,
 });
 
+export enum PaymentTransactions {
+  AUTHORIZATION = 'Authorization',
+  CANCEL_AUTHORIZATION = 'CancelAuthorization',
+  CHARGE = 'Charge',
+  REFUND = 'Refund',
+}
+
 export type PaymentIntentRequestSchemaDTO = Static<typeof PaymentIntentRequestSchema>;
 export type PaymentIntentResponseSchemaDTO = Static<typeof PaymentIntentResponseSchema>;
 export type AmountSchemaDTO = Static<typeof AmountSchema>;

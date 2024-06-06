@@ -13,7 +13,12 @@ import {
   mockStripeUpdatePaymentResult,
   mockUpdatePaymentResult,
 } from '../utils/mock-payment-results';
-import { mockEvent__paymentIntent_amountCapturableUpdated } from '../utils/mock-routes-data';
+import {
+  mockEvent__charge_refund_captured,
+  mockEvent__charge_refund_notCaptured,
+  mockEvent__paymentIntent_amountCapturableUpdated,
+  mockEvent__paymentIntent_canceled,
+} from '../utils/mock-routes-data';
 import { mockGetCartResult, mockGetCartWithPaymentResult } from '../utils/mock-cart-data';
 import * as Config from '../../src/config/config';
 import { CreatePayment, StripePaymentServiceOptions } from '../../src/services/types/stripe-payment.type';
@@ -574,5 +579,85 @@ describe('stripe-payment.service', () => {
     expect(getCartMock).toHaveBeenCalled();
     expect(updatePaymentMock).toHaveBeenCalled();
     expect(getPaymentMock).toBeCalledWith({ id: 'paymentId' });
+  });
+
+  test('refundPaymentInCt succeded', async () => {
+    const thisPaymentService: StripePaymentService = new StripePaymentService(opts);
+
+    Stripe.prototype.paymentIntents = {
+      retrieve: jest.fn(),
+    } as unknown as Stripe.PaymentIntentsResource;
+    jest.spyOn(Stripe.prototype.paymentIntents, 'retrieve').mockReturnValue(Promise.resolve(mockStripeRetrievePaymentResult));
+    jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
+
+    await thisPaymentService.refundPaymentInCt(mockEvent__charge_refund_captured);
+
+    expect(Stripe.prototype.paymentIntents.retrieve).toBeCalled();
+    expect(DefaultPaymentService.prototype.updatePayment).toBeCalled();
+  });
+
+  test('refundPaymentInCt, charge is not captured therefore the payment will not be updated in ct', async () => {
+    const thisPaymentService: StripePaymentService = new StripePaymentService(opts);
+
+    Stripe.prototype.paymentIntents = {
+      retrieve: jest.fn(),
+    } as unknown as Stripe.PaymentIntentsResource;
+    jest.spyOn(Stripe.prototype.paymentIntents, 'retrieve').mockReturnValue(Promise.resolve(mockStripeRetrievePaymentResult));
+    jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
+
+    await thisPaymentService.refundPaymentInCt(mockEvent__charge_refund_notCaptured);
+
+    expect(Stripe.prototype.paymentIntents.retrieve).toBeCalled();
+    expect(DefaultPaymentService.prototype.updatePayment).toHaveBeenCalledTimes(0);
+  });
+
+  test('refundPaymentInCt, stripe.paymentIntents.retrieve function throws error', async () => {
+    const thisPaymentService: StripePaymentService = new StripePaymentService(opts);
+    jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockImplementation(() => {
+      throw new Error('error');
+    });
+
+    await thisPaymentService.refundPaymentInCt(mockEvent__charge_refund_captured);
+
+    expect(Logger.log.error).toBeCalled();
+  });
+
+  test('refundPaymentInCt, ctPaymentService.updatePayment function throws error', async () => {
+    const thisPaymentService: StripePaymentService = new StripePaymentService(opts);
+
+    Stripe.prototype.paymentIntents = {
+      retrieve: jest.fn(),
+    } as unknown as Stripe.PaymentIntentsResource;
+    jest.spyOn(Stripe.prototype.paymentIntents, 'retrieve').mockReturnValue(Promise.resolve(mockStripeRetrievePaymentResult));
+    jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockImplementation(() => {
+      throw new Error('error');
+    });
+
+    await thisPaymentService.refundPaymentInCt(mockEvent__charge_refund_captured);
+
+    expect(Stripe.prototype.paymentIntents.retrieve).toBeCalled();
+    expect(Logger.log.error).toBeCalled();
+  });
+
+  test('cancelAuthorizationInCt succeded', async () => {
+    const thisPaymentService: StripePaymentService = new StripePaymentService(opts);
+
+    jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
+
+    await thisPaymentService.cancelAuthorizationInCt(mockEvent__paymentIntent_canceled);
+
+    expect(DefaultPaymentService.prototype.updatePayment).toBeCalled();
+  });
+
+  test('cancelAuthorizationInCt, ctPaymentService.updatePayment function throws error', async () => {
+    const thisPaymentService: StripePaymentService = new StripePaymentService(opts);
+
+    jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockImplementation(() => {
+      throw new Error('error');
+    });
+
+    await thisPaymentService.cancelAuthorizationInCt(mockEvent__paymentIntent_canceled);
+
+    expect(Logger.log.error).toBeCalled();
   });
 });
