@@ -20,7 +20,7 @@ import {
   mockEvent__paymentIntent_paymentFailed,
   mockEvent__paymentIntent_succeeded,
   mockEvent__charge_refund_captured,
-  mockEvent__paymentIntent_canceled
+  mockEvent__paymentIntent_canceled,
   mockRoute__getPaymentIntent_succeed,
   mockRoute__payments_succeed,
 } from '../utils/mock-routes-data';
