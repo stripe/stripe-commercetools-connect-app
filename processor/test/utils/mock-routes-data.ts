@@ -210,26 +210,26 @@ export const mockEvent__paymentIntent_succeeded: Stripe.Event = {
   id: 'evt_11111',
   object: 'event',
   api_version: '2024-04-10',
-  created: 1717093717,
+  created: 1717692258,
   data: {
     object: {
       id: 'pi_11111',
       object: 'payment_intent',
-      amount: 12300,
-      amount_capturable: 12300,
+      amount: 13200,
+      amount_capturable: 0,
       amount_details: {
-        tip: {},
+        tip: {}
       },
-      amount_received: 0,
+      amount_received: 10000,
       application: null,
       application_fee_amount: null,
       automatic_payment_methods: null,
       canceled_at: null,
       cancellation_reason: null,
       capture_method: 'manual',
-      client_secret: 'pi_22222',
+      client_secret: 'pi_11111',
       confirmation_method: 'automatic',
-      created: 1717093717,
+      created: 1717452163,
       currency: 'mxn',
       customer: null,
       description: 'Sport shoes',
@@ -247,8 +247,8 @@ export const mockEvent__paymentIntent_succeeded: Stripe.Event = {
           installments: null,
           mandate_options: null,
           network: null,
-          request_three_d_secure: 'automatic',
-        },
+          request_three_d_secure: 'automatic'
+        }
       },
       payment_method_types: ['card'],
       processing: null,
@@ -259,18 +259,18 @@ export const mockEvent__paymentIntent_succeeded: Stripe.Event = {
       source: null,
       statement_descriptor: 'Payment',
       statement_descriptor_suffix: null,
-      status: 'requires_capture',
+      status: 'succeeded',
       transfer_data: null,
-      transfer_group: null,
-    },
+      transfer_group: null
+    }
   },
   livemode: false,
   pending_webhooks: 1,
   request: {
     id: 'req_11111',
-    idempotency_key: '11111',
+    idempotency_key: '11111-ABCDE'
   },
-  type: 'payment_intent.succeeded',
+  type: 'payment_intent.succeeded'
 };
 
 export const mockEvent__charge_refund_captured: Stripe.Event = {

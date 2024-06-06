@@ -80,8 +80,8 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Payme
           log.info('--->>> payment_intent.payment_failed');
           break;
         case 'payment_intent.succeeded':
-          // The payment has been captured
-          log.info('--->>> payment_intent.succeeded');
+          log.info(`Handle ${event.type} event of ${event.data.object.id}`);
+          opts.paymentService.chargePaymentInCt(event);
           break;
         case 'payment_intent.amount_capturable_updated':
           log.info(`Handle ${event.type} event of ${event.data.object.id}`);

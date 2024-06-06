@@ -187,7 +187,7 @@ describe('Stripe Payment APIs', () => {
 
       //Then
       expect(response.statusCode).toEqual(200);
-      // TODO Validate that the corresponding service has been called
+      expect(spiedPaymentService.chargePaymentInCt).toHaveBeenCalled();
     });
 
     test('it should handle a charge.refunded event gracefully.', async () => {
