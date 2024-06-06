@@ -16,8 +16,8 @@ import packageJSON from '../../package.json';
 import { AbstractPaymentService } from './abstract-payment.service';
 import { getConfig } from '../config/config';
 import { paymentSDK } from '../payment-sdk';
-import { CreatePayment, StripePaymentServiceOptions } from './types/stripe-payment.type';
-import { PaymentIntentResponseSchemaDTO, PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/mock-payment.dto';
+import { CaptureMethod, CreatePayment, StripePaymentServiceOptions } from './types/stripe-payment.type';
+import { PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/mock-payment.dto';
 import { getCartIdFromContext, getPaymentInterfaceFromContext } from '../libs/fastify/context/context';
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
@@ -155,7 +155,7 @@ export class StripePaymentService extends AbstractPaymentService {
   }
 
   /**
-   * Crate the 'Initial' payment to CT.
+   * Crate the 'Initial' payment to CT and create PaymentIntent
    *
    * @remarks
    * Implementation to provide the initial data to cart for payment creation in external PSPs
@@ -168,15 +168,54 @@ export class StripePaymentService extends AbstractPaymentService {
       id: getCartIdFromContext(),
     });
 
-    const ctPayment = await this.ctPaymentService.getPayment({
-      id: ctCart.paymentInfo?.payments[0].id ?? '',
+    const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
+    const paymentMethod = opts.data.paymentMethod;
+    const captureModeConfig = getConfig().stripeCaptureMethod;
+    let paymentIntent!: Stripe.PaymentIntent;
+    try {
+      // obtain customer from ct to add to paymentIntent
+      paymentIntent = await stripeApi().paymentIntents.create({
+        confirm: true,
+        amount: amountPlanned.centAmount,
+        currency: amountPlanned.currencyCode,
+        confirmation_token: paymentMethod.confirmationToken,
+        automatic_payment_methods: {
+          enabled: true,
+        },
+        capture_method: captureModeConfig as CaptureMethod,
+        metadata: {
+          order_id: ctCart.id,
+        },
+      });
+    } catch (e) {
+      throw wrapStripeError(e);
+    }
+
+    // add payment intent to cart in ct (Payment)
+    const ctPayment = await this.ctPaymentService.createPayment({
+      amountPlanned: await this.ctCartService.getPaymentAmount({
+        cart: ctCart,
+      }),
+      interfaceId: paymentIntent.id,
+      paymentMethodInfo: {
+        paymentInterface: getPaymentInterfaceFromContext() || 'mock',
+      },
+      ...(ctCart.customerId && {
+        customer: {
+          typeId: 'customer',
+          id: ctCart.customerId,
+        },
+      }),
+    });
+    await this.ctCartService.addPayment({
+      resource: {
+        id: ctCart.id,
+        version: ctCart.version,
+      },
+      paymentId: ctPayment.id,
     });
 
-    const paymentMethod = opts.data.paymentMethod;
-
     const resultCode = PaymentOutcome.INITIAL;
-
-    const pspReference = paymentMethod.paymentIntent;
 
     const paymentMethodType = paymentMethod.type;
 
@@ -184,112 +223,39 @@ export class StripePaymentService extends AbstractPaymentService {
       id: ctPayment.id,
       paymentMethod: paymentMethodType,
       transaction: {
-        type: PaymentTransactions.AUTHORIZATION,
+        type: 'Authorization',
         amount: ctPayment.amountPlanned,
-        interactionId: pspReference,
+        interactionId: paymentIntent.id,
         state: resultCode,
       },
     });
 
+    try {
+      await stripeApi().paymentIntents.update(paymentIntent.id, {
+        metadata: {
+          paymentId: updatedPayment.id,
+        },
+      });
+    } catch (e) {
+      throw wrapStripeError(e);
+    }
+
+    log.info(`PaymentIntent created and assigned to cart.`, {
+      ctCartId: ctCart.id,
+      stripePaymentIntentId: paymentIntent.id,
+      ctPaymentId: updatedPayment.id,
+    });
+
     return {
       outcome: resultCode,
-      paymentReference: updatedPayment.id,
+      ctPaymentReference: updatedPayment.id,
+      sClientSecret: paymentIntent.client_secret ?? '',
     };
   }
 
   /**
-   * Retrieves or creates a payment intent for a cart.
-   *
-   * @returns {Promise<PaymentIntentResponseSchemaDTO>} The payment intent.
-   */
-  async getPaymentIntent(): Promise<PaymentIntentResponseSchemaDTO> {
-    const ctCart = await this.ctCartService.getCart({
-      id: getCartIdFromContext(),
-    });
-
-    const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
-    // verify if payment intent exist in cart in ct
-    if (ctCart.paymentInfo?.payments[0]) {
-      try {
-        const { interfaceId = '' } = await this.ctPaymentService.getPayment({
-          id: ctCart.paymentInfo?.payments[0].id ?? '',
-        });
-
-        const rest = await stripeApi().paymentIntents.retrieve(interfaceId);
-        log.info(`PaymentIntent retrieve.`, {
-          ctCartId: ctCart.id,
-          stripePaymentIntentId: interfaceId,
-          payment_intent_metadata: rest.metadata,
-        });
-        return rest as PaymentIntentResponseSchemaDTO;
-      } catch (e) {
-        throw wrapStripeError(e);
-      }
-    } else {
-      let paymentIntent!: Stripe.PaymentIntent;
-      try {
-        // obtain customer from ct to add to paymentIntent
-        paymentIntent = await stripeApi().paymentIntents.create({
-          amount: amountPlanned.centAmount,
-          currency: amountPlanned.currencyCode,
-          automatic_payment_methods: {
-            enabled: true,
-          },
-          metadata: {
-            order_id: ctCart.id,
-          },
-        });
-      } catch (e) {
-        throw wrapStripeError(e);
-      }
-
-      // add payment intent to cart in ct (Payment)
-      const ctPayment = await this.ctPaymentService.createPayment({
-        amountPlanned: await this.ctCartService.getPaymentAmount({
-          cart: ctCart,
-        }),
-        interfaceId: paymentIntent.id,
-        paymentMethodInfo: {
-          paymentInterface: getPaymentInterfaceFromContext() || 'mock',
-        },
-        ...(ctCart.customerId && {
-          customer: {
-            typeId: 'customer',
-            id: ctCart.customerId,
-          },
-        }),
-      });
-      await this.ctCartService.addPayment({
-        resource: {
-          id: ctCart.id,
-          version: ctCart.version,
-        },
-        paymentId: ctPayment.id,
-      });
-
-      try {
-        await stripeApi().paymentIntents.update(paymentIntent.id, {
-          metadata: {
-            paymentId: ctPayment.id,
-          },
-        });
-      } catch (e) {
-        throw wrapStripeError(e);
-      }
-
-      log.info(`PaymentIntent created and assigned to cart.`, {
-        ctCartId: ctCart.id,
-        stripePaymentIntentId: paymentIntent.id,
-        ctPaymentId: ctPayment.id,
-      });
-
-      return paymentIntent as PaymentIntentResponseSchemaDTO;
-    }
-  }
-
-  /**
    * Set payment transaction type 'Authorization' to status 'success' (money is ready to be capture).
-   * 
+   *
    * @remarks MVP: The amount to authorize is the total of the order
    * @param {Stripe.Event} event - Event sent by Stripe webhooks.
    */
@@ -325,7 +291,7 @@ export class StripePaymentService extends AbstractPaymentService {
   /**
    * Refund a captured payment in commercetools after receiving a message from a webhook.
    * The payment will be updated only for charges with the attribute captured=true
-   * 
+   *
    * @remarks MVP: The amount to refund is the total captured
    * @param {Stripe.Event} event - Event sent by Stripe webhooks.
    */
@@ -346,7 +312,7 @@ export class StripePaymentService extends AbstractPaymentService {
             type: PaymentTransactions.REFUND,
             amount: {
               centAmount: charge.data.object.amount_captured, // MVP refund the total captured
-              currencyCode: charge.data.object.currency.toUpperCase()
+              currencyCode: charge.data.object.currency.toUpperCase(),
             },
             interactionId: paymentIntentId,
             state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
@@ -360,7 +326,7 @@ export class StripePaymentService extends AbstractPaymentService {
 
   /**
    * Cancel an authorized payment in commercetools after receiving a message from a webhook.
-   * 
+   *
    * @remarks MVP: The amount to cancel is the order's total
    * @param {Stripe.Event} event - Event sent by Stripe webhooks.
    */
@@ -376,7 +342,7 @@ export class StripePaymentService extends AbstractPaymentService {
           type: PaymentTransactions.CANCEL_AUTHORIZATION,
           amount: {
             centAmount: paymentIntent.amount, // MVP cancel the total amount
-            currencyCode: paymentIntent.currency.toUpperCase()
+            currencyCode: paymentIntent.currency.toUpperCase(),
           },
           interactionId: paymentIntent.id,
           state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
@@ -385,7 +351,8 @@ export class StripePaymentService extends AbstractPaymentService {
     } catch (error) {
       log.error(
         `Error processing cancel of authorized payment_intent[${paymentIntent.id}] received from webhook.`,
-        error);
+        error,
+      );
     }
   }
 

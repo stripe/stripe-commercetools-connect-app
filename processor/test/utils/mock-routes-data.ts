@@ -1,9 +1,5 @@
 import Stripe from 'stripe';
-import {
-  PaymentIntentResponseSchemaDTO,
-  PaymentOutcome,
-  PaymentResponseSchemaDTO,
-} from '../../src/dtos/mock-payment.dto';
+import { PaymentOutcome, PaymentResponseSchemaDTO } from '../../src/dtos/mock-payment.dto';
 
 export const mockEvent__paymentIntent_amountCapturableUpdated: Stripe.Event = {
   id: 'evt_11111',
@@ -296,11 +292,11 @@ export const mockEvent__charge_refund_captured: Stripe.Event = {
           line1: null,
           line2: null,
           postal_code: '12312',
-          state: null
+          state: null,
         },
         email: null,
         name: null,
-        phone: null
+        phone: null,
       },
       calculated_statement_descriptor: 'ABCDE',
       captured: true,
@@ -323,7 +319,7 @@ export const mockEvent__charge_refund_captured: Stripe.Event = {
         risk_level: 'normal',
         risk_score: 8,
         seller_message: 'Payment complete.',
-        type: 'authorized'
+        type: 'authorized',
       },
       paid: true,
       payment_intent: 'pi_11111',
@@ -335,37 +331,37 @@ export const mockEvent__charge_refund_captured: Stripe.Event = {
           checks: {
             address_line1_check: null,
             address_postal_code_check: 'pass',
-            cvc_check: 'pass'
+            cvc_check: 'pass',
           },
           country: 'US',
           exp_month: 12,
           exp_year: 2026,
           extended_authorization: {
-            status: 'disabled'
+            status: 'disabled',
           },
           fingerprint: '12345',
           funding: 'credit',
           incremental_authorization: {
-            status: 'unavailable'
+            status: 'unavailable',
           },
           installments: null,
           last4: '1111',
           mandate: null,
           multicapture: {
-            status: 'unavailable'
+            status: 'unavailable',
           },
           network: 'visa',
           network_token: {
-            used: false
+            used: false,
           },
           overcapture: {
             maximum_amount_capturable: 34500,
-            status: 'unavailable'
+            status: 'unavailable',
           },
           three_d_secure: null,
-          wallet: null
+          wallet: null,
         },
-        type: 'card'
+        type: 'card',
       },
       radar_options: {},
       receipt_email: null,
@@ -380,21 +376,21 @@ export const mockEvent__charge_refund_captured: Stripe.Event = {
       statement_descriptor_suffix: null,
       status: 'succeeded',
       transfer_data: null,
-      transfer_group: null
+      transfer_group: null,
     },
     previous_attributes: {
       amount_refunded: 0,
       receipt_url: 'https://pay.stripe.com/receipts/payment/ABCDE',
-      refunded: false
-    }
+      refunded: false,
+    },
   },
   livemode: false,
   pending_webhooks: 1,
   request: {
     id: 'req_11111',
-    idempotency_key: '12345'
+    idempotency_key: '12345',
   },
-  type: 'charge.refunded'
+  type: 'charge.refunded',
 };
 
 export const mockEvent__charge_refund_notCaptured: Stripe.Event = {
@@ -420,11 +416,11 @@ export const mockEvent__charge_refund_notCaptured: Stripe.Event = {
           line1: null,
           line2: null,
           postal_code: '12312',
-          state: null
+          state: null,
         },
         email: null,
         name: null,
-        phone: null
+        phone: null,
       },
       calculated_statement_descriptor: 'ABCDE',
       captured: false,
@@ -447,7 +443,7 @@ export const mockEvent__charge_refund_notCaptured: Stripe.Event = {
         risk_level: 'normal',
         risk_score: 8,
         seller_message: 'Payment complete.',
-        type: 'authorized'
+        type: 'authorized',
       },
       paid: true,
       payment_intent: 'pi_11111',
@@ -459,37 +455,37 @@ export const mockEvent__charge_refund_notCaptured: Stripe.Event = {
           checks: {
             address_line1_check: null,
             address_postal_code_check: 'pass',
-            cvc_check: 'pass'
+            cvc_check: 'pass',
           },
           country: 'US',
           exp_month: 12,
           exp_year: 2026,
           extended_authorization: {
-            status: 'disabled'
+            status: 'disabled',
           },
           fingerprint: '12345',
           funding: 'credit',
           incremental_authorization: {
-            status: 'unavailable'
+            status: 'unavailable',
           },
           installments: null,
           last4: '1111',
           mandate: null,
           multicapture: {
-            status: 'unavailable'
+            status: 'unavailable',
           },
           network: 'visa',
           network_token: {
-            used: false
+            used: false,
           },
           overcapture: {
             maximum_amount_capturable: 34500,
-            status: 'unavailable'
+            status: 'unavailable',
           },
           three_d_secure: null,
-          wallet: null
+          wallet: null,
         },
-        type: 'card'
+        type: 'card',
       },
       radar_options: {},
       receipt_email: null,
@@ -504,21 +500,21 @@ export const mockEvent__charge_refund_notCaptured: Stripe.Event = {
       statement_descriptor_suffix: null,
       status: 'succeeded',
       transfer_data: null,
-      transfer_group: null
+      transfer_group: null,
     },
     previous_attributes: {
       amount_refunded: 0,
       receipt_url: 'https://pay.stripe.com/receipts/payment/ABCDE',
-      refunded: false
-    }
+      refunded: false,
+    },
   },
   livemode: false,
   pending_webhooks: 1,
   request: {
     id: 'req_11111',
-    idempotency_key: '12345'
+    idempotency_key: '12345',
   },
-  type: 'charge.refunded'
+  type: 'charge.refunded',
 };
 
 export const mockEvent__paymentIntent_canceled: Stripe.Event = {
@@ -533,7 +529,7 @@ export const mockEvent__paymentIntent_canceled: Stripe.Event = {
       amount: 45600,
       amount_capturable: 0,
       amount_details: {
-        tip: {}
+        tip: {},
       },
       amount_received: 0,
       application: null,
@@ -562,12 +558,10 @@ export const mockEvent__paymentIntent_canceled: Stripe.Event = {
           installments: null,
           mandate_options: null,
           network: null,
-          request_three_d_secure: 'automatic'
-        }
+          request_three_d_secure: 'automatic',
+        },
       },
-      payment_method_types: [
-        'card'
-      ],
+      payment_method_types: ['card'],
       processing: null,
       receipt_email: null,
       review: null,
@@ -578,24 +572,20 @@ export const mockEvent__paymentIntent_canceled: Stripe.Event = {
       statement_descriptor_suffix: null,
       status: 'canceled',
       transfer_data: null,
-      transfer_group: null
-    }
+      transfer_group: null,
+    },
   },
   livemode: false,
   pending_webhooks: 1,
   request: {
     id: 'req_11111',
-    idempotency_key: 'ASDFG-12345'
+    idempotency_key: 'ASDFG-12345',
   },
-  type: 'payment_intent.canceled'
-};
-
-export const mockRoute__getPaymentIntent_succeed: PaymentIntentResponseSchemaDTO = {
-  id: 'mock_id',
-  client_secret: 'mock_client_secret',
+  type: 'payment_intent.canceled',
 };
 
 export const mockRoute__payments_succeed: PaymentResponseSchemaDTO = {
   outcome: PaymentOutcome.INITIAL,
-  paymentReference: 'mock_paymentReference',
+  ctPaymentReference: 'mock_paymentReference',
+  sClientSecret: 'mock_client_secret',
 };
