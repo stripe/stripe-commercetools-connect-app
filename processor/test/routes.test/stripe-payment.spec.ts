@@ -21,7 +21,6 @@ import {
   mockEvent__paymentIntent_succeeded,
   mockEvent__charge_refund_captured,
   mockEvent__paymentIntent_canceled,
-  mockRoute__getPaymentIntent_succeed,
   mockRoute__payments_succeed,
 } from '../utils/mock-routes-data';
 import * as Config from '../../src/config/config';
@@ -205,7 +204,7 @@ describe('Stripe Payment APIs', () => {
         method: 'POST',
         url: `/stripe/webhooks`,
         headers: {
-          'stripe-signature': 't=123123123,v1=gk2j34gk2j34g2k3j4'
+          'stripe-signature': 't=123123123,v1=gk2j34gk2j34g2k3j4',
         },
       });
 
@@ -229,7 +228,7 @@ describe('Stripe Payment APIs', () => {
         method: 'POST',
         url: `/stripe/webhooks`,
         headers: {
-          'stripe-signature': 't=123123123,v1=gk2j34gk2j34g2k3j4'
+          'stripe-signature': 't=123123123,v1=gk2j34gk2j34g2k3j4',
         },
       });
 

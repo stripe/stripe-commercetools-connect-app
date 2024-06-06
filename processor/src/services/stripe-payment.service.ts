@@ -155,7 +155,7 @@ export class StripePaymentService extends AbstractPaymentService {
   }
 
   /**
-   * Crate the 'Initial' payment to CT.
+   * Crate the 'Initial' payment to CT and create PaymentIntent
    *
    * @remarks
    * Implementation to provide the initial data to cart for payment creation in external PSPs
@@ -253,7 +253,6 @@ export class StripePaymentService extends AbstractPaymentService {
     };
   }
 
-
   /**
    * Set payment transaction type 'Authorization' to status 'success' (money is ready to be capture).
    *
@@ -313,7 +312,7 @@ export class StripePaymentService extends AbstractPaymentService {
             type: PaymentTransactions.REFUND,
             amount: {
               centAmount: charge.data.object.amount_captured, // MVP refund the total captured
-              currencyCode: charge.data.object.currency.toUpperCase()
+              currencyCode: charge.data.object.currency.toUpperCase(),
             },
             interactionId: paymentIntentId,
             state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
@@ -343,7 +342,7 @@ export class StripePaymentService extends AbstractPaymentService {
           type: PaymentTransactions.CANCEL_AUTHORIZATION,
           amount: {
             centAmount: paymentIntent.amount, // MVP cancel the total amount
-            currencyCode: paymentIntent.currency.toUpperCase()
+            currencyCode: paymentIntent.currency.toUpperCase(),
           },
           interactionId: paymentIntent.id,
           state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
@@ -352,7 +351,8 @@ export class StripePaymentService extends AbstractPaymentService {
     } catch (error) {
       log.error(
         `Error processing cancel of authorized payment_intent[${paymentIntent.id}] received from webhook.`,
-        error);
+        error,
+      );
     }
   }
 
