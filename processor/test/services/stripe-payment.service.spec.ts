@@ -18,6 +18,7 @@ import {
   mockEvent__charge_refund_notCaptured,
   mockEvent__paymentIntent_amountCapturableUpdated,
   mockEvent__paymentIntent_canceled,
+  mockEvent__paymentIntent_succeeded,
 } from '../utils/mock-routes-data';
 import { mockGetCartResult, mockGetCartWithPaymentResult } from '../utils/mock-cart-data';
 import * as Config from '../../src/config/config';
@@ -565,6 +566,28 @@ describe('stripe-payment.service', () => {
     });
 
     await thisPaymentService.cancelAuthorizationInCt(mockEvent__paymentIntent_canceled);
+
+    expect(Logger.log.error).toBeCalled();
+  });
+
+  test('chargePaymentInCt succeded', async () => {
+    const thisPaymentService: StripePaymentService = new StripePaymentService(opts);
+
+    jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
+
+    await thisPaymentService.chargePaymentInCt(mockEvent__paymentIntent_succeeded);
+
+    expect(DefaultPaymentService.prototype.updatePayment).toBeCalled();
+  });
+
+  test('chargePaymentInCt, ctPaymentService.updatePayment function throws error', async () => {
+    const thisPaymentService: StripePaymentService = new StripePaymentService(opts);
+
+    jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockImplementation(() => {
+      throw new Error('error');
+    });
+
+    await thisPaymentService.chargePaymentInCt(mockEvent__paymentIntent_succeeded);
 
     expect(Logger.log.error).toBeCalled();
   });
