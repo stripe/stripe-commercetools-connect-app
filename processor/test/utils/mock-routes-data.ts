@@ -1,4 +1,9 @@
 import Stripe from 'stripe';
+import {
+  PaymentIntentResponseSchemaDTO,
+  PaymentOutcome,
+  PaymentResponseSchemaDTO,
+} from '../../src/dtos/mock-payment.dto';
 
 export const mockEvent__paymentIntent_amountCapturableUpdated: Stripe.Event = {
   id: 'evt_11111',
@@ -12,7 +17,7 @@ export const mockEvent__paymentIntent_amountCapturableUpdated: Stripe.Event = {
       amount: 12300,
       amount_capturable: 12300,
       amount_details: {
-        tip: {}
+        tip: {},
       },
       amount_received: 0,
       application: null,
@@ -41,8 +46,8 @@ export const mockEvent__paymentIntent_amountCapturableUpdated: Stripe.Event = {
           installments: null,
           mandate_options: null,
           network: null,
-          request_three_d_secure: 'automatic'
-        }
+          request_three_d_secure: 'automatic',
+        },
       },
       payment_method_types: ['card'],
       processing: null,
@@ -55,16 +60,16 @@ export const mockEvent__paymentIntent_amountCapturableUpdated: Stripe.Event = {
       statement_descriptor_suffix: null,
       status: 'requires_capture',
       transfer_data: null,
-      transfer_group: null
-    }
+      transfer_group: null,
+    },
   },
   livemode: false,
   pending_webhooks: 1,
   request: {
     id: 'req_11111',
-    idempotency_key: '11111'
+    idempotency_key: '11111',
   },
-  type: 'payment_intent.amount_capturable_updated'
+  type: 'payment_intent.amount_capturable_updated',
 };
 
 export const mockEvent__paymentIntent_processing: Stripe.Event = {
@@ -79,7 +84,7 @@ export const mockEvent__paymentIntent_processing: Stripe.Event = {
       amount: 12300,
       amount_capturable: 12300,
       amount_details: {
-        tip: {}
+        tip: {},
       },
       amount_received: 0,
       application: null,
@@ -108,8 +113,8 @@ export const mockEvent__paymentIntent_processing: Stripe.Event = {
           installments: null,
           mandate_options: null,
           network: null,
-          request_three_d_secure: 'automatic'
-        }
+          request_three_d_secure: 'automatic',
+        },
       },
       payment_method_types: ['card'],
       processing: null,
@@ -122,16 +127,16 @@ export const mockEvent__paymentIntent_processing: Stripe.Event = {
       statement_descriptor_suffix: null,
       status: 'requires_capture',
       transfer_data: null,
-      transfer_group: null
-    }
+      transfer_group: null,
+    },
   },
   livemode: false,
   pending_webhooks: 1,
   request: {
     id: 'req_11111',
-    idempotency_key: '11111'
+    idempotency_key: '11111',
   },
-  type: 'payment_intent.processing'
+  type: 'payment_intent.processing',
 };
 
 export const mockEvent__paymentIntent_paymentFailed: Stripe.Event = {
@@ -146,7 +151,7 @@ export const mockEvent__paymentIntent_paymentFailed: Stripe.Event = {
       amount: 12300,
       amount_capturable: 12300,
       amount_details: {
-        tip: {}
+        tip: {},
       },
       amount_received: 0,
       application: null,
@@ -175,8 +180,8 @@ export const mockEvent__paymentIntent_paymentFailed: Stripe.Event = {
           installments: null,
           mandate_options: null,
           network: null,
-          request_three_d_secure: 'automatic'
-        }
+          request_three_d_secure: 'automatic',
+        },
       },
       payment_method_types: ['card'],
       processing: null,
@@ -189,16 +194,16 @@ export const mockEvent__paymentIntent_paymentFailed: Stripe.Event = {
       statement_descriptor_suffix: null,
       status: 'requires_capture',
       transfer_data: null,
-      transfer_group: null
-    }
+      transfer_group: null,
+    },
   },
   livemode: false,
   pending_webhooks: 1,
   request: {
     id: 'req_11111',
-    idempotency_key: '11111'
+    idempotency_key: '11111',
   },
-  type: 'payment_intent.payment_failed'
+  type: 'payment_intent.payment_failed',
 };
 
 export const mockEvent__paymentIntent_succeeded: Stripe.Event = {
@@ -213,7 +218,7 @@ export const mockEvent__paymentIntent_succeeded: Stripe.Event = {
       amount: 12300,
       amount_capturable: 12300,
       amount_details: {
-        tip: {}
+        tip: {},
       },
       amount_received: 0,
       application: null,
@@ -242,8 +247,8 @@ export const mockEvent__paymentIntent_succeeded: Stripe.Event = {
           installments: null,
           mandate_options: null,
           network: null,
-          request_three_d_secure: 'automatic'
-        }
+          request_three_d_secure: 'automatic',
+        },
       },
       payment_method_types: ['card'],
       processing: null,
@@ -256,16 +261,16 @@ export const mockEvent__paymentIntent_succeeded: Stripe.Event = {
       statement_descriptor_suffix: null,
       status: 'requires_capture',
       transfer_data: null,
-      transfer_group: null
-    }
+      transfer_group: null,
+    },
   },
   livemode: false,
   pending_webhooks: 1,
   request: {
     id: 'req_11111',
-    idempotency_key: '11111'
+    idempotency_key: '11111',
   },
-  type: 'payment_intent.succeeded'
+  type: 'payment_intent.succeeded',
 };
 
 export const mockEvent__charge_refund_captured: Stripe.Event = {
@@ -583,4 +588,14 @@ export const mockEvent__paymentIntent_canceled: Stripe.Event = {
     idempotency_key: 'ASDFG-12345'
   },
   type: 'payment_intent.canceled'
+};
+
+export const mockRoute__getPaymentIntent_succeed: PaymentIntentResponseSchemaDTO = {
+  id: 'mock_id',
+  client_secret: 'mock_client_secret',
+};
+
+export const mockRoute__payments_succeed: PaymentResponseSchemaDTO = {
+  outcome: PaymentOutcome.INITIAL,
+  paymentReference: 'mock_paymentReference',
 };

@@ -1,6 +1,5 @@
 import Stripe from 'stripe';
 import { Payment, Transaction } from '@commercetools/connect-payments-sdk';
-import { PaymentPagedQueryResponse } from '@commercetools/platform-sdk';
 import { PaymentAmount } from '@commercetools/connect-payments-sdk/dist/commercetools/types/payment.type';
 
 export const mockGetPaymentResult: Payment = {

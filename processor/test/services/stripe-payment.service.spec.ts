@@ -31,6 +31,7 @@ import * as Logger from '../../src/libs/logger/index';
 import Stripe from 'stripe';
 import * as StripeClient from '../../src/clients/stripe.client';
 import { stripeApi } from '../../src/clients/stripe.client';
+import { SupportedPaymentComponentsSchemaDTO } from '../../src/dtos/operations/payment-componets.dto';
 
 jest.mock('stripe', () => ({
   __esModule: true,
@@ -87,17 +88,17 @@ describe('stripe-payment.service', () => {
 
   test('getConfig', async () => {
     // Setup mock config for a system using `clientKey`
-    setupMockConfig({ stripeSecretKey: '', mockEnvironment: 'test' });
+    setupMockConfig({ stripeSecretKey: 'stripeSecretKey', mockEnvironment: 'TEST' });
 
     const result: ConfigResponse = await paymentService.config();
 
     // Assertions can remain the same or be adapted based on the abstracted access
-    expect(result?.clientKey).toStrictEqual('');
-    expect(result?.environment).toStrictEqual('test');
+    expect(result?.clientKey).toStrictEqual('stripeSecretKey');
+    expect(result?.environment).toStrictEqual('TEST');
   });
 
   test('getSupportedPaymentComponents', async () => {
-    const result: ConfigResponse = await paymentService.getSupportedPaymentComponents();
+    const result: SupportedPaymentComponentsSchemaDTO = await paymentService.getSupportedPaymentComponents();
     expect(result?.components).toHaveLength(1);
     expect(result?.components[0]?.type).toStrictEqual('card');
   });
@@ -122,8 +123,8 @@ describe('stripe-payment.service', () => {
     expect(result?.checks[0]?.name).toStrictEqual('CoCo Permissions');
     expect(result?.checks[0]?.status).toStrictEqual('DOWN');
     expect(result?.checks[0]?.details).toStrictEqual({});
-    expect(result?.checks[1]?.name).toStrictEqual('Stripe Payment API');
-    expect(result?.checks[1]?.status).toStrictEqual('UP');
+    expect(result?.checks[1]?.name).toStrictEqual('Stripe Status check');
+    expect(result?.checks[1]?.status).toStrictEqual('DOWN');
     expect(result?.checks[1]?.details).toBeDefined();
   });
 
