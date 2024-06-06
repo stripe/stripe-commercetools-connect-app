@@ -10,7 +10,7 @@ import {
 } from './types/operation.type';
 
 import { SupportedPaymentComponentsSchemaDTO } from '../dtos/operations/payment-componets.dto';
-import { PaymentModificationStatus } from '../dtos/operations/payment-intents.dto';
+import { PaymentModificationStatus, PaymentTransactions } from '../dtos/operations/payment-intents.dto';
 import packageJSON from '../../package.json';
 
 import { AbstractPaymentService } from './abstract-payment.service';
@@ -153,38 +153,6 @@ export class StripePaymentService extends AbstractPaymentService {
   }
 
   /**
-   * Set payment transaction type 'Authorization' to status 'success' (money is ready to be capture).
-   */
-  public async setAuthorizationSuccessPayment(event: Stripe.Event) {
-    const paymentIntent = event.data.object as Stripe.PaymentIntent;
-
-    try {
-      const ctPaymentId = paymentIntent.metadata.paymentId || '';
-      log.info(
-        `setAuthorizationSuccessPayment() function: get ct_payment[${ctPaymentId}] associated with payment_intent[${paymentIntent.id}]`,
-      );
-      const ctPayment = await this.ctPaymentService.getPayment({
-        id: ctPaymentId,
-      });
-
-      await this.ctPaymentService.updatePayment({
-        id: ctPayment.id,
-        transaction: {
-          type: 'Authorization',
-          amount: ctPayment.amountPlanned,
-          interactionId: paymentIntent.id,
-          state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
-        },
-      });
-    } catch (error) {
-      log.error(
-        `Error at setAuthorizationSuccessPayment() function, processing payment_intent[${paymentIntent.id}]:`,
-        error,
-      );
-    }
-  }
-
-  /**
    * Crate the 'Initial' payment to CT.
    *
    * @remarks
@@ -214,7 +182,7 @@ export class StripePaymentService extends AbstractPaymentService {
       id: ctPayment.id,
       paymentMethod: paymentMethodType,
       transaction: {
-        type: 'Authorization',
+        type: PaymentTransactions.AUTHORIZATION,
         amount: ctPayment.amountPlanned,
         interactionId: pspReference,
         state: resultCode,
@@ -225,17 +193,6 @@ export class StripePaymentService extends AbstractPaymentService {
       outcome: resultCode,
       paymentReference: updatedPayment.id,
     };
-  }
-
-  private convertPaymentResultCode(resultCode: PaymentOutcome): string {
-    switch (resultCode) {
-      case PaymentOutcome.AUTHORIZED:
-        return 'Success';
-      case PaymentOutcome.REJECTED:
-        return 'Failure';
-      default:
-        return 'Initial';
-    }
   }
 
   /**
@@ -325,6 +282,123 @@ export class StripePaymentService extends AbstractPaymentService {
       });
 
       return paymentIntent as PaymentIntentResponseSchemaDTO;
+    }
+  }
+
+  /**
+   * Set payment transaction type 'Authorization' to status 'success' (money is ready to be capture).
+   * 
+   * @remarks MVP: The amount to authorize is the total of the order
+   * @param {Stripe.Event} event - Event sent by Stripe webhooks.
+   */
+  public async setAuthorizationSuccessPayment(event: Stripe.Event) {
+    const paymentIntent = event.data.object as Stripe.PaymentIntent;
+
+    try {
+      const ctPaymentId = this.getCtPaymentId(paymentIntent);
+      log.info(
+        `setAuthorizationSuccessPayment() function: get ct_payment[${ctPaymentId}] associated with payment_intent[${paymentIntent.id}]`,
+      );
+      const ctPayment = await this.ctPaymentService.getPayment({
+        id: ctPaymentId,
+      });
+
+      await this.ctPaymentService.updatePayment({
+        id: ctPayment.id,
+        transaction: {
+          type: PaymentTransactions.AUTHORIZATION,
+          amount: ctPayment.amountPlanned,
+          interactionId: paymentIntent.id,
+          state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
+        },
+      });
+    } catch (error) {
+      log.error(
+        `Error at setAuthorizationSuccessPayment() function, processing payment_intent[${paymentIntent.id}]:`,
+        error,
+      );
+    }
+  }
+
+  /**
+   * Refund a captured payment in commercetools after receiving a message from a webhook.
+   * The payment will be updated only for charges with the attribute captured=true
+   * 
+   * @remarks MVP: The amount to refund is the total captured
+   * @param {Stripe.Event} event - Event sent by Stripe webhooks.
+   */
+  async refundPaymentInCt(event: Stripe.Event) {
+    const charge = event as Stripe.ChargeRefundedEvent;
+
+    try {
+      const paymentIntentId = charge.data.object.payment_intent as string;
+
+      const paymentIntent = await stripeApi().paymentIntents.retrieve(paymentIntentId);
+
+      const ctPaymentId = this.getCtPaymentId(paymentIntent);
+
+      if (charge.data.object.captured) {
+        await this.ctPaymentService.updatePayment({
+          id: ctPaymentId,
+          transaction: {
+            type: PaymentTransactions.REFUND,
+            amount: {
+              centAmount: charge.data.object.amount_captured, // MVP refund the total captured
+              currencyCode: charge.data.object.currency.toUpperCase()
+            },
+            interactionId: paymentIntentId,
+            state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
+          },
+        });
+      }
+    } catch (error) {
+      log.error(`Error processing refund of charge[${charge.id}] received from webhook.`, error);
+    }
+  }
+
+  /**
+   * Cancel an authorized payment in commercetools after receiving a message from a webhook.
+   * 
+   * @remarks MVP: The amount to cancel is the order's total
+   * @param {Stripe.Event} event - Event sent by Stripe webhooks.
+   */
+  async cancelAuthorizationInCt(event: Stripe.Event) {
+    const paymentIntent = event.data.object as Stripe.PaymentIntent;
+
+    try {
+      const ctPaymentId = this.getCtPaymentId(paymentIntent);
+
+      await this.ctPaymentService.updatePayment({
+        id: ctPaymentId,
+        transaction: {
+          type: PaymentTransactions.CANCEL_AUTHORIZATION,
+          amount: {
+            centAmount: paymentIntent.amount, // MVP cancel the total amount
+            currencyCode: paymentIntent.currency.toUpperCase()
+          },
+          interactionId: paymentIntent.id,
+          state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
+        },
+      });
+    } catch (error) {
+      log.error(
+        `Error processing cancel of authorized payment_intent[${paymentIntent.id}] received from webhook.`,
+        error);
+    }
+  }
+
+  private getCtPaymentId(paymentIntent: Stripe.PaymentIntent): string {
+    return paymentIntent.metadata.paymentId || '';
+  }
+
+  private convertPaymentResultCode(resultCode: PaymentOutcome): string {
+    switch (resultCode) {
+      case PaymentOutcome.AUTHORIZED:
+        return 'Success';
+      case PaymentOutcome.REJECTED:
+        return 'Failure';
+      default:
+        return 'Initial';
     }
   }
 }
