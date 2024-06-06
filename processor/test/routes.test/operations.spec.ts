@@ -101,8 +101,6 @@ describe('/operations APIs', () => {
         },
       });
 
-      // eslint-disable-next-line
-      console.log(await responseGetConfig.json());
       //Then
       expect(responseGetConfig.statusCode).toEqual(200);
       expect(responseGetConfig.json()).toEqual({

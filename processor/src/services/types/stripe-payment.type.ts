@@ -9,3 +9,4 @@ export type StripePaymentServiceOptions = {
 export type CreatePayment = {
   data: PaymentRequestSchemaDTO;
 };
+export type CaptureMethod = 'automatic' | 'automatic_async' | 'manual';
