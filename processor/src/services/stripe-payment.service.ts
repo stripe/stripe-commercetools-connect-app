@@ -137,7 +137,10 @@ export class StripePaymentService extends AbstractPaymentService {
 
   public async cancelPayment(request: CancelPaymentRequest): Promise<PaymentProviderModificationResponse> {
     try {
-      await stripeApi().paymentIntents.cancel(request.payment.interfaceId as string);
+      const idempotencyKey = crypto.randomUUID();
+      await stripeApi().paymentIntents.cancel(request.payment.interfaceId as string, {
+        idempotencyKey,
+      });
 
       return { outcome: PaymentModificationStatus.RECEIVED, pspReference: request.payment.interfaceId as string };
     } catch (e) {
@@ -147,9 +150,13 @@ export class StripePaymentService extends AbstractPaymentService {
 
   public async refundPayment(request: RefundPaymentRequest): Promise<PaymentProviderModificationResponse> {
     try {
-      await stripeApi().refunds.create({
-        payment_intent: request.payment.interfaceId,
-      });
+      const idempotencyKey = crypto.randomUUID();
+      await stripeApi().refunds.create(
+        {
+          payment_intent: request.payment.interfaceId,
+        },
+        { idempotencyKey },
+      );
 
       return { outcome: PaymentModificationStatus.RECEIVED, pspReference: request.payment.interfaceId as string };
     } catch (e) {
@@ -176,20 +183,27 @@ export class StripePaymentService extends AbstractPaymentService {
     const captureModeConfig = getConfig().stripeCaptureMethod;
     let paymentIntent!: Stripe.PaymentIntent;
     try {
+      const idempotencyKey = crypto.randomUUID();
       // obtain customer from ct to add to paymentIntent
-      paymentIntent = await stripeApi().paymentIntents.create({
-        confirm: true,
-        amount: amountPlanned.centAmount,
-        currency: amountPlanned.currencyCode,
-        confirmation_token: paymentMethod.confirmationToken,
-        automatic_payment_methods: {
-          enabled: true,
+      paymentIntent = await stripeApi().paymentIntents.create(
+        {
+          confirm: true,
+          amount: amountPlanned.centAmount,
+          currency: amountPlanned.currencyCode,
+          confirmation_token: paymentMethod.confirmationToken,
+          automatic_payment_methods: {
+            enabled: true,
+          },
+          capture_method: captureModeConfig as CaptureMethod,
+          metadata: {
+            order_id: ctCart.id,
+            commercetoolSiteId: getConfig().projectKey,
+          },
         },
-        capture_method: captureModeConfig as CaptureMethod,
-        metadata: {
-          order_id: ctCart.id,
+        {
+          idempotencyKey,
         },
-      });
+      );
     } catch (e) {
       throw wrapStripeError(e);
     }
@@ -234,11 +248,16 @@ export class StripePaymentService extends AbstractPaymentService {
     });
 
     try {
-      await stripeApi().paymentIntents.update(paymentIntent.id, {
-        metadata: {
-          paymentId: updatedPayment.id,
+      const idempotencyKey = crypto.randomUUID();
+      await stripeApi().paymentIntents.update(
+        paymentIntent.id,
+        {
+          metadata: {
+            paymentId: updatedPayment.id,
+          },
         },
-      });
+        { idempotencyKey },
+      );
     } catch (e) {
       throw wrapStripeError(e);
     }
