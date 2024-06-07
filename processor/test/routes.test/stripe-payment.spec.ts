@@ -26,6 +26,7 @@ import {
 import * as Config from '../../src/config/config';
 import * as Logger from '../../src/libs/logger/index';
 import { PaymentRequestSchemaDTO } from '../../src/dtos/mock-payment.dto';
+import { StripeHeaderAuthHook } from '../../src/libs/fastify/hooks/stripe-header-auth.hook';
 
 jest.mock('stripe', () => ({
   __esModule: true,
@@ -74,6 +75,12 @@ describe('Stripe Payment APIs', () => {
       expect(request.headers['x-session-id']).toContain('session-id');
     });
 
+  const spyStripeHeaderAuthHook = jest
+    .spyOn(SessionHeaderAuthenticationHook.prototype, 'authenticate')
+    .mockImplementation(() => async () => {
+      expect('stripe-signature').toEqual('stripe-signature');
+    });
+
   const spiedSessionHeaderAuthenticationHook = new SessionHeaderAuthenticationHook({
     authenticationManager: jest.fn() as unknown as SessionHeaderAuthenticationManager,
     contextProvider: jest.fn() as unknown as ContextProvider<RequestContextData>,
@@ -84,9 +91,11 @@ describe('Stripe Payment APIs', () => {
     ctPaymentService: jest.fn() as unknown as CommercetoolsPaymentService,
   });
 
+  const spiedStripeHeaderAuthHook = new StripeHeaderAuthHook();
+
   beforeAll(async () => {
     await fastifyApp.register(stripeWebhooksRoutes, {
-      sessionHeaderAuthHook: spiedSessionHeaderAuthenticationHook,
+      stripeHeaderAuthHook: spiedStripeHeaderAuthHook,
       paymentService: spiedPaymentService,
     });
 
@@ -107,6 +116,7 @@ describe('Stripe Payment APIs', () => {
     spyAuthenticateJWT.mockClear();
     spyAuthenticateOauth2.mockClear();
     spyAuthenticateSession.mockClear();
+    spyStripeHeaderAuthHook.mockClear();
     await fastifyApp.ready();
   });
 

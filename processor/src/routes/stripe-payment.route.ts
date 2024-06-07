@@ -11,10 +11,16 @@ import { log } from '../libs/logger';
 import { stripeApi } from '../clients/stripe.client';
 import { getConfig } from '../config/config';
 import { StripePaymentService } from '../services/stripe-payment.service';
+import { StripeHeaderAuthHook } from '../libs/fastify/hooks/stripe-header-auth.hook';
 
 type PaymentRoutesOptions = {
   paymentService: StripePaymentService;
   sessionHeaderAuthHook: SessionHeaderAuthenticationHook;
+};
+
+type StripeRoutesOptions = {
+  paymentService: StripePaymentService;
+  stripeHeaderAuthHook: StripeHeaderAuthHook;
 };
 
 export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPluginOptions & PaymentRoutesOptions) => {
@@ -39,10 +45,13 @@ export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPlugi
   );
 };
 
-export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: PaymentRoutesOptions) => {
+export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: StripeRoutesOptions) => {
   fastify.post<{ Body: string; Reply: any }>(
     '/stripe/webhooks',
-    { config: { rawBody: true } },
+    {
+      preHandler: opts.stripeHeaderAuthHook.authenticate(),
+      config: { rawBody: true }
+    },
     async (request, reply) => {
       const signature = request.headers['stripe-signature'] as string;
 
