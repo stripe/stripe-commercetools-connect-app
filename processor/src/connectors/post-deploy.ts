@@ -1,6 +1,8 @@
+import { stripeWebhooksSetup } from './actions';
+
 async function postDeploy(properties: any) {
   if (properties) {
-    // TODO: Implement postDeploy scripts if any
+    stripeWebhooksSetup();
   }
 }
 

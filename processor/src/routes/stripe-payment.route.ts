@@ -9,7 +9,6 @@ import {
 } from '../dtos/mock-payment.dto';
 import { log } from '../libs/logger';
 import { stripeApi } from '../clients/stripe.client';
-import { getConfig } from '../config/config';
 import { StripePaymentService } from '../services/stripe-payment.service';
 import { StripeHeaderAuthHook } from '../libs/fastify/hooks/stripe-header-auth.hook';
 
@@ -58,11 +57,21 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
       const stApi = await stripeApi();
       let event: Stripe.Event;
 
-      try {
-        event = stApi.webhooks.constructEvent(request.rawBody as string, signature, getConfig().stripeWebhookSecret);
-      } catch (err: any) {
-        log.error(JSON.stringify(err));
-        return reply.status(400).send(`Webhook Error: ${err.message}`);
+      // This env var is assigned in the post-deploy script after the deployment has been successful
+      const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
+
+      if (stripeWebhookSecret === '') {
+        const errorMsg =
+          'The Stripe Webhook Signing Secret is not configured, therefore events can not be accepted. Check logs with tag [REGISTER_STRIPE_WEBHOOK] for more information.';
+        log.error(errorMsg);
+        return reply.status(400).send(`Webhook Error: ${errorMsg}`);
+      } else {
+        try {
+          event = stApi.webhooks.constructEvent(request.rawBody as string, signature, stripeWebhookSecret);
+        } catch (err: any) {
+          log.error(JSON.stringify(err));
+          return reply.status(400).send(`Webhook Error: ${err.message}`);
+        }
       }
 
       switch (event.type) {

@@ -1,5 +1,9 @@
+import { log } from '../libs/logger/index';
+
 async function preUndeploy() {
   // TODO: Implement pre undeploy scripts if any
+  const webhookId = process.env.STRIPE_WEBHOOK_ID || '';
+  log.info(`----->>>>> pre-undeploy script, stripe webhook id:[${webhookId}]`);
 }
 
 async function run() {

@@ -2,6 +2,9 @@ deployAs:
   - name: processor
     applicationType: service
     endpoint: /
+    scripts:
+      postDeploy: npm install && npm run build && npm run connectors:post-deploy
+      preUndeploy: npm install && npm run build && npm run connectors:pre-undeploy
     configuration:
       standardConfiguration:
         - key: CTP_PROJECT_KEY
@@ -18,6 +21,9 @@ deployAs:
           required: true
         - key: CTP_SESSION_URL
           description: Session API URL
+          required: true
+        - key: CTP_CONNECT_URL
+          description: Connect API URL
           required: true
         - key: CTP_JWKS_URL
           description: JWKs url

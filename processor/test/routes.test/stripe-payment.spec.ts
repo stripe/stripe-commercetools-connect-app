@@ -93,6 +93,8 @@ describe('Stripe Payment APIs', () => {
 
   const spiedStripeHeaderAuthHook = new StripeHeaderAuthHook();
 
+  const originalEnv = process.env;
+
   beforeAll(async () => {
     await fastifyApp.register(stripeWebhooksRoutes, {
       stripeHeaderAuthHook: spiedStripeHeaderAuthHook,
@@ -109,6 +111,8 @@ describe('Stripe Payment APIs', () => {
   beforeEach(() => {
     jest.setTimeout(10000);
     jest.resetAllMocks();
+    process.env = { ...originalEnv }
+    process.env.STRIPE_WEBHOOK_SECRET = 'STRIPE_WEBHOOK_SECRET';
   });
 
   afterEach(async () => {
@@ -118,6 +122,7 @@ describe('Stripe Payment APIs', () => {
     spyAuthenticateSession.mockClear();
     spyStripeHeaderAuthHook.mockClear();
     await fastifyApp.ready();
+    process.env = originalEnv;
   });
 
   afterAll(async () => {
@@ -245,6 +250,28 @@ describe('Stripe Payment APIs', () => {
       //Then
       expect(response.statusCode).toEqual(200);
       expect(spiedPaymentService.cancelAuthorizationInCt).toHaveBeenCalled();
+    });
+
+    test('it should return a 400 status error when the process.env.STRIPE_WEBHOOK_SECRET var is not assigned.', async () => {
+      setupMockConfig({
+        stripeSecretKey: 'stripeSecretKey',
+        authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
+      });
+
+      process.env.STRIPE_WEBHOOK_SECRET = '';
+
+      //When
+      const response = await fastifyApp.inject({
+        method: 'POST',
+        url: `/stripe/webhooks`,
+        headers: {
+          'stripe-signature': 't=123123123,v1=gk2j34gk2j34g2k3j4',
+        },
+      });
+
+      //Then
+      expect(response.statusCode).toEqual(400);
+      expect(Logger.log.error).toHaveBeenCalled();
     });
 
     test('it should return a 400 status error when the request body is not a valid Stripe event.', async () => {
