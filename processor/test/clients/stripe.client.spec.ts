@@ -27,8 +27,7 @@ describe('stripe.client', () => {
   });
 
   test('wrapStripeError returns a StripeApiError', async () => {
-    const result = StripeClient.wrapStripeError(
-      JSON.parse(JSON.stringify(mockCancelPaymentErrorResult)));
+    const result = StripeClient.wrapStripeError(JSON.parse(JSON.stringify(mockCancelPaymentErrorResult)));
 
     const resultStripeApiError = result as StripeApiError;
 

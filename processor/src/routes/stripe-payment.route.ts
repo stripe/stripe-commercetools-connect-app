@@ -50,7 +50,7 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
     '/stripe/webhooks',
     {
       preHandler: opts.stripeHeaderAuthHook.authenticate(),
-      config: { rawBody: true }
+      config: { rawBody: true },
     },
     async (request, reply) => {
       const signature = request.headers['stripe-signature'] as string;
