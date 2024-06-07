@@ -20,7 +20,7 @@ import {
   mockEvent__paymentIntent_canceled,
   mockEvent__paymentIntent_succeeded,
 } from '../utils/mock-routes-data';
-import { mockGetCartResult, mockGetCartWithPaymentResult } from '../utils/mock-cart-data';
+import { mockGetCartResult } from '../utils/mock-cart-data';
 import * as Config from '../../src/config/config';
 import { CreatePayment, StripePaymentServiceOptions } from '../../src/services/types/stripe-payment.type';
 import { AbstractPaymentService } from '../../src/services/abstract-payment.service';
@@ -343,7 +343,7 @@ describe('stripe-payment.service', () => {
     const createPaymentMock = jest.spyOn(DefaultPaymentService.prototype, 'createPayment');
     createPaymentMock.mockResolvedValue(mockGetPaymentResult);
     const addPaymentMock = jest.spyOn(DefaultCartService.prototype, 'addPayment');
-    addPaymentMock.mockResolvedValue(mockGetCartWithPaymentResult());
+    addPaymentMock.mockResolvedValue(mockGetCartResult());
     const updatePaymentMock = jest
       .spyOn(DefaultPaymentService.prototype, 'updatePayment')
       .mockReturnValue(Promise.resolve(mockGetPaymentResult));
@@ -394,7 +394,7 @@ describe('stripe-payment.service', () => {
     const createPaymentMock = jest.spyOn(DefaultPaymentService.prototype, 'createPayment');
     createPaymentMock.mockResolvedValue(mockGetPaymentResult);
     const addPaymentMock = jest.spyOn(DefaultCartService.prototype, 'addPayment');
-    addPaymentMock.mockResolvedValue(mockGetCartWithPaymentResult());
+    addPaymentMock.mockResolvedValue(mockGetCartResult());
     const updatePaymentMock = jest
       .spyOn(DefaultPaymentService.prototype, 'updatePayment')
       .mockReturnValue(Promise.resolve(mockGetPaymentResult));
@@ -455,7 +455,7 @@ describe('stripe-payment.service', () => {
     const createPaymentMock = jest.spyOn(DefaultPaymentService.prototype, 'createPayment');
     createPaymentMock.mockResolvedValue(mockGetPaymentResult);
     const addPaymentMock = jest.spyOn(DefaultCartService.prototype, 'addPayment');
-    addPaymentMock.mockResolvedValue(mockGetCartWithPaymentResult());
+    addPaymentMock.mockResolvedValue(mockGetCartResult());
     const updatePaymentMock = jest
       .spyOn(DefaultPaymentService.prototype, 'updatePayment')
       .mockReturnValue(Promise.resolve(mockGetPaymentResult));
