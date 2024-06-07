@@ -2,7 +2,7 @@ import { stripeWebhooksSetup } from './actions';
 
 async function postDeploy(properties: any) {
   if (properties) {
-    stripeWebhooksSetup();
+    await stripeWebhooksSetup();
   }
 }
 
