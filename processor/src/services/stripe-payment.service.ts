@@ -361,7 +361,7 @@ export class StripePaymentService extends AbstractPaymentService {
 
   /**
    * Charge an authorized payment in commercetools after receiving a message from a webhook.
-   * 
+   *
    * @remarks MVP: The charge amount is based on the amount received from Stripe. If the charge amount is less than the total amount, the difference will not register as a transaction in ct.
    * @param {Stripe.Event} event - Event sent by Stripe webhooks.
    */
@@ -377,7 +377,7 @@ export class StripePaymentService extends AbstractPaymentService {
           type: PaymentTransactions.CHARGE,
           amount: {
             centAmount: paymentIntent.amount_received, // MVP capture the amount_received
-            currencyCode: paymentIntent.currency.toUpperCase()
+            currencyCode: paymentIntent.currency.toUpperCase(),
           },
           interactionId: paymentIntent.id,
           state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
@@ -386,7 +386,8 @@ export class StripePaymentService extends AbstractPaymentService {
     } catch (error) {
       log.error(
         `Error processing charge of authorized payment_intent[${paymentIntent.id}] received from webhook.`,
-        error);
+        error,
+      );
     }
   }
 

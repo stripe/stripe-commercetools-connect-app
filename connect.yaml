@@ -6,8 +6,6 @@ deployAs:
       standardConfiguration:
         - key: CTP_PROJECT_KEY
           description: Commercetools project key
-        - key: CTP_CLIENT_ID
-          description: Commercetools client ID
         - key: CTP_SCOPE
           description: Commercetools client scope
         - key: CTP_AUTH_URL
@@ -23,5 +21,7 @@ deployAs:
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
           description: Commercetools client secret
+        - key: CTP_CLIENT_ID
+          description: Commercetools client ID
   - name: enabler
     applicationType: assets
