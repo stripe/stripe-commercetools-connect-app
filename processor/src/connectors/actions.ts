@@ -4,6 +4,7 @@ import { log } from '../libs/logger/index';
 import { stripeApi } from '../clients/stripe.client';
 
 export async function stripeWebhooksSetup(): Promise<void> {
+  log.info('--->>> Executing stripeWebhooksSetup() -> ' + getConfig().projectKey);
   try {
     const processorAppEndpoint = await getProcessorAppEndpoint();
 

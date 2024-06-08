@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import { log } from '../libs/logger/index';
 
 async function preUndeploy() {
