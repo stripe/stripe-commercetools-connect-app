@@ -239,12 +239,13 @@ export class StripePaymentService extends AbstractPaymentService {
     const resultCode = PaymentOutcome.INITIAL;
 
     const paymentMethodType = paymentMethod.type;
+    const transactionType = this.getTransactionType(captureModeConfig); //get from enum Lucina created PaymentTransactions
 
     const updatedPayment = await this.ctPaymentService.updatePayment({
       id: ctPayment.id,
       paymentMethod: paymentMethodType,
       transaction: {
-        type: 'Authorization',
+        type: transactionType,
         amount: ctPayment.amountPlanned,
         interactionId: paymentIntent.id,
         state: resultCode,
@@ -456,5 +457,12 @@ export class StripePaymentService extends AbstractPaymentService {
       default:
         return 'Initial';
     }
+  }
+
+  private getTransactionType(captureModeConfig: string) {
+    if (captureModeConfig === 'manual') {
+      return PaymentTransactions.AUTHORIZATION.toString();
+    }
+    return PaymentTransactions.CHARGE.toString();
   }
 }
