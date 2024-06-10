@@ -602,7 +602,7 @@ describe('stripe-payment.service', () => {
       .mockResolvedValue(mockGetPaymentAmount);
 
     const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
-    const result = await stripePaymentService.getConfigElement();
+    const result = await stripePaymentService.getConfigElement('payment');
 
     expect(result.cartInfo.currency).toStrictEqual(mockGetPaymentAmount.currencyCode);
     expect(result.cartInfo.amount).toStrictEqual(mockGetPaymentAmount.centAmount);
