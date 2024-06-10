@@ -1,6 +1,5 @@
 import Stripe from 'stripe';
 import { Payment, Transaction } from '@commercetools/connect-payments-sdk';
-import { PaymentPagedQueryResponse } from '@commercetools/platform-sdk';
 import { PaymentAmount } from '@commercetools/connect-payments-sdk/dist/commercetools/types/payment.type';
 
 export const mockGetPaymentResult: Payment = {
@@ -218,7 +217,9 @@ export const mockStripeRetrievePaymentResult: Stripe.Response<Stripe.PaymentInte
   last_payment_error: null,
   latest_charge: null,
   livemode: false,
-  metadata: {},
+  metadata: {
+    paymentId: 'asdf-1234'
+  },
   next_action: null,
   on_behalf_of: null,
   payment_method: null,

@@ -2,21 +2,25 @@ import Stripe from 'stripe';
 import { SessionHeaderAuthenticationHook } from '@commercetools/connect-payments-sdk';
 import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import {
-  PaymentIntentResponseSchema,
-  PaymentIntentResponseSchemaDTO,
   PaymentRequestSchema,
   PaymentRequestSchemaDTO,
   PaymentResponseSchema,
   PaymentResponseSchemaDTO,
 } from '../dtos/mock-payment.dto';
-import { log } from '../libs/logger/index';
+import { log } from '../libs/logger';
 import { stripeApi } from '../clients/stripe.client';
 import { getConfig } from '../config/config';
 import { StripePaymentService } from '../services/stripe-payment.service';
+import { StripeHeaderAuthHook } from '../libs/fastify/hooks/stripe-header-auth.hook';
 
 type PaymentRoutesOptions = {
   paymentService: StripePaymentService;
   sessionHeaderAuthHook: SessionHeaderAuthenticationHook;
+};
+
+type StripeRoutesOptions = {
+  paymentService: StripePaymentService;
+  stripeHeaderAuthHook: StripeHeaderAuthHook;
 };
 
 export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPluginOptions & PaymentRoutesOptions) => {
@@ -39,38 +43,23 @@ export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPlugi
       return reply.status(200).send(resp);
     },
   );
-  fastify.get<{ Reply: PaymentIntentResponseSchemaDTO }>(
-    '/getPaymentIntent',
-    {
-      preHandler: [opts.sessionHeaderAuthHook.authenticate()],
-      schema: {
-        response: {
-          200: PaymentIntentResponseSchema,
-        },
-      },
-    },
-    async (request, reply) => {
-      const resp = await opts.paymentService.getPaymentIntent();
-
-      return reply.status(200).send(resp);
-    },
-  );
 };
 
-export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: PaymentRoutesOptions) => {
+export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: StripeRoutesOptions) => {
   fastify.post<{ Body: string; Reply: any }>(
     '/stripe/webhooks',
-    { config: { rawBody: true } },
+    {
+      preHandler: opts.stripeHeaderAuthHook.authenticate(),
+      config: { rawBody: true }
+    },
     async (request, reply) => {
       const signature = request.headers['stripe-signature'] as string;
+
+      const stApi = await stripeApi();
       let event: Stripe.Event;
 
       try {
-        event = await stripeApi().webhooks.constructEvent(
-          request.rawBody as string,
-          signature,
-          getConfig().stripeWebhookSecret,
-        );
+        event = stApi.webhooks.constructEvent(request.rawBody as string, signature, getConfig().stripeWebhookSecret);
       } catch (err: any) {
         log.error(JSON.stringify(err));
         return reply.status(400).send(`Webhook Error: ${err.message}`);
@@ -82,14 +71,20 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Payme
           log.info('--->>> payment_intent.payment_failed');
           break;
         case 'payment_intent.succeeded':
-          // The payment has been captured
-          log.info('--->>> payment_intent.succeeded');
+          log.info(`Handle ${event.type} event of ${event.data.object.id}`);
+          opts.paymentService.chargePaymentInCt(event);
           break;
         case 'payment_intent.amount_capturable_updated':
-          // The payment is ready for capture
-          log.info(`Handle ${event.type} event of payment_intent[${event.data.object.id}]`);
-
+          log.info(`Handle ${event.type} event of ${event.data.object.id}`);
           opts.paymentService.setAuthorizationSuccessPayment(event);
+          break;
+        case 'charge.refunded':
+          log.info(`Handle ${event.type} event of ${event.data.object.id}`);
+          opts.paymentService.refundPaymentInCt(event);
+          break;
+        case 'payment_intent.canceled':
+          log.info(`Handle ${event.type} event of ${event.data.object.id}`);
+          opts.paymentService.cancelAuthorizationInCt(event);
           break;
         default:
           // This event is not supported
