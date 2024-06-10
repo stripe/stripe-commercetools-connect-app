@@ -12,7 +12,7 @@ import {
   SessionHeaderAuthenticationManager,
 } from '@commercetools/connect-payments-sdk';
 import { IncomingHttpHeaders } from 'node:http';
-import { paymentRoutes, stripeWebhooksRoutes } from '../../src/routes/stripe-payment.route';
+import { configElementRoutes, paymentRoutes, stripeWebhooksRoutes } from '../../src/routes/stripe-payment.route';
 import { StripePaymentService } from '../../src/services/stripe-payment.service';
 import {
   mockEvent__paymentIntent_amountCapturableUpdated,
@@ -22,6 +22,7 @@ import {
   mockEvent__charge_refund_captured,
   mockEvent__paymentIntent_canceled,
   mockRoute__payments_succeed,
+  mockRoute__get_config_element_succeed,
 } from '../utils/mock-routes-data';
 import * as Config from '../../src/config/config';
 import * as Logger from '../../src/libs/logger/index';
@@ -100,6 +101,12 @@ describe('Stripe Payment APIs', () => {
     });
 
     await fastifyApp.register(paymentRoutes, {
+      prefix: '/',
+      sessionHeaderAuthHook: spiedSessionHeaderAuthenticationHook,
+      paymentService: spiedPaymentService,
+    });
+
+    await fastifyApp.register(configElementRoutes, {
       prefix: '/',
       sessionHeaderAuthHook: spiedSessionHeaderAuthenticationHook,
       paymentService: spiedPaymentService,
@@ -298,7 +305,7 @@ describe('Stripe Payment APIs', () => {
     });
   });
 
-  describe('GET /payment', () => {
+  describe('POST /payment', () => {
     it('should call /payment', async () => {
       const requestData: PaymentRequestSchemaDTO = {
         paymentMethod: {
@@ -325,6 +332,28 @@ describe('Stripe Payment APIs', () => {
       expect(responseGetConfig.statusCode).toEqual(200);
       expect(responseGetConfig.json()).toEqual(mockRoute__payments_succeed);
       expect(spiedPaymentService.createPayment).toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /get-config-element', () => {
+    it('should call /get-config-element', async () => {
+      //Given
+      jest.spyOn(spiedPaymentService, 'getConfigElement').mockResolvedValue(mockRoute__get_config_element_succeed);
+
+      //When
+      const responseGetConfig = await fastifyApp.inject({
+        method: 'GET',
+        url: `/get-config-element`,
+        headers: {
+          'x-session-id': sessionId,
+          'content-type': 'application/json',
+        },
+      });
+
+      //Then
+      expect(responseGetConfig.statusCode).toEqual(200);
+      expect(responseGetConfig.json()).toEqual(mockRoute__get_config_element_succeed);
+      expect(spiedPaymentService.getConfigElement).toHaveBeenCalled();
     });
   });
 });

@@ -1,5 +1,9 @@
 import Stripe from 'stripe';
-import { PaymentOutcome, PaymentResponseSchemaDTO } from '../../src/dtos/mock-payment.dto';
+import {
+  ConfigElementResponseSchemaDTO,
+  PaymentOutcome,
+  PaymentResponseSchemaDTO,
+} from '../../src/dtos/mock-payment.dto';
 import { SupportedPaymentComponentsSchemaDTO } from '../../src/dtos/operations/payment-componets.dto';
 import {
   PaymentIntentResponseSchemaDTO,
@@ -608,4 +612,12 @@ export const mockRoute__paymentsComponents_succeed: SupportedPaymentComponentsSc
 
 export const mockRoute__paymentIntent_succeed: PaymentIntentResponseSchemaDTO = {
   outcome: PaymentModificationStatus.APPROVED,
+};
+
+export const mockRoute__get_config_element_succeed: ConfigElementResponseSchemaDTO = {
+  cartInfo: {
+    currency: 'usd',
+    amount: 10000,
+  },
+  appearance: '',
 };
