@@ -219,7 +219,7 @@ export const mockEvent__paymentIntent_succeeded: Stripe.Event = {
       amount: 13200,
       amount_capturable: 0,
       amount_details: {
-        tip: {}
+        tip: {},
       },
       amount_received: 10000,
       application: null,
@@ -248,8 +248,8 @@ export const mockEvent__paymentIntent_succeeded: Stripe.Event = {
           installments: null,
           mandate_options: null,
           network: null,
-          request_three_d_secure: 'automatic'
-        }
+          request_three_d_secure: 'automatic',
+        },
       },
       payment_method_types: ['card'],
       processing: null,
@@ -262,16 +262,16 @@ export const mockEvent__paymentIntent_succeeded: Stripe.Event = {
       statement_descriptor_suffix: null,
       status: 'succeeded',
       transfer_data: null,
-      transfer_group: null
-    }
+      transfer_group: null,
+    },
   },
   livemode: false,
   pending_webhooks: 1,
   request: {
     id: 'req_11111',
-    idempotency_key: '11111-ABCDE'
+    idempotency_key: '11111-ABCDE',
   },
-  type: 'payment_intent.succeeded'
+  type: 'payment_intent.succeeded',
 };
 
 export const mockEvent__charge_refund_captured: Stripe.Event = {
