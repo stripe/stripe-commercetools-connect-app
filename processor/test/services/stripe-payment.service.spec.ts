@@ -591,4 +591,26 @@ describe('stripe-payment.service', () => {
 
     expect(Logger.log.error).toBeCalled();
   });
+
+  test('getConfigElement succeded', async () => {
+    // mocking all the function calls
+    const getCartMock = jest
+      .spyOn(DefaultCartService.prototype, 'getCart')
+      .mockReturnValue(Promise.resolve(mockGetCartResult()));
+    const getPaymentAmountMock = jest
+      .spyOn(DefaultCartService.prototype, 'getPaymentAmount')
+      .mockResolvedValue(mockGetPaymentAmount);
+
+    const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
+    const result = await stripePaymentService.getConfigElement();
+
+    expect(result.cartInfo.currency).toStrictEqual(mockGetPaymentAmount.currencyCode);
+    expect(result.cartInfo.amount).toStrictEqual(mockGetPaymentAmount.centAmount);
+    expect(result).toBeDefined();
+
+    // Or check that the relevant mocks have been called
+    expect(getCartMock).toHaveBeenCalled();
+    expect(getPaymentAmountMock).toHaveBeenCalled();
+    expect(Logger.log.info).toBeCalled();
+  });
 });

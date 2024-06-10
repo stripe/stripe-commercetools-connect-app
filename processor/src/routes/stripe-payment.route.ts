@@ -2,6 +2,8 @@ import Stripe from 'stripe';
 import { SessionHeaderAuthenticationHook } from '@commercetools/connect-payments-sdk';
 import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import {
+  ConfigElementResponseSchema,
+  ConfigElementResponseSchemaDTO,
   PaymentRequestSchema,
   PaymentRequestSchemaDTO,
   PaymentResponseSchema,
@@ -93,6 +95,28 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
       }
 
       return reply.status(200).send();
+    },
+  );
+};
+
+export const configElementRoutes = async (
+  fastify: FastifyInstance,
+  opts: FastifyPluginOptions & PaymentRoutesOptions,
+) => {
+  fastify.get<{ Reply: ConfigElementResponseSchemaDTO }>(
+    '/get-config-element',
+    {
+      preHandler: [opts.sessionHeaderAuthHook.authenticate()],
+      schema: {
+        response: {
+          200: ConfigElementResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const resp = await opts.paymentService.getConfigElement();
+
+      return reply.status(200).send(resp);
     },
   );
 };

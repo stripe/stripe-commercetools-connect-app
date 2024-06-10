@@ -17,7 +17,7 @@ import { AbstractPaymentService } from './abstract-payment.service';
 import { getConfig } from '../config/config';
 import { paymentSDK } from '../payment-sdk';
 import { CaptureMethod, CreatePayment, StripePaymentServiceOptions } from './types/stripe-payment.type';
-import { PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/mock-payment.dto';
+import { ConfigElementResponseSchemaDTO, PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/mock-payment.dto';
 import { getCartIdFromContext, getPaymentInterfaceFromContext } from '../libs/fastify/context/context';
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
@@ -409,6 +409,32 @@ export class StripePaymentService extends AbstractPaymentService {
         error,
       );
     }
+  }
+
+  public async getConfigElement(): Promise<ConfigElementResponseSchemaDTO> {
+    const ctCart = await this.ctCartService.getCart({
+      id: getCartIdFromContext(),
+    });
+
+    const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
+    const appearance = getConfig().stripeElementAppearance;
+
+    log.info(`Cart and Stripe.Element config retrieved.`, {
+      cartId: ctCart.id,
+      cartInfo: {
+        amount: amountPlanned.centAmount,
+        currency: amountPlanned.currencyCode,
+      },
+      stripeElementAppearance: appearance,
+    });
+
+    return {
+      cartInfo: {
+        amount: amountPlanned.centAmount,
+        currency: amountPlanned.currencyCode,
+      },
+      appearance: appearance,
+    };
   }
 
   private getCtPaymentId(paymentIntent: Stripe.PaymentIntent): string {
