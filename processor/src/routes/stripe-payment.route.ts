@@ -14,6 +14,7 @@ import { stripeApi } from '../clients/stripe.client';
 import { getConfig } from '../config/config';
 import { StripePaymentService } from '../services/stripe-payment.service';
 import { StripeHeaderAuthHook } from '../libs/fastify/hooks/stripe-header-auth.hook';
+import { Type } from '@sinclair/typebox';
 
 type PaymentRoutesOptions = {
   paymentService: StripePaymentService;
@@ -103,18 +104,22 @@ export const configElementRoutes = async (
   fastify: FastifyInstance,
   opts: FastifyPluginOptions & PaymentRoutesOptions,
 ) => {
-  fastify.get<{ Reply: ConfigElementResponseSchemaDTO }>(
-    '/get-config-element',
+  fastify.get<{ Reply: ConfigElementResponseSchemaDTO; Params: { paymentComponent: string } }>(
+    '/get-config-element/:paymentComponent',
     {
       preHandler: [opts.sessionHeaderAuthHook.authenticate()],
       schema: {
+        params: {
+          paymentComponent: Type.String(),
+        },
         response: {
           200: ConfigElementResponseSchema,
         },
       },
     },
     async (request, reply) => {
-      const resp = await opts.paymentService.getConfigElement();
+      const { paymentComponent } = request.params;
+      const resp = await opts.paymentService.getConfigElement(paymentComponent);
 
       return reply.status(200).send(resp);
     },

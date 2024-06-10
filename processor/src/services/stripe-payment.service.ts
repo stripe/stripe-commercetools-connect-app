@@ -9,7 +9,10 @@ import {
   StatusResponse,
 } from './types/operation.type';
 
-import { SupportedPaymentComponentsSchemaDTO } from '../dtos/operations/payment-componets.dto';
+import {
+  PaymentComponentsSupported,
+  SupportedPaymentComponentsSchemaDTO,
+} from '../dtos/operations/payment-componets.dto';
 import { PaymentModificationStatus, PaymentTransactions } from '../dtos/operations/payment-intents.dto';
 import packageJSON from '../../package.json';
 
@@ -114,10 +117,10 @@ export class StripePaymentService extends AbstractPaymentService {
     return {
       components: [
         {
-          type: 'payment',
+          type: PaymentComponentsSupported.PAYMENT_ELEMENT.toString(),
         },
         {
-          type: 'expressCheckout',
+          type: PaymentComponentsSupported.EXPRESS_CHECKOUT.toString(),
         },
       ],
     };
@@ -411,13 +414,16 @@ export class StripePaymentService extends AbstractPaymentService {
     }
   }
 
-  public async getConfigElement(): Promise<ConfigElementResponseSchemaDTO> {
+  public async getConfigElement(opts: string): Promise<ConfigElementResponseSchemaDTO> {
     const ctCart = await this.ctCartService.getCart({
       id: getCartIdFromContext(),
     });
 
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
-    const appearance = getConfig().stripeElementAppearance;
+    const appearance =
+      opts.toUpperCase() === PaymentComponentsSupported.PAYMENT_ELEMENT.toString()
+        ? getConfig().stripePaymentElementAppearance
+        : getConfig().stripeExpressCheckoutAppearance;
 
     log.info(`Cart and Stripe.Element config retrieved.`, {
       cartId: ctCart.id,
