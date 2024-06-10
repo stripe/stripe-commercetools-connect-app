@@ -6,18 +6,24 @@
   "scripts": {
     "dev": "vite --port 3001",
     "start": "serve public -l 8080 --cors",
-    "test": "jest --detectOpenHandles",
+    "test": "jest",
+    "jest-clear-cache": "jest --clearCache",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "serve": "npm run build && serve public -l 3000 --cors"
   },
   "dependencies": {
+    "@babel/preset-typescript": "^7.24.7",
     "@stripe/stripe-js": "^3.3.0",
     "serve": "14.2.1"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "dotenv": "^16.4.5",
+    "esbuild-jest": "^0.5.0",
     "jest": "29.7.0",
+    "jest-environment-jsdom": "^29.7.0",
+    "jest-fetch-mock": "^3.0.3",
     "sass": "1.74.1",
     "ts-jest": "^29.1.2",
     "typescript": "5.4.4",

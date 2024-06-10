@@ -1,3 +1,4 @@
 # Code Editor directories and files
 .idea
 .env
+.env.test

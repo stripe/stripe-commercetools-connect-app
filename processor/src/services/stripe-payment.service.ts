@@ -1,20 +1,15 @@
 import { statusHandler, healthCheckCommercetoolsPermissions } from '@commercetools/connect-payments-sdk';
 
 import Stripe from 'stripe';
-import Stripe from 'stripe';
 
 import { paymentSDK } from '../payment-sdk';
 import packageJSON from '../../package.json';
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
-import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { getConfig } from '../config/config';
 import { PaymentIntentResponseSchemaDTO, PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/mock-payment.dto';
-import { PaymentIntentResponseSchemaDTO, PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/mock-payment.dto';
-import { log } from '../libs/logger';
 import { log } from '../libs/logger';
 import { SupportedPaymentComponentsSchemaDTO } from '../dtos/operations/payment-componets.dto';
 import { PaymentModificationStatus } from '../dtos/operations/payment-intents.dto';
-import { getCartIdFromContext, getPaymentInterfaceFromContext } from '../libs/fastify/context/context';
 import { getCartIdFromContext, getPaymentInterfaceFromContext } from '../libs/fastify/context/context';
 
 import { AbstractPaymentService } from './abstract-payment.service';

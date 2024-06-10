@@ -7,13 +7,12 @@ export class PaymentElement extends BaseStripePaymentComponent {
     private showPayButton : boolean;
 
     constructor(baseOptions: StripeElementConfiguration) {
-        console.log({baseOptions})
         super(baseOptions);
     }
 
     async submit(){
-        
-        let { errors : processorError } = await fetch(`${this.processorURL}/payments`,{
+
+        let { errors : processorError, ...res } = await fetch(`${this.processorURL}/payments`,{
             method : "POST",
             headers : {
                 "Content-Type": "application/json",

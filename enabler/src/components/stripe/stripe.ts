@@ -2,6 +2,7 @@ import { Stripe, StripeElements, StripeExpressCheckoutElementOptions, StripePaym
 import { PaymentElement } from "../payment-elements/payment-element";
 import { BaseConfiguration, StripeElementConfiguration } from "../base-configuration";
 import { ExpressCheckout } from "../payment-elements/express-checkout";
+import env from "../../constants";
 
 
 export type StripeElementType = {
@@ -33,20 +34,13 @@ export class StripePayment {
 
     private static async setup(options: BaseConfiguration) : Promise<SetupData> {
         
-        const stripeSDK = await loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
+        const stripeSDK = await loadStripe(env.VITE_STRIPE_PUBLISHABLE_KEY);
 
         let environment = "live";
-
-        if(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY?.includes("_test_")) {
+        
+        if(env.VITE_STRIPE_PUBLISHABLE_KEY?.includes("_test_")) {
             environment = "test"
         }
-        console.log({
-            configuration : {
-                environment, 
-                ...options
-            },
-            stripeSDK
-        })
         return {
             configuration : {
                 environment, 
@@ -74,10 +68,10 @@ export class StripePayment {
 
     async createStripeElement(stripeElement : StripeElementType) : Promise<PaymentElement | ExpressCheckout | never> {
         const { configuration, stripeSDK } = await this.setupData;
-        console.log({configuration})
+        
         if (!StripeElementTypes[stripeElement.type]){
             throw new Error(
-                `Component type not supported: ${stripeElement}. Supported types: ${Object.keys(
+                `Component type not supported: ${stripeElement.type}. Supported types: ${Object.keys(
                     StripeElementTypes
                 ).join(", ")}`
             );
