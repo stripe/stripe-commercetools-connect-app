@@ -4,7 +4,14 @@ import { StripeApiError, StripeApiErrorData } from '../errors/stripe-api.error';
 import { log } from '../libs/logger';
 
 export const stripeApi = (): Stripe => {
-  return new Stripe(getConfig().stripeSecretKey);
+  return new Stripe(getConfig().stripeSecretKey, {
+    appInfo: {
+      name: 'MyStripePlugin',
+      version: '1.2.34',
+      url: 'https://example.com',
+      partner_id: '{{PARTNER_ID}}',
+    },
+  });
 };
 
 export const wrapStripeError = (e: any): Error => {

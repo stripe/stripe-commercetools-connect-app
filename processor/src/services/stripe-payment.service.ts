@@ -21,6 +21,7 @@ import { PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/mock-payment.d
 import { getCartIdFromContext, getPaymentInterfaceFromContext } from '../libs/fastify/context/context';
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
+import crypto from 'crypto';
 
 export class StripePaymentService extends AbstractPaymentService {
   constructor(opts: StripePaymentServiceOptions) {
