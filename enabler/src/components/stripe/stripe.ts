@@ -62,20 +62,6 @@ export class StripePayment {
         }
         
         if (!this.elements){
-            
-            //TODO call api for initial configuration, amount, currency, theme configuration
-            // let {cartInfo : {amount, currency}, appearance} = fetch(`${configuration.processorURL}/get-config-element`, {
-            //     headers : {
-            //         "Content-Type": "application/json",
-            //         "x-session-id" : configuration.sessionId
-            //     }
-            // })
-            // .then(res => res.json());
-
-            // const appearance = {
-            //     variables: { colorPrimaryText: '#262626' }
-            // };
-
             this.elements = stripeSDK.elements?.({
                 //@ts-ignore
                 mode: 'payment',
@@ -87,8 +73,10 @@ export class StripePayment {
         
         switch(stripeElement.type) {
             case StripeElementTypes.payment : {
+
+                const element = this.elements.create(stripeElement.type, stripeElement.options as StripePaymentElementOptions); 
                 return new PaymentElement({
-                    element : this.elements.create(stripeElement.type, stripeElement.options as StripePaymentElementOptions),
+                    element,
                     stripeSDK,
                     elementsSDK : this.elements, 
                     clientSecret : this.clientSecret,
@@ -96,8 +84,9 @@ export class StripePayment {
                 });    
             }
             case StripeElementTypes.expressCheckout : {
+                const element = this.elements.create(stripeElement.type, stripeElement.options as StripeExpressCheckoutElementOptions);
                 return new ExpressCheckout({
-                    element : this.elements.create(stripeElement.type, stripeElement.options as StripeExpressCheckoutElementOptions),
+                    element,
                     stripeSDK,
                     elementsSDK : this.elements,
                     clientSecret : this.clientSecret,
@@ -117,6 +106,7 @@ export class StripePayment {
             this.elements = stripeSDK.elements?.({clientSecret : this.clientSecret});
         }
 
+        console.log(this.elements);
 
         return this.elements;
     }
