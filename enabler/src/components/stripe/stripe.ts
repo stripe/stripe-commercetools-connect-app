@@ -50,22 +50,6 @@ export class StripePayment {
         }
     }
 
-    private async createIntent() : Promise<void>{
-        const { configuration } = await this.setupData;
-        
-        const clientSecret = await fetch(`${configuration.processorURL}/getPaymentIntent`, {
-            method: "GET",
-            headers: {
-                "Content-Type" : "application/json",
-                "x-session-id" : configuration.sessionId
-            }
-        })
-        .then(res => res.json())
-        .then(({client_secret}) => client_secret);
-
-        this.clientSecret = clientSecret;
-    }
-
     async createStripeElement(stripeElement : StripeElementType) : Promise<PaymentElement | ExpressCheckout | never> {
         const { configuration, stripeSDK } = await this.setupData;
         
@@ -79,17 +63,25 @@ export class StripePayment {
         
         if (!this.elements){
             
-            await this.createIntent();
-            
-            const appearance = {
-                variables: { colorPrimaryText: '#262626' }
-            };
-            //elements require the client secret with the name client_secret, even when the Typescript type is writen as clientSecret
+            //TODO call api for initial configuration, amount, currency, theme configuration
+            // let {cartInfo : {amount, currency}, appearance} = fetch(`${configuration.processorURL}/get-config-element`, {
+            //     headers : {
+            //         "Content-Type": "application/json",
+            //         "x-session-id" : configuration.sessionId
+            //     }
+            // })
+            // .then(res => res.json());
+
+            // const appearance = {
+            //     variables: { colorPrimaryText: '#262626' }
+            // };
+
             this.elements = stripeSDK.elements?.({
                 //@ts-ignore
-                clientSecret : this.clientSecret,
-                //@ts-ignore
-                appearance,
+                mode: 'payment',
+                amount: 120,
+                currency: "usd",
+                appearance : {}
             })
         }
         
@@ -120,7 +112,7 @@ export class StripePayment {
         const { stripeSDK } = await this.setupData;
 
         if (!this.elements) {
-            await this.createIntent();            
+            // await this.createIntent();
 
             this.elements = stripeSDK.elements?.({clientSecret : this.clientSecret});
         }

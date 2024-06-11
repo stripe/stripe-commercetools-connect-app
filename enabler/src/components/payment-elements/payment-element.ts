@@ -12,28 +12,9 @@ export class PaymentElement extends BaseStripePaymentComponent {
 
     async submit(){
 
-        let { errors : processorError, ...res } = await fetch(`${this.processorURL}/payments`,{
-            method : "POST",
-            headers : {
-                "Content-Type": "application/json",
-                "x-session-id" : this.sessionId
-            },
-            body : JSON.stringify({
-                paymentMethod : {
-                    type : "card",
-                    paymentIntent : this.clientSecret
-                }
-            })
-        }).then(res => res.json())
-
-        //This process does NOT cancel the payment confirm
-        if ( processorError ) {
-            console.warn(`Error in processor: ${processorError}`)
-        }
-
-        let { error } = await this.stripeSDK.confirmPayment({
+        let { error, confirmationToken } = await this.stripeSDK.createConfirmationToken({
             elements: this.elementsSDK,
-            confirmParams : {
+            params : {
                 return_url : `${window.location.href}${this.returnURL}` 
             }
         });
@@ -42,6 +23,25 @@ export class PaymentElement extends BaseStripePaymentComponent {
             this.onError?.(error);
             
             return;
+        }
+
+        let { errors : processorError, sClientSecret, ...res } = await fetch(`${this.processorURL}/payments`,{
+            method : "POST",
+            headers : {
+                "Content-Type": "application/json",
+                "x-session-id" : this.sessionId
+            },
+            body : JSON.stringify({
+                paymentMethod : {
+                    type : "payment",
+                    paymentIntent : this.clientSecret
+                }
+            })
+        }).then(res => res.json())
+
+        //This process does NOT cancel the payment confirm
+        if ( processorError ) {
+            console.warn(`Error in processor: ${processorError}`)
         }
 
         this.onComplete();
