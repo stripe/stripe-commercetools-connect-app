@@ -33,6 +33,10 @@ deployAs:
           required: true
         - key: STRIPE_CAPTURE_METHOD
           description: Stripe capture method (manual or automatic)
+        - key: STRIPE_WEBHOOK_SECRET
+          description: Stripe Webhook signing secret
+        - key: STRIPE_WEBHOOK_ID
+          description: Stripe Webhook ID
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
           description: Commercetools client secret

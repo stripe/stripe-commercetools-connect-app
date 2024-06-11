@@ -27,6 +27,17 @@ export async function stripeWebhooksSetup(applicationUrl: string): Promise<void>
   }
 }
 
+export async function deleteStripeWebhook(): Promise<void> {
+  log.info(`Starting the process to delete Stripe Webhook[${process.env.STRIPE_WEBHOOK_ID}] of this application.`);
+
+  try {
+    const webhookId = process.env.STRIPE_WEBHOOK_ID || '';
+    await stripeApi().webhookEndpoints.del(webhookId);
+  } catch (error) {
+    log.error('[DELETE_STRIPE_WEBHOOK]', error);
+  }
+}
+
 /*async function getProcessorAppEndpoint(): Promise<string> {
   let endpoint = '';
 

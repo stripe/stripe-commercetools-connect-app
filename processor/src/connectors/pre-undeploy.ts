@@ -1,12 +1,10 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import { log } from '../libs/logger/index';
+import { deleteStripeWebhook } from './actions';
 
 async function preUndeploy() {
-  // TODO: Implement pre undeploy scripts if any
-  const webhookId = process.env.STRIPE_WEBHOOK_ID || '';
-  log.info(`----->>>>> pre-undeploy script, stripe webhook id:[${webhookId}]`);
+  await deleteStripeWebhook();
 }
 
 async function run() {
