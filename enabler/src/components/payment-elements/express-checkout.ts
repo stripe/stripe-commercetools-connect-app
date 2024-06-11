@@ -10,7 +10,7 @@ export class ExpressCheckout extends BaseStripePaymentComponent {
     }
 
     async submit(){
-        let { errors : processorError } = await fetch(`${this.processorURL}/payments`,{
+        let { errors : processorError, sClientSecret } = await fetch(`${this.processorURL}/payments`,{
             method : "POST",
             headers : {
                 "Content-Type": "application/json",
@@ -18,7 +18,7 @@ export class ExpressCheckout extends BaseStripePaymentComponent {
             },
             body : JSON.stringify({
                 paymentMethod : {
-                    type : "card",
+                    type : "expressCheckout",
                     paymentIntent : this.clientSecret
                 }
             })

@@ -9,7 +9,6 @@ import { StripePaymentElement } from '@stripe/stripe-js';
 
 describe("StripePayment Module", () => {
     let enablerInstance;
-    let windowSpy;
 
     let onActionRequired = jest.fn(() => Promise.resolve())
     let onComplete = () => {}
@@ -29,8 +28,6 @@ describe("StripePayment Module", () => {
 
         fetchMock.resetMocks();        
     })
-
-
 
     it("should setup enabler with mocks", async () => {
         const setupData = await enablerInstance.setupData;
