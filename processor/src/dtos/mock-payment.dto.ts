@@ -23,5 +23,14 @@ export const PaymentResponseSchema = Type.Object({
   sClientSecret: Type.String(),
 });
 
+export const ConfigElementResponseSchema = Type.Object({
+  cartInfo: Type.Object({
+    amount: Type.Number(),
+    currency: Type.String(),
+  }),
+  appearance: Type.Optional(Type.String()),
+});
+
 export type PaymentRequestSchemaDTO = Static<typeof PaymentRequestSchema>;
 export type PaymentResponseSchemaDTO = Static<typeof PaymentResponseSchema>;
+export type ConfigElementResponseSchemaDTO = Static<typeof ConfigElementResponseSchema>;

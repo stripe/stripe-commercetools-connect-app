@@ -19,6 +19,8 @@ export const config = {
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET || 'xxx',
   stripeCaptureMethod: process.env.STRIPE_CAPTURE_METHOD || 'automatic',
   mockEnvironment: process.env.MOCK_ENVIRONMENT || 'TEST',
+  stripePaymentElementAppearance: process.env.STRIPE_APPEARANCE_PAYMENT_ELEMENT,
+  stripeExpressCheckoutAppearance: process.env.STRIPE_APPEARANCE_EXPRESS_CHECKOUT,
 
   // Payment Providers config
   returnUrl: process.env.RETURN_URL,

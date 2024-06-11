@@ -218,7 +218,7 @@ export const mockStripeRetrievePaymentResult: Stripe.Response<Stripe.PaymentInte
   latest_charge: null,
   livemode: false,
   metadata: {
-    paymentId: 'asdf-1234'
+    paymentId: 'asdf-1234',
   },
   next_action: null,
   on_behalf_of: null,
