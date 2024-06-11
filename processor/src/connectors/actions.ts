@@ -1,13 +1,10 @@
 import Stripe from 'stripe';
-import { getConfig } from '../config/config';
 import { log } from '../libs/logger/index';
 import { stripeApi } from '../clients/stripe.client';
 
-export async function stripeWebhooksSetup(): Promise<void> {
-  log.info('--->>> Executing stripeWebhooksSetup() -> ' + getConfig().projectKey);
+export async function stripeWebhooksSetup(applicationUrl: string): Promise<void> {
+  log.info('--->>> Executing stripeWebhooksSetup() -> processor url:' + applicationUrl);
   try {
-    const processorAppEndpoint = await getProcessorAppEndpoint();
-
     const webhookEndpoint: Stripe.Response<Stripe.WebhookEndpoint> = await stripeApi().webhookEndpoints.create({
       enabled_events: [
         'payment_intent.payment_failed',
@@ -16,7 +13,7 @@ export async function stripeWebhooksSetup(): Promise<void> {
         'charge.refunded',
         'payment_intent.canceled',
       ],
-      url: `${processorAppEndpoint}stripe/webhooks`,
+      url: `${applicationUrl}stripe/webhooks`,
     });
 
     process.env.STRIPE_WEBHOOK_SECRET = webhookEndpoint.secret;
@@ -30,7 +27,7 @@ export async function stripeWebhooksSetup(): Promise<void> {
   }
 }
 
-async function getProcessorAppEndpoint(): Promise<string> {
+/*async function getProcessorAppEndpoint(): Promise<string> {
   let endpoint = '';
 
   const deployments = await getDeploymentByKey();
@@ -104,4 +101,4 @@ async function getAccessToken() {
       log.error(`Error at getting authentication token from commercetools`, error);
       throw new Error(error);
     });
-}
+}*/

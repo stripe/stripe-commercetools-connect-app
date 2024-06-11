@@ -4,10 +4,15 @@ dotenv.config();
 import { stripeWebhooksSetup } from './actions';
 import { log } from '../libs/logger/index';
 
+const CONNECT_APPLICATION_URL_KEY = 'CONNECT_SERVICE_URL';
+
 async function postDeploy(properties: any) {
   log.info('--->>> Executing postDeploy() -> ' + JSON.stringify(properties));
+
+  const applicationUrl = properties.get(CONNECT_APPLICATION_URL_KEY);
+
   if (properties) {
-    await stripeWebhooksSetup();
+    await stripeWebhooksSetup(applicationUrl);
   }
 }
 
