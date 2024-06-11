@@ -2,6 +2,8 @@ import Stripe from 'stripe';
 import { SessionHeaderAuthenticationHook } from '@commercetools/connect-payments-sdk';
 import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import {
+  ConfigElementResponseSchema,
+  ConfigElementResponseSchemaDTO,
   PaymentRequestSchema,
   PaymentRequestSchemaDTO,
   PaymentResponseSchema,
@@ -12,6 +14,7 @@ import { stripeApi } from '../clients/stripe.client';
 import { getConfig } from '../config/config';
 import { StripePaymentService } from '../services/stripe-payment.service';
 import { StripeHeaderAuthHook } from '../libs/fastify/hooks/stripe-header-auth.hook';
+import { Type } from '@sinclair/typebox';
 
 type PaymentRoutesOptions = {
   paymentService: StripePaymentService;
@@ -50,7 +53,7 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
     '/stripe/webhooks',
     {
       preHandler: opts.stripeHeaderAuthHook.authenticate(),
-      config: { rawBody: true }
+      config: { rawBody: true },
     },
     async (request, reply) => {
       const signature = request.headers['stripe-signature'] as string;
@@ -93,6 +96,32 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
       }
 
       return reply.status(200).send();
+    },
+  );
+};
+
+export const configElementRoutes = async (
+  fastify: FastifyInstance,
+  opts: FastifyPluginOptions & PaymentRoutesOptions,
+) => {
+  fastify.get<{ Reply: ConfigElementResponseSchemaDTO; Params: { paymentComponent: string } }>(
+    '/get-config-element/:paymentComponent',
+    {
+      preHandler: [opts.sessionHeaderAuthHook.authenticate()],
+      schema: {
+        params: {
+          paymentComponent: Type.String(),
+        },
+        response: {
+          200: ConfigElementResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { paymentComponent } = request.params;
+      const resp = await opts.paymentService.getConfigElement(paymentComponent);
+
+      return reply.status(200).send(resp);
     },
   );
 };

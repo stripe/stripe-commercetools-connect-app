@@ -9,7 +9,10 @@ import {
   StatusResponse,
 } from './types/operation.type';
 
-import { SupportedPaymentComponentsSchemaDTO } from '../dtos/operations/payment-componets.dto';
+import {
+  PaymentComponentsSupported,
+  SupportedPaymentComponentsSchemaDTO,
+} from '../dtos/operations/payment-componets.dto';
 import { PaymentModificationStatus, PaymentTransactions } from '../dtos/operations/payment-intents.dto';
 import packageJSON from '../../package.json';
 
@@ -17,10 +20,11 @@ import { AbstractPaymentService } from './abstract-payment.service';
 import { getConfig } from '../config/config';
 import { paymentSDK } from '../payment-sdk';
 import { CaptureMethod, CreatePayment, StripePaymentServiceOptions } from './types/stripe-payment.type';
-import { PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/mock-payment.dto';
+import { ConfigElementResponseSchemaDTO, PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/mock-payment.dto';
 import { getCartIdFromContext, getPaymentInterfaceFromContext } from '../libs/fastify/context/context';
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
+import crypto from 'crypto';
 
 export class StripePaymentService extends AbstractPaymentService {
   constructor(opts: StripePaymentServiceOptions) {
@@ -113,10 +117,10 @@ export class StripePaymentService extends AbstractPaymentService {
     return {
       components: [
         {
-          type: 'payment',
+          type: PaymentComponentsSupported.PAYMENT_ELEMENT.toString(),
         },
         {
-          type: 'expressCheckout',
+          type: PaymentComponentsSupported.EXPRESS_CHECKOUT.toString(),
         },
       ],
     };
@@ -137,7 +141,10 @@ export class StripePaymentService extends AbstractPaymentService {
 
   public async cancelPayment(request: CancelPaymentRequest): Promise<PaymentProviderModificationResponse> {
     try {
-      await stripeApi().paymentIntents.cancel(request.payment.interfaceId as string);
+      const idempotencyKey = crypto.randomUUID();
+      await stripeApi().paymentIntents.cancel(request.payment.interfaceId as string, {
+        idempotencyKey,
+      });
 
       return { outcome: PaymentModificationStatus.RECEIVED, pspReference: request.payment.interfaceId as string };
     } catch (e) {
@@ -147,9 +154,13 @@ export class StripePaymentService extends AbstractPaymentService {
 
   public async refundPayment(request: RefundPaymentRequest): Promise<PaymentProviderModificationResponse> {
     try {
-      await stripeApi().refunds.create({
-        payment_intent: request.payment.interfaceId,
-      });
+      const idempotencyKey = crypto.randomUUID();
+      await stripeApi().refunds.create(
+        {
+          payment_intent: request.payment.interfaceId,
+        },
+        { idempotencyKey },
+      );
 
       return { outcome: PaymentModificationStatus.RECEIVED, pspReference: request.payment.interfaceId as string };
     } catch (e) {
@@ -176,20 +187,27 @@ export class StripePaymentService extends AbstractPaymentService {
     const captureModeConfig = getConfig().stripeCaptureMethod;
     let paymentIntent!: Stripe.PaymentIntent;
     try {
+      const idempotencyKey = crypto.randomUUID();
       // obtain customer from ct to add to paymentIntent
-      paymentIntent = await stripeApi().paymentIntents.create({
-        confirm: true,
-        amount: amountPlanned.centAmount,
-        currency: amountPlanned.currencyCode,
-        confirmation_token: paymentMethod.confirmationToken,
-        automatic_payment_methods: {
-          enabled: true,
+      paymentIntent = await stripeApi().paymentIntents.create(
+        {
+          confirm: true,
+          amount: amountPlanned.centAmount,
+          currency: amountPlanned.currencyCode,
+          confirmation_token: paymentMethod.confirmationToken,
+          automatic_payment_methods: {
+            enabled: true,
+          },
+          capture_method: captureModeConfig as CaptureMethod,
+          metadata: {
+            order_id: ctCart.id,
+            commercetoolSiteId: getConfig().projectKey,
+          },
         },
-        capture_method: captureModeConfig as CaptureMethod,
-        metadata: {
-          order_id: ctCart.id,
+        {
+          idempotencyKey,
         },
-      });
+      );
     } catch (e) {
       throw wrapStripeError(e);
     }
@@ -234,11 +252,16 @@ export class StripePaymentService extends AbstractPaymentService {
     });
 
     try {
-      await stripeApi().paymentIntents.update(paymentIntent.id, {
-        metadata: {
-          paymentId: updatedPayment.id,
+      const idempotencyKey = crypto.randomUUID();
+      await stripeApi().paymentIntents.update(
+        paymentIntent.id,
+        {
+          metadata: {
+            paymentId: updatedPayment.id,
+          },
         },
-      });
+        { idempotencyKey },
+      );
     } catch (e) {
       throw wrapStripeError(e);
     }
@@ -389,6 +412,35 @@ export class StripePaymentService extends AbstractPaymentService {
         error,
       );
     }
+  }
+
+  public async getConfigElement(opts: string): Promise<ConfigElementResponseSchemaDTO> {
+    const ctCart = await this.ctCartService.getCart({
+      id: getCartIdFromContext(),
+    });
+
+    const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
+    const appearance =
+      opts.toUpperCase() === PaymentComponentsSupported.PAYMENT_ELEMENT.toString()
+        ? getConfig().stripePaymentElementAppearance
+        : getConfig().stripeExpressCheckoutAppearance;
+
+    log.info(`Cart and Stripe.Element config retrieved.`, {
+      cartId: ctCart.id,
+      cartInfo: {
+        amount: amountPlanned.centAmount,
+        currency: amountPlanned.currencyCode,
+      },
+      stripeElementAppearance: appearance,
+    });
+
+    return {
+      cartInfo: {
+        amount: amountPlanned.centAmount,
+        currency: amountPlanned.currencyCode,
+      },
+      appearance: appearance,
+    };
   }
 
   private getCtPaymentId(paymentIntent: Stripe.PaymentIntent): string {
