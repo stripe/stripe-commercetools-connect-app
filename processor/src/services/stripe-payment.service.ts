@@ -273,13 +273,9 @@ export class StripePaymentService extends AbstractPaymentService {
     try {
       const paymentIntentId = charge.data.object.payment_intent as string;
 
-      const paymentIntent = await stripeApi().paymentIntents.retrieve(paymentIntentId);
-
-      const ctPaymentId = this.getCtPaymentId(paymentIntent);
-
       if (charge.data.object.captured) {
         await this.ctPaymentService.updatePayment({
-          id: ctPaymentId,
+          id: charge.data.object.metadata.ct_payment_id || '',
           transaction: {
             type: PaymentTransactions.REFUND,
             amount: {
@@ -459,7 +455,7 @@ export class StripePaymentService extends AbstractPaymentService {
   }
 
   private getCtPaymentId(paymentIntent: Stripe.PaymentIntent): string {
-    return paymentIntent.metadata.paymentId || '';
+    return paymentIntent.metadata.ct_payment_id || '';
   }
 
   private convertPaymentResultCode(resultCode: PaymentOutcome): string {
