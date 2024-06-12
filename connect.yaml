@@ -10,9 +10,6 @@ deployAs:
         - key: CTP_PROJECT_KEY
           description: Commercetools project key
           required: true
-        - key: CTP_SCOPE
-          description: Commercetools client scope
-          required: true
         - key: CTP_AUTH_URL
           description: Commercetools Auth URL
           required: true
@@ -21,9 +18,6 @@ deployAs:
           required: true
         - key: CTP_SESSION_URL
           description: Session API URL
-          required: true
-        - key: CTP_CONNECT_URL
-          description: Connect API URL
           required: true
         - key: CTP_JWKS_URL
           description: JWKs url
