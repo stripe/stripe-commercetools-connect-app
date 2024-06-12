@@ -14,6 +14,7 @@ import { stripeApi } from '../clients/stripe.client';
 import { StripePaymentService } from '../services/stripe-payment.service';
 import { StripeHeaderAuthHook } from '../libs/fastify/hooks/stripe-header-auth.hook';
 import { Type } from '@sinclair/typebox';
+import { getConfig } from '../config/config';
 
 type PaymentRoutesOptions = {
   paymentService: StripePaymentService;
@@ -57,20 +58,18 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
     async (request, reply) => {
       const signature = request.headers['stripe-signature'] as string;
 
-      const stApi = await stripeApi();
       let event: Stripe.Event;
 
-      // This env var is assigned in the post-deploy script after the deployment has been successful
-      const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
+      const stripeWebhookSecret = getConfig().stripeWebhookSecret;
 
       if (stripeWebhookSecret === '') {
         const errorMsg =
-          'The Stripe Webhook Signing Secret is not configured, therefore events can not be accepted. Check logs with tag [REGISTER_STRIPE_WEBHOOK] for more information.';
+          'The Stripe Webhook Signing Secret is not configured, therefore events can not be accepted. Update this env var in the deployment and execute a redeploy.';
         log.error(errorMsg);
         return reply.status(400).send(`Webhook Error: ${errorMsg}`);
       } else {
         try {
-          event = stApi.webhooks.constructEvent(request.rawBody as string, signature, stripeWebhookSecret);
+          event = await stripeApi().webhooks.constructEvent(request.rawBody as string, signature, stripeWebhookSecret);
         } catch (err: any) {
           log.error(JSON.stringify(err));
           return reply.status(400).send(`Webhook Error: ${err.message}`);

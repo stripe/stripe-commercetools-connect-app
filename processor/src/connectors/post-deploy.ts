@@ -1,25 +1,22 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import { stripeWebhooksSetup } from './actions';
-import { log } from '../libs/logger/index';
+import { createStripeWebhook } from './actions';
 
 const CONNECT_APPLICATION_URL_KEY = 'CONNECT_SERVICE_URL';
 
 async function postDeploy(properties: any) {
-  log.info('--->>> Executing postDeploy() -> ' + JSON.stringify(properties));
-
   const applicationUrl = properties.get(CONNECT_APPLICATION_URL_KEY);
 
   if (properties) {
-    await stripeWebhooksSetup(applicationUrl);
+    await createStripeWebhook(applicationUrl);
   }
 }
 
 async function runPostDeployScripts() {
   try {
     const properties = new Map(Object.entries(process.env));
-    log.info('--->>> Executing runPostDeployScripts()');
+
     await postDeploy(properties);
   } catch (error) {
     if (error instanceof Error) {

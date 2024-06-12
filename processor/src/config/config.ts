@@ -17,7 +17,7 @@ export const config = {
 
   // Update with specific payment providers config
   stripeSecretKey: process.env.STRIPE_SECRET_KEY || 'stripeSecretKey',
-  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET || 'xxx',
+  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
   stripeCaptureMethod: process.env.STRIPE_CAPTURE_METHOD || 'automatic',
   mockEnvironment: process.env.MOCK_ENVIRONMENT || 'TEST',
   stripePaymentElementAppearance: process.env.STRIPE_APPEARANCE_PAYMENT_ELEMENT,
