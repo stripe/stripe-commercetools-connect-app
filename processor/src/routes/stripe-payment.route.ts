@@ -4,8 +4,6 @@ import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import {
   ConfigElementResponseSchema,
   ConfigElementResponseSchemaDTO,
-  PaymentRequestSchema,
-  PaymentRequestSchemaDTO,
   PaymentResponseSchema,
   PaymentResponseSchemaDTO,
 } from '../dtos/mock-payment.dto';
@@ -27,21 +25,18 @@ type StripeRoutesOptions = {
 };
 
 export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPluginOptions & PaymentRoutesOptions) => {
-  fastify.post<{ Body: PaymentRequestSchemaDTO; Reply: PaymentResponseSchemaDTO }>(
+  fastify.get<{ Reply: PaymentResponseSchemaDTO }>(
     '/payments',
     {
       preHandler: [opts.sessionHeaderAuthHook.authenticate()],
       schema: {
-        body: PaymentRequestSchema,
         response: {
           200: PaymentResponseSchema,
         },
       },
     },
     async (request, reply) => {
-      const resp = await opts.paymentService.createPayment({
-        data: request.body,
-      });
+      const resp = await opts.paymentService.createPaymentIntentStripe();
 
       return reply.status(200).send(resp);
     },

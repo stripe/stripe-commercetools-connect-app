@@ -2,11 +2,16 @@ import { Static, Type } from '@sinclair/typebox';
 
 export const CreatePaymentMethodSchema = Type.Object({
   type: Type.String(),
-  confirmationToken: Type.String(),
 });
 
 export const PaymentRequestSchema = Type.Object({
   paymentMethod: Type.Composite([CreatePaymentMethodSchema]),
+  cart: Type.Object({
+    id: Type.String(),
+  }),
+  paymentIntent: Type.Object({
+    id: Type.String(),
+  }),
 });
 
 export enum PaymentOutcome {
@@ -19,8 +24,8 @@ export const PaymentOutcomeSchema = Type.Enum(PaymentOutcome);
 
 export const PaymentResponseSchema = Type.Object({
   outcome: PaymentOutcomeSchema,
-  ctPaymentReference: Type.String(),
-  sClientSecret: Type.String(),
+  ctPaymentReference: Type.Optional(Type.String()),
+  sClientSecret: Type.Optional(Type.String()),
 });
 
 export const ConfigElementResponseSchema = Type.Object({

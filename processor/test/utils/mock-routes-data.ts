@@ -594,9 +594,8 @@ export const mockEvent__paymentIntent_canceled: Stripe.Event = {
 };
 
 export const mockRoute__payments_succeed: PaymentResponseSchemaDTO = {
-  outcome: PaymentOutcome.INITIAL,
+  outcome: PaymentOutcome.AUTHORIZED,
   ctPaymentReference: 'mock_paymentReference',
-  sClientSecret: 'mock_client_secret',
 };
 
 export const mockRoute__paymentsComponents_succeed: SupportedPaymentComponentsSchemaDTO = {
