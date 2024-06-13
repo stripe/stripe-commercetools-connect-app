@@ -226,37 +226,32 @@ export class StripePaymentService extends AbstractPaymentService {
   }
 
   /**
-   * Set payment transaction type 'Authorization' to status 'success' (money is ready to be capture).
+   * If the capture mode is 'manual' create a payment in ct and update the payment_intent metadata in Stripe.
    *
    * @remarks MVP: The amount to authorize is the total of the order
    * @param {Stripe.Event} event - Event sent by Stripe webhooks.
    */
-  public async setAuthorizationSuccessPayment(event: Stripe.Event) {
-    const paymentIntent = event.data.object as Stripe.PaymentIntent;
+  public async authorizePaymentInCt(event: Stripe.Event) {
+    const charge = event.data.object as Stripe.Charge;
 
-    try {
-      const ctPaymentId = this.getCtPaymentId(paymentIntent);
-      log.info(
-        `setAuthorizationSuccessPayment() function: get ct_payment[${ctPaymentId}] associated with payment_intent[${paymentIntent.id}]`,
-      );
-      const ctPayment = await this.ctPaymentService.getPayment({
-        id: ctPaymentId,
-      });
-
-      await this.ctPaymentService.updatePayment({
-        id: ctPayment.id,
-        transaction: {
-          type: PaymentTransactions.AUTHORIZATION,
-          amount: ctPayment.amountPlanned,
-          interactionId: paymentIntent.id,
-          state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
+    if (!charge.captured) {
+      const createPaymentRequest: PaymentRequestSchemaDTO = {
+        paymentMethod: {
+          type: charge.payment_method as string,
         },
-      });
-    } catch (error) {
-      log.error(
-        `Error at setAuthorizationSuccessPayment() function, processing payment_intent[${paymentIntent.id}]:`,
-        error,
-      );
+        cart: {
+          id: charge.metadata.cart_id,
+        },
+        paymentIntent: {
+          id: charge.payment_intent as string,
+        },
+      };
+
+      try {
+        await this.createPaymentCt(createPaymentRequest, PaymentTransactions.AUTHORIZATION);
+      } catch (error) {
+        log.error(`Error processing charge.succeeded[${charge.id}] received from webhook.`, error);
+      }
     }
   }
 
@@ -385,7 +380,16 @@ export class StripePaymentService extends AbstractPaymentService {
     };
   }
 
-  private async createPaymentCt(opts: PaymentRequestSchemaDTO): Promise<PaymentResponseSchemaDTO> {
+  /**
+   * Create a new payment in ct, add the new payment to the cart and update the payment_intent metadata.
+   * @param {PaymentRequestSchemaDTO} opts - Information about the payment in Stripe
+   * @param {string} transactionType - Transaction type to add to the payment in ct once is created
+   * @returns 
+   */
+  private async createPaymentCt(
+    opts: PaymentRequestSchemaDTO,
+    transactionType: string,
+  ): Promise<PaymentResponseSchemaDTO> {
     const ctCart = await this.ctCartService.getCart({
       id: opts.cart.id,
     });
@@ -408,6 +412,7 @@ export class StripePaymentService extends AbstractPaymentService {
         },
       }),
     });
+
     await this.ctCartService.addPayment({
       resource: {
         id: ctCart.id,
@@ -420,7 +425,7 @@ export class StripePaymentService extends AbstractPaymentService {
       id: ctPayment.id,
       paymentMethod: paymentMethod.type,
       transaction: {
-        type: PaymentTransactions.AUTHORIZATION,
+        type: transactionType,
         amount: ctPayment.amountPlanned,
         interactionId: opts.paymentIntent.id,
         state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
