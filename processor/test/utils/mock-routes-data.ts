@@ -320,7 +320,9 @@ export const mockEvent__charge_refund_captured: Stripe.Event = {
       fraud_details: {},
       invoice: null,
       livemode: false,
-      metadata: {},
+      metadata: {
+        ct_payment_id: 'pi_11111',
+      },
       on_behalf_of: null,
       outcome: {
         network_status: 'approved_by_network',
@@ -444,7 +446,9 @@ export const mockEvent__charge_refund_notCaptured: Stripe.Event = {
       fraud_details: {},
       invoice: null,
       livemode: false,
-      metadata: {},
+      metadata: {
+        ct_payment_id: 'pi_11111',
+      },
       on_behalf_of: null,
       outcome: {
         network_status: 'approved_by_network',
