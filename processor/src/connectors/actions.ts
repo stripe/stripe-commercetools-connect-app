@@ -1,27 +1,33 @@
+import Stripe from 'stripe';
 import { log } from '../libs/logger/index';
 import { stripeApi } from '../clients/stripe.client';
 
 export async function createStripeWebhook(applicationUrl: string): Promise<void> {
-  log.info(`Starting the process to create Stripe Webhook for this application[${applicationUrl}].`);
+  log.info(`Starting the process for creating Stripe Webhook for this application[${applicationUrl}].`);
 
   try {
-    await stripeApi().webhookEndpoints.create({
+    const result: Stripe.WebhookEndpoint = await stripeApi().webhookEndpoints.create({
       enabled_events: [
-        'payment_intent.payment_failed',
-        'payment_intent.succeeded',
-        'payment_intent.amount_capturable_updated',
+        'charge.succeeded',
         'charge.refunded',
         'payment_intent.canceled',
+        'payment_intent.succeeded',
+        'payment_intent.payment_failed',
+        'payment_intent.requires_action',
       ],
       url: `${applicationUrl}stripe/webhooks`,
     });
+
+    log.info(`[CREATE_STRIPE_WEBHOOK] Stripe webhook endpoint created: ${result.id}`);
   } catch (error) {
-    log.error('[REGISTER_STRIPE_WEBHOOK]', error);
+    log.error('[CREATE_STRIPE_WEBHOOK]', error);
   }
 }
 
 export async function deleteStripeWebhook(): Promise<void> {
-  log.info(`Starting the process to delete Stripe Webhook[${process.env.STRIPE_WEBHOOK_ID}] of this application.`);
+  log.info(
+    `[DELETE_STRIPE_WEBHOOK] Starting the process for deleting Stripe Webhook[${process.env.STRIPE_WEBHOOK_ID}] of this application.`,
+  );
 
   try {
     const webhookId = process.env.STRIPE_WEBHOOK_ID || '';
