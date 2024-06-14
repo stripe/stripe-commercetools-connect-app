@@ -283,7 +283,6 @@ describe('stripe-payment.service', () => {
     }).rejects.toThrow();
   });
 
-
   test('authorizePaymentInCt succeeded, with a payment not captured it should create a payment in ct and update the payment_intent metadata', async () => {
     Stripe.prototype.paymentIntents = {
       update: jest.fn(),
@@ -326,7 +325,6 @@ describe('stripe-payment.service', () => {
   });
 
   test('authorizePaymentInCt failed, stripeApi().paymentIntents.update function throws an error', async () => {
-
     Stripe.prototype.paymentIntents = {
       update: jest.fn(),
     } as unknown as Stripe.PaymentIntentsResource;
@@ -386,7 +384,7 @@ describe('stripe-payment.service', () => {
       const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
       const result = await stripePaymentService.createPaymentIntentStripe();
 
-      expect(result.outcome).toStrictEqual('Authorized');
+      expect(result.sClientSecret).toStrictEqual(mockStripeCreatePaymentResult.client_secret);
       expect(result).toBeDefined();
 
       // Or check that the relevant mocks have been called
