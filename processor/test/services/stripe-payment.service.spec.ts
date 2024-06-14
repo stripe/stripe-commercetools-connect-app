@@ -17,7 +17,8 @@ import {
   mockEvent__charge_refund_captured,
   mockEvent__charge_refund_notCaptured,
   mockEvent__paymentIntent_canceled,
-  mockEvent__paymentIntent_succeeded,
+  mockEvent__paymentIntent_succeeded_captureMethodManual,
+  mockEvent__paymentIntent_succeeded_captureMethodAutomatic,
   mockEvent__charge_succeeded_notCaptured,
   mockEvent__charge_succeeded_captured,
 } from '../utils/mock-routes-data';
@@ -571,26 +572,62 @@ describe('stripe-payment.service', () => {
     expect(Logger.log.error).toBeCalled();
   });
 
-  test('chargePaymentInCt succeeded', async () => {
+  test('chargePaymentInCt succeeded, with "capture_method"="manual" should add a "Charge" transaction to ct payment', async () => {
     const thisPaymentService: StripePaymentService = new StripePaymentService(opts);
 
     jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
 
-    await thisPaymentService.chargePaymentInCt(mockEvent__paymentIntent_succeeded);
+    await thisPaymentService.chargePaymentInCt(mockEvent__paymentIntent_succeeded_captureMethodManual);
 
     expect(DefaultPaymentService.prototype.updatePayment).toBeCalled();
   });
 
-  test('chargePaymentInCt, ctPaymentService.updatePayment function throws error', async () => {
+  test('chargePaymentInCt failed, with "capture_method"="manual" ctPaymentService.updatePayment() function throws error', async () => {
     const thisPaymentService: StripePaymentService = new StripePaymentService(opts);
 
     jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockImplementation(() => {
       throw new Error('error');
     });
 
-    await thisPaymentService.chargePaymentInCt(mockEvent__paymentIntent_succeeded);
+    await thisPaymentService.chargePaymentInCt(mockEvent__paymentIntent_succeeded_captureMethodManual);
 
     expect(Logger.log.error).toBeCalled();
+  });
+
+  test('chargePaymentInCt succeeded, with "capture_method"="automatic" should execute createPaymentCt()', async () => {
+    Stripe.prototype.paymentIntents = {
+      update: jest.fn(),
+    } as unknown as Stripe.PaymentIntentsResource;
+
+    const getCartMock = jest
+      .spyOn(DefaultCartService.prototype, 'getCart')
+      .mockReturnValue(Promise.resolve(mockGetCartResult()));
+    const getPaymentAmountMock = jest
+      .spyOn(DefaultCartService.prototype, 'getPaymentAmount')
+      .mockResolvedValue(mockGetPaymentAmount);
+    const createCtPaymentMock = jest
+      .spyOn(DefaultPaymentService.prototype, 'createPayment')
+      .mockResolvedValue(mockGetPaymentResult);
+    const addPaymentMock = jest
+      .spyOn(DefaultCartService.prototype, 'addPayment')
+      .mockResolvedValue(mockGetCartResult());
+    const updatePaymentMock = jest
+      .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+      .mockReturnValue(Promise.resolve(mockGetPaymentResult));
+    const updatePaymentIntentMock = jest
+      .spyOn(Stripe.prototype.paymentIntents, 'update')
+      .mockReturnValue(Promise.resolve(mockStripeUpdatePaymentResult));
+    jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockResolvedValue(mockGetPaymentResult);
+
+    const thisPaymentService: StripePaymentService = new StripePaymentService(opts);
+    await thisPaymentService.chargePaymentInCt(mockEvent__paymentIntent_succeeded_captureMethodAutomatic);
+
+    expect(getCartMock).toBeCalled();
+    expect(getPaymentAmountMock).toBeCalled();
+    expect(createCtPaymentMock).toBeCalled();
+    expect(addPaymentMock).toBeCalled();
+    expect(updatePaymentMock).toBeCalled();
+    expect(updatePaymentIntentMock).toBeCalled();
   });
 
   test('getConfigElement succeeded', async () => {

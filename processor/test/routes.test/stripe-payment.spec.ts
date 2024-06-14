@@ -17,7 +17,7 @@ import { StripePaymentService } from '../../src/services/stripe-payment.service'
 import {
   mockEvent__paymentIntent_processing,
   mockEvent__paymentIntent_paymentFailed,
-  mockEvent__paymentIntent_succeeded,
+  mockEvent__paymentIntent_succeeded_captureMethodManual,
   mockEvent__charge_refund_captured,
   mockEvent__paymentIntent_canceled,
   mockRoute__payments_succeed,
@@ -163,7 +163,9 @@ describe('Stripe Payment APIs', () => {
 
       // Set mocked functions to Stripe and spyOn to set the result expected
       Stripe.prototype.webhooks = { constructEvent: jest.fn() } as unknown as Stripe.Webhooks;
-      jest.spyOn(Stripe.prototype.webhooks, 'constructEvent').mockReturnValue(mockEvent__paymentIntent_succeeded);
+      jest
+        .spyOn(Stripe.prototype.webhooks, 'constructEvent')
+        .mockReturnValue(mockEvent__paymentIntent_succeeded_captureMethodManual);
 
       //When
       const response = await fastifyApp.inject({
