@@ -18,7 +18,7 @@ import packageJSON from '../../package.json';
 
 import { AbstractPaymentService } from './abstract-payment.service';
 import { getConfig } from '../config/config';
-import { paymentSDK } from '../payment-sdk';
+import { appLogger, paymentSDK } from '../payment-sdk';
 import { CaptureMethod, StripePaymentServiceOptions } from './types/stripe-payment.type';
 import {
   ConfigElementResponseSchemaDTO,
@@ -64,6 +64,7 @@ export class StripePaymentService extends AbstractPaymentService {
   public async status(): Promise<StatusResponse> {
     const handler = await statusHandler({
       timeout: getConfig().healthCheckTimeout,
+      log: appLogger,
       checks: [
         healthCheckCommercetoolsPermissions({
           requiredPermissions: [
