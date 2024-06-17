@@ -188,7 +188,7 @@ export class StripePaymentService extends AbstractPaymentService {
     });
 
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
-    const captureModeConfig = getConfig().stripeCaptureMethod;
+    const captureMethodConfig = getConfig().stripeCaptureMethod;
     let paymentIntent!: Stripe.PaymentIntent;
     try {
       const idempotencyKey = crypto.randomUUID();
@@ -201,7 +201,7 @@ export class StripePaymentService extends AbstractPaymentService {
           automatic_payment_methods: {
             enabled: true,
           },
-          capture_method: captureModeConfig as CaptureMethod,
+          capture_method: captureMethodConfig as CaptureMethod,
           metadata: {
             cart_id: ctCart.id,
             ct_project_key: getConfig().projectKey,
@@ -377,6 +377,7 @@ export class StripePaymentService extends AbstractPaymentService {
         currency: amountPlanned.currencyCode,
       },
       appearance: appearance,
+      captureMethod: getConfig().stripeCaptureMethod,
     };
   }
 

@@ -555,6 +555,7 @@ export const mockRoute__get_config_element_succeed: ConfigElementResponseSchemaD
     amount: 10000,
   },
   appearance: '',
+  captureMethod: 'captureMethod',
 };
 
 export const mockEvent__charge_succeeded_notCaptured: Stripe.Event = {
