@@ -79,14 +79,14 @@ export class StripePaymentService extends AbstractPaymentService {
         }),
         async () => {
           try {
-            const paymentMethods = await stripeApi().paymentMethods.list({
+            const result = await stripeApi().paymentMethods.list({
               limit: 3,
             });
             return {
               name: 'Stripe Status check',
               status: 'UP',
               details: {
-                paymentMethods,
+                paymentMethods: result.data,
               },
             };
           } catch (e) {

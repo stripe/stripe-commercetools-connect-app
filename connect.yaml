@@ -29,6 +29,10 @@ deployAs:
         - key: STRIPE_WEBHOOK_ID
           description: Stripe Webhook ID
           required: true
+        - key: STRIPE_APPEARANCE_PAYMENT_ELEMENT
+          description: Stripe Appearance for Payment Element.
+        - key: STRIPE_APPEARANCE_EXPRESS_CHECKOUT
+          description: Stripe Appearance for Express Checkout Element.
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
           description: Commercetools client secret
