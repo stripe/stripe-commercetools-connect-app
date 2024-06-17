@@ -531,8 +531,7 @@ export const mockEvent__paymentIntent_canceled: Stripe.Event = {
 };
 
 export const mockRoute__payments_succeed: PaymentResponseSchemaDTO = {
-  outcome: PaymentOutcome.AUTHORIZED,
-  ctPaymentReference: 'mock_paymentReference',
+  sClientSecret: 'mock_paymentReference',
 };
 
 export const mockRoute__paymentsComponents_succeed: SupportedPaymentComponentsSchemaDTO = {
@@ -582,11 +581,11 @@ export const mockEvent__charge_succeeded_notCaptured: Stripe.Event = {
           line1: null,
           line2: null,
           postal_code: '13132',
-          state: null
+          state: null,
         },
         email: null,
         name: null,
-        phone: null
+        phone: null,
       },
       calculated_statement_descriptor: 'AAAAAAA',
       captured: false,
@@ -598,12 +597,11 @@ export const mockEvent__charge_succeeded_notCaptured: Stripe.Event = {
       failure_balance_transaction: null,
       failure_code: null,
       failure_message: null,
-      fraud_details: {
-      },
+      fraud_details: {},
       invoice: null,
       livemode: false,
       metadata: {
-        'cart_id': '11111-22222',
+        cart_id: '11111-22222',
       },
       on_behalf_of: null,
       outcome: {
@@ -612,7 +610,7 @@ export const mockEvent__charge_succeeded_notCaptured: Stripe.Event = {
         risk_level: 'normal',
         risk_score: 14,
         seller_message: 'Payment complete.',
-        type: 'authorized'
+        type: 'authorized',
       },
       paid: true,
       payment_intent: 'pi_11111',
@@ -625,40 +623,39 @@ export const mockEvent__charge_succeeded_notCaptured: Stripe.Event = {
           checks: {
             address_line1_check: null,
             address_postal_code_check: 'pass',
-            cvc_check: 'pass'
+            cvc_check: 'pass',
           },
           country: 'US',
           exp_month: 12,
           exp_year: 2025,
           extended_authorization: {
-            status: 'disabled'
+            status: 'disabled',
           },
           fingerprint: '11111',
           funding: 'credit',
           incremental_authorization: {
-            status: 'unavailable'
+            status: 'unavailable',
           },
           installments: null,
           last4: '1111',
           mandate: null,
           multicapture: {
-            status: 'unavailable'
+            status: 'unavailable',
           },
           network: 'visa',
           network_token: {
-            used: false
+            used: false,
           },
           overcapture: {
             maximum_amount_capturable: 123100,
-            status: 'unavailable'
+            status: 'unavailable',
           },
           three_d_secure: null,
-          wallet: null
+          wallet: null,
         },
-        type: 'card'
+        type: 'card',
       },
-      radar_options: {
-      },
+      radar_options: {},
       receipt_email: null,
       receipt_number: null,
       receipt_url: 'https://pay.stripe.com/receipts/payment/11111',
@@ -671,16 +668,16 @@ export const mockEvent__charge_succeeded_notCaptured: Stripe.Event = {
       statement_descriptor_suffix: null,
       status: 'succeeded',
       transfer_data: null,
-      transfer_group: null
-    }
+      transfer_group: null,
+    },
   },
   livemode: false,
   pending_webhooks: 1,
   request: {
     id: 'req_11111',
-    idempotency_key: '7ae634ca-11111'
+    idempotency_key: '7ae634ca-11111',
   },
-  type: 'charge.succeeded'
+  type: 'charge.succeeded',
 };
 
 export const mockEvent__charge_succeeded_captured: Stripe.Event = {
@@ -706,11 +703,11 @@ export const mockEvent__charge_succeeded_captured: Stripe.Event = {
           line1: null,
           line2: null,
           postal_code: '13132',
-          state: null
+          state: null,
         },
         email: null,
         name: null,
-        phone: null
+        phone: null,
       },
       calculated_statement_descriptor: 'AAAAAAA',
       captured: true,
@@ -722,12 +719,11 @@ export const mockEvent__charge_succeeded_captured: Stripe.Event = {
       failure_balance_transaction: null,
       failure_code: null,
       failure_message: null,
-      fraud_details: {
-      },
+      fraud_details: {},
       invoice: null,
       livemode: false,
       metadata: {
-        'cart_id': '11111-22222',
+        cart_id: '11111-22222',
       },
       on_behalf_of: null,
       outcome: {
@@ -736,7 +732,7 @@ export const mockEvent__charge_succeeded_captured: Stripe.Event = {
         risk_level: 'normal',
         risk_score: 14,
         seller_message: 'Payment complete.',
-        type: 'authorized'
+        type: 'authorized',
       },
       paid: true,
       payment_intent: 'pi_11111',
@@ -749,40 +745,39 @@ export const mockEvent__charge_succeeded_captured: Stripe.Event = {
           checks: {
             address_line1_check: null,
             address_postal_code_check: 'pass',
-            cvc_check: 'pass'
+            cvc_check: 'pass',
           },
           country: 'US',
           exp_month: 12,
           exp_year: 2025,
           extended_authorization: {
-            status: 'disabled'
+            status: 'disabled',
           },
           fingerprint: '11111',
           funding: 'credit',
           incremental_authorization: {
-            status: 'unavailable'
+            status: 'unavailable',
           },
           installments: null,
           last4: '1111',
           mandate: null,
           multicapture: {
-            status: 'unavailable'
+            status: 'unavailable',
           },
           network: 'visa',
           network_token: {
-            used: false
+            used: false,
           },
           overcapture: {
             maximum_amount_capturable: 123100,
-            status: 'unavailable'
+            status: 'unavailable',
           },
           three_d_secure: null,
-          wallet: null
+          wallet: null,
         },
-        type: 'card'
+        type: 'card',
       },
-      radar_options: {
-      },
+      radar_options: {},
       receipt_email: null,
       receipt_number: null,
       receipt_url: 'https://pay.stripe.com/receipts/payment/11111',
@@ -795,14 +790,14 @@ export const mockEvent__charge_succeeded_captured: Stripe.Event = {
       statement_descriptor_suffix: null,
       status: 'succeeded',
       transfer_data: null,
-      transfer_group: null
-    }
+      transfer_group: null,
+    },
   },
   livemode: false,
   pending_webhooks: 1,
   request: {
     id: 'req_11111',
-    idempotency_key: '7ae634ca-11111'
+    idempotency_key: '7ae634ca-11111',
   },
-  type: 'charge.succeeded'
+  type: 'charge.succeeded',
 };

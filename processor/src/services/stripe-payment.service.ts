@@ -22,6 +22,7 @@ import { paymentSDK } from '../payment-sdk';
 import { CaptureMethod, StripePaymentServiceOptions } from './types/stripe-payment.type';
 import {
   ConfigElementResponseSchemaDTO,
+  CtPaymentSchemaDTO,
   PaymentOutcome,
   PaymentRequestSchemaDTO,
   PaymentResponseSchemaDTO,
@@ -220,7 +221,6 @@ export class StripePaymentService extends AbstractPaymentService {
     });
 
     return {
-      outcome: PaymentOutcome.AUTHORIZED,
       sClientSecret: paymentIntent.client_secret ?? '',
     };
   }
@@ -385,12 +385,9 @@ export class StripePaymentService extends AbstractPaymentService {
    * Create a new payment in ct, add the new payment to the cart and update the payment_intent metadata.
    * @param {PaymentRequestSchemaDTO} opts - Information about the payment in Stripe
    * @param {string} transactionType - Transaction type to add to the payment in ct once is created
-   * @returns
+   * @returns {CtPaymentSchemaDTO} - Commercetools payment reference
    */
-  private async createPaymentCt(
-    opts: PaymentRequestSchemaDTO,
-    transactionType: string,
-  ): Promise<PaymentResponseSchemaDTO> {
+  private async createPaymentCt(opts: PaymentRequestSchemaDTO, transactionType: string): Promise<CtPaymentSchemaDTO> {
     const ctCart = await this.ctCartService.getCart({
       id: opts.cart.id,
     });
@@ -455,7 +452,6 @@ export class StripePaymentService extends AbstractPaymentService {
     });
 
     return {
-      outcome: PaymentOutcome.AUTHORIZED,
       ctPaymentReference: updatedPayment.id,
     };
   }
