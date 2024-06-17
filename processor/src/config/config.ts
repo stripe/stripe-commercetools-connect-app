@@ -8,7 +8,6 @@ export const config = {
   authUrl: process.env.CTP_AUTH_URL || 'https://auth.europe-west1.gcp.commercetools.com',
   apiUrl: process.env.CTP_API_URL || 'https://api.europe-west1.gcp.commercetools.com',
   sessionUrl: process.env.CTP_SESSION_URL || 'https://session.europe-west1.gcp.commercetools.com/',
-  scope: process.env.CTP_SCOPE || 'xxx',
   healthCheckTimeout: parseInt(process.env.HEALTH_CHECK_TIMEOUT || '5000'),
 
   // Required by logger
@@ -16,7 +15,7 @@ export const config = {
 
   // Update with specific payment providers config
   stripeSecretKey: process.env.STRIPE_SECRET_KEY || 'stripeSecretKey',
-  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET || 'xxx',
+  stripeWebhookSigningSecret: process.env.STRIPE_WEBHOOK_SIGNING_SECRET || '',
   stripeCaptureMethod: process.env.STRIPE_CAPTURE_METHOD || 'automatic',
   mockEnvironment: process.env.MOCK_ENVIRONMENT || 'TEST',
   stripePaymentElementAppearance: process.env.STRIPE_APPEARANCE_PAYMENT_ELEMENT,

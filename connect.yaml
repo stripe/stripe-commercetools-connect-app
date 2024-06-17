@@ -2,13 +2,12 @@ deployAs:
   - name: processor
     applicationType: service
     endpoint: /
+    scripts:
+      postDeploy: npm run connector:post-deploy
     configuration:
       standardConfiguration:
         - key: CTP_PROJECT_KEY
           description: Commercetools project key
-          required: true
-        - key: CTP_SCOPE
-          description: Commercetools client scope
           required: true
         - key: CTP_AUTH_URL
           description: Commercetools Auth URL
@@ -27,6 +26,9 @@ deployAs:
           required: true
         - key: STRIPE_CAPTURE_METHOD
           description: Stripe capture method (manual or automatic)
+        - key: STRIPE_WEBHOOK_ID
+          description: Stripe Webhook ID
+          required: true
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
           description: Commercetools client secret
@@ -36,6 +38,9 @@ deployAs:
           required: true
         - key: STRIPE_SECRET_KEY
           description: Stripe secret key
+          required: true
+        - key: STRIPE_WEBHOOK_SIGNING_SECRET
+          description: Stripe Webhook signing secret
           required: true
   - name: enabler
     applicationType: assets
