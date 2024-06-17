@@ -188,7 +188,7 @@ export class StripePaymentService extends AbstractPaymentService {
     });
 
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
-    const captureModeConfig = getConfig().stripeCaptureMethod;
+    const captureMethodConfig = getConfig().stripeCaptureMethod;
     let paymentIntent!: Stripe.PaymentIntent;
     try {
       const idempotencyKey = crypto.randomUUID();
@@ -201,7 +201,7 @@ export class StripePaymentService extends AbstractPaymentService {
           automatic_payment_methods: {
             enabled: true,
           },
-          capture_method: captureModeConfig as CaptureMethod,
+          capture_method: captureMethodConfig as CaptureMethod,
           metadata: {
             cart_id: ctCart.id,
             ct_project_key: getConfig().projectKey,
@@ -321,6 +321,8 @@ export class StripePaymentService extends AbstractPaymentService {
 
   /**
    * Charge an authorized payment in commercetools after receiving a message from a webhook.
+   * If the payment_intent has 'capture_method'='manual' this function will add a 'Charge' transaction to the payment in ct.
+   * If the payment_intent is not manual, this function will create the payment in ct and update the payment_intent metadata.
    *
    * @remarks MVP: The charge amount is based on the amount received from Stripe. If the charge amount is less than the total amount, the difference will not register as a transaction in ct.
    * @param {Stripe.Event} event - Event sent by Stripe webhooks.
@@ -331,18 +333,34 @@ export class StripePaymentService extends AbstractPaymentService {
     try {
       const ctPaymentId = this.getCtPaymentId(paymentIntent);
 
-      await this.ctPaymentService.updatePayment({
-        id: ctPaymentId,
-        transaction: {
-          type: PaymentTransactions.CHARGE,
-          amount: {
-            centAmount: paymentIntent.amount_received, // MVP capture the amount_received
-            currencyCode: paymentIntent.currency.toUpperCase(),
+      if (paymentIntent.capture_method === 'manual') {
+        await this.ctPaymentService.updatePayment({
+          id: ctPaymentId,
+          transaction: {
+            type: PaymentTransactions.CHARGE,
+            amount: {
+              centAmount: paymentIntent.amount_received, // MVP capture the amount_received
+              currencyCode: paymentIntent.currency.toUpperCase(),
+            },
+            interactionId: paymentIntent.id,
+            state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
           },
-          interactionId: paymentIntent.id,
-          state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
-        },
-      });
+        });
+      } else {
+        const createPaymentRequest: PaymentRequestSchemaDTO = {
+          paymentMethod: {
+            type: paymentIntent.payment_method as string,
+          },
+          cart: {
+            id: paymentIntent.metadata.cart_id,
+          },
+          paymentIntent: {
+            id: paymentIntent.id,
+          },
+        };
+
+        await this.createPaymentCt(createPaymentRequest, PaymentTransactions.CHARGE);
+      }
     } catch (error) {
       log.error(
         `Error processing charge of authorized payment_intent[${paymentIntent.id}] received from webhook.`,
@@ -377,6 +395,7 @@ export class StripePaymentService extends AbstractPaymentService {
         currency: amountPlanned.currencyCode,
       },
       appearance: appearance,
+      captureMethod: getConfig().stripeCaptureMethod,
     };
   }
 

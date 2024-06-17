@@ -9,10 +9,10 @@ import {
 } from '../dtos/mock-payment.dto';
 import { log } from '../libs/logger';
 import { stripeApi } from '../clients/stripe.client';
-import { getConfig } from '../config/config';
 import { StripePaymentService } from '../services/stripe-payment.service';
 import { StripeHeaderAuthHook } from '../libs/fastify/hooks/stripe-header-auth.hook';
 import { Type } from '@sinclair/typebox';
+import { getConfig } from '../config/config';
 
 type PaymentRoutesOptions = {
   paymentService: StripePaymentService;
@@ -53,11 +53,13 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
     async (request, reply) => {
       const signature = request.headers['stripe-signature'] as string;
 
-      const stApi = await stripeApi();
       let event: Stripe.Event;
 
       try {
-        event = stApi.webhooks.constructEvent(request.rawBody as string, signature, getConfig().stripeWebhookSecret);
+        event = await stripeApi().webhooks.constructEvent(
+          request.rawBody as string,
+          signature,
+          getConfig().stripeWebhookSigningSecret);
       } catch (err: any) {
         log.error(JSON.stringify(err));
         return reply.status(400).send(`Webhook Error: ${err.message}`);
