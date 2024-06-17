@@ -620,4 +620,5 @@ export const mockRoute__get_config_element_succeed: ConfigElementResponseSchemaD
     amount: 10000,
   },
   appearance: '',
+  captureMethod: 'captureMethod',
 };

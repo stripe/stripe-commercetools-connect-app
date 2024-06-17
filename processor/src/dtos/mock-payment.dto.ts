@@ -29,6 +29,7 @@ export const ConfigElementResponseSchema = Type.Object({
     currency: Type.String(),
   }),
   appearance: Type.Optional(Type.String()),
+  captureMethod: Type.String(),
 });
 
 export type PaymentRequestSchemaDTO = Static<typeof PaymentRequestSchema>;
