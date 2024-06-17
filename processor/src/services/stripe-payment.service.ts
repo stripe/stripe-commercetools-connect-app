@@ -22,6 +22,7 @@ import { paymentSDK } from '../payment-sdk';
 import { CaptureMethod, StripePaymentServiceOptions } from './types/stripe-payment.type';
 import {
   ConfigElementResponseSchemaDTO,
+  CtPaymentSchemaDTO,
   PaymentOutcome,
   PaymentRequestSchemaDTO,
   PaymentResponseSchemaDTO,
@@ -187,7 +188,7 @@ export class StripePaymentService extends AbstractPaymentService {
     });
 
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
-    const captureModeConfig = getConfig().stripeCaptureMethod;
+    const captureMethodConfig = getConfig().stripeCaptureMethod;
     let paymentIntent!: Stripe.PaymentIntent;
     try {
       const idempotencyKey = crypto.randomUUID();
@@ -200,7 +201,7 @@ export class StripePaymentService extends AbstractPaymentService {
           automatic_payment_methods: {
             enabled: true,
           },
-          capture_method: captureModeConfig as CaptureMethod,
+          capture_method: captureMethodConfig as CaptureMethod,
           metadata: {
             cart_id: ctCart.id,
             ct_project_key: getConfig().projectKey,
@@ -220,7 +221,6 @@ export class StripePaymentService extends AbstractPaymentService {
     });
 
     return {
-      outcome: PaymentOutcome.AUTHORIZED,
       sClientSecret: paymentIntent.client_secret ?? '',
     };
   }
@@ -377,6 +377,7 @@ export class StripePaymentService extends AbstractPaymentService {
         currency: amountPlanned.currencyCode,
       },
       appearance: appearance,
+      captureMethod: getConfig().stripeCaptureMethod,
     };
   }
 
@@ -384,12 +385,9 @@ export class StripePaymentService extends AbstractPaymentService {
    * Create a new payment in ct, add the new payment to the cart and update the payment_intent metadata.
    * @param {PaymentRequestSchemaDTO} opts - Information about the payment in Stripe
    * @param {string} transactionType - Transaction type to add to the payment in ct once is created
-   * @returns 
+   * @returns {CtPaymentSchemaDTO} - Commercetools payment reference
    */
-  private async createPaymentCt(
-    opts: PaymentRequestSchemaDTO,
-    transactionType: string,
-  ): Promise<PaymentResponseSchemaDTO> {
+  private async createPaymentCt(opts: PaymentRequestSchemaDTO, transactionType: string): Promise<CtPaymentSchemaDTO> {
     const ctCart = await this.ctCartService.getCart({
       id: opts.cart.id,
     });
@@ -454,7 +452,6 @@ export class StripePaymentService extends AbstractPaymentService {
     });
 
     return {
-      outcome: PaymentOutcome.AUTHORIZED,
       ctPaymentReference: updatedPayment.id,
     };
   }

@@ -23,9 +23,7 @@ export enum PaymentOutcome {
 export const PaymentOutcomeSchema = Type.Enum(PaymentOutcome);
 
 export const PaymentResponseSchema = Type.Object({
-  outcome: PaymentOutcomeSchema,
-  ctPaymentReference: Type.Optional(Type.String()),
-  sClientSecret: Type.Optional(Type.String()),
+  sClientSecret: Type.String(),
 });
 
 export const ConfigElementResponseSchema = Type.Object({
@@ -34,8 +32,14 @@ export const ConfigElementResponseSchema = Type.Object({
     currency: Type.String(),
   }),
   appearance: Type.Optional(Type.String()),
+  captureMethod: Type.String(),
+});
+
+export const CtPaymentSchema = Type.Object({
+  ctPaymentReference: Type.String(),
 });
 
 export type PaymentRequestSchemaDTO = Static<typeof PaymentRequestSchema>;
 export type PaymentResponseSchemaDTO = Static<typeof PaymentResponseSchema>;
 export type ConfigElementResponseSchemaDTO = Static<typeof ConfigElementResponseSchema>;
+export type CtPaymentSchemaDTO = Static<typeof CtPaymentSchema>;
