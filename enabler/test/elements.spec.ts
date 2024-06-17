@@ -5,7 +5,6 @@ import fetchMock
  from 'jest-fetch-mock';
 import { PaymentElement } from '../src/components/payment-elements/payment-element';
 import { ExpressCheckout } from '../src/components/payment-elements/express-checkout';
-import { StripePaymentElement } from '@stripe/stripe-js';
 
 describe("StripePayment Module", () => {
     let enablerInstance;
@@ -13,7 +12,6 @@ describe("StripePayment Module", () => {
     let onActionRequired = jest.fn(() => Promise.resolve())
     let onComplete = () => {}
     let onError = jest.fn(() => {});
-    // const onError = () => {console.log("hello there!")}
 
     beforeEach(() => {
         enablerInstance = new StripePayment({
@@ -63,7 +61,6 @@ describe("StripePayment Module", () => {
     });
 
     it("should call onError when error occurs", async () => {
-
         fetchMock.mockResponseOnce(JSON.stringify({ client_secret : '12345'}));
 
         const element = await enablerInstance.createStripeElement({
@@ -79,6 +76,5 @@ describe("StripePayment Module", () => {
         await element.submit();
 
         expect(element.onError).toBeCalled();
-
     });
 });

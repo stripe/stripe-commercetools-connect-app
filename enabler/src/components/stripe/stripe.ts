@@ -1,4 +1,4 @@
-import { Stripe, StripeElements, StripeExpressCheckoutElementOptions, StripePaymentElementOptions, loadStripe } from "@stripe/stripe-js";
+import { Stripe, StripeElements, StripeElementsOptionsMode, StripeExpressCheckoutElementOptions, StripePaymentElementOptions, loadStripe } from "@stripe/stripe-js";
 import { PaymentElement } from "../payment-elements/payment-element";
 import { BaseConfiguration, StripeElementConfiguration } from "../base-configuration";
 import { ExpressCheckout } from "../payment-elements/express-checkout";
@@ -21,15 +21,40 @@ export type SetupData = {
     elementsSDK? : StripeElementConfiguration
 } 
 
+export type ConfigElementResponse = {
+    cartInfo: {
+      amount: number,
+      currency: string,
+    },
+    appearance?: string,
+    captureMethod : "manual" | "automatic"
+};
+
+export interface ElementsConfig{
+    mode : StripeElementsOptionsMode["mode"],
+    amount : StripeElementsOptionsMode["amount"],
+    currency : StripeElementsOptionsMode["currency"],
+    appearance : StripeElementsOptionsMode["appearance"],
+    capture_method : StripeElementsOptionsMode["capture_method"]
+}
+
 export class StripePayment {
 
     public setupData : Promise<SetupData>;
-    public stripeSDK : Promise<Stripe>
     public elements? : StripeElements;
+    public elementsConfiguration : ConfigElementResponse;
     private clientSecret : string; 
+
 
     constructor(options: BaseConfiguration) {
         this.setupData = StripePayment.setup(options);
+        this.elementsConfiguration 
+    }
+
+    get stripeSDK(){
+        return this.setupData
+            .then(({stripeSDK}) => stripeSDK)
+            .catch(_ => null)
     }
 
     private static async setup(options: BaseConfiguration) : Promise<SetupData> {
@@ -41,6 +66,7 @@ export class StripePayment {
         if(env.VITE_STRIPE_PUBLISHABLE_KEY?.includes("_test_")) {
             environment = "test"
         }
+        
         return {
             configuration : {
                 environment, 
@@ -48,6 +74,39 @@ export class StripePayment {
             },
             stripeSDK
         }
+    }
+
+    private async initializeStripeElements() {
+        const { stripeSDK } = await this.setupData;
+
+        this.elements = stripeSDK.elements?.({
+            mode: 'payment',
+            amount: this.elementsConfiguration.cartInfo.amount,
+            currency: this.elementsConfiguration.cartInfo.currency,
+            appearance : JSON.parse(this.elementsConfiguration.appearance ?? "{}"),
+            capture_method: this.elementsConfiguration.captureMethod,
+        })
+    }
+
+    private async fetchElementConfiguration(elementType : string) : Promise<ConfigElementResponse>{
+
+        const { configuration } = await this.setupData;
+
+        let response = await fetch(`${configuration.processorURL}/get-config-element/${elementType}`,
+            {
+                headers : {
+                    "Content-Type": "application/json",
+                    "x-session-id" : configuration.sessionId
+                },
+            }
+        )
+        .then(res => res.json())
+        .then(res => {
+            res.cartInfo.currency = res.cartInfo.currency.toLowerCase()
+            return res;
+        })
+
+        return response;
     }
 
     async createStripeElement(stripeElement : StripeElementType) : Promise<PaymentElement | ExpressCheckout | never> {
@@ -60,17 +119,17 @@ export class StripePayment {
                 ).join(", ")}`
             );
         }
-        
+
+        if (!this.elementsConfiguration) {
+            this.elementsConfiguration = await this.fetchElementConfiguration(stripeElement.type);
+        }
+        console.log(this.elements)
         if (!this.elements){
-            this.elements = stripeSDK.elements?.({
-                //@ts-ignore
-                mode: 'payment',
-                amount: 120,
-                currency: "usd",
-                appearance : {}
-            })
+            await this.initializeStripeElements();
         }
         
+        // this.elements.create("address", {options})
+
         switch(stripeElement.type) {
             case StripeElementTypes.payment : {
 
@@ -98,15 +157,9 @@ export class StripePayment {
 
     async getStripeElements() : Promise<StripeElements | never>{
     
-        const { stripeSDK } = await this.setupData;
-
         if (!this.elements) {
-            // await this.createIntent();
-
-            this.elements = stripeSDK.elements?.({clientSecret : this.clientSecret});
+            this.initializeStripeElements();
         }
-
-        console.log(this.elements);
 
         return this.elements;
     }

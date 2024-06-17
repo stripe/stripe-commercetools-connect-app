@@ -53,7 +53,7 @@ export type BaseConfiguration = {
     onActionRequired?: () => Promise<void>;
     onConfirm?: () => Promise<void>;
     onComplete?: (result?: any) => void;
-    onError?: (error: StripeError | 'fail' | 'invalid_shipping_address') => void;
+    onError?: (error: StripeError | 'fail' | 'invalid_shipping_address' | 'Container element not found') => void;
 };
 
 export interface StripeElementConfiguration extends BaseConfiguration {

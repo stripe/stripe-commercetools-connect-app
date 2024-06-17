@@ -42,12 +42,13 @@ jest.mock("@stripe/stripe-js", () => {
                                         }
                                     });
                             }
-                        }
+                        },
+                        submit : () => Promise.resolve({})
                     }
                 }),
                 confirmPayment : (_options) => {
                     return Promise.resolve({})
-                }
+                },
             }
         })
     }
