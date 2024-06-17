@@ -260,29 +260,6 @@ describe('Stripe Payment APIs', () => {
       expect(spiedPaymentService.cancelAuthorizationInCt).toHaveBeenCalled();
     });
 
-    test('it should return a 400 status error when the process.env.STRIPE_WEBHOOK_SIGNING_SECRET var is not assigned.', async () => {
-      setupMockConfig({
-        stripeSecretKey: 'stripeSecretKey',
-        stripeWebhookSigningSecret: '',
-        authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
-      });
-
-      process.env.STRIPE_WEBHOOK_SIGNING_SECRET = '';
-
-      //When
-      const response = await fastifyApp.inject({
-        method: 'POST',
-        url: `/stripe/webhooks`,
-        headers: {
-          'stripe-signature': 't=123123123,v1=gk2j34gk2j34g2k3j4',
-        },
-      });
-
-      //Then
-      expect(response.statusCode).toEqual(400);
-      expect(Logger.log.error).toHaveBeenCalled();
-    });
-
     test('it should return a 400 status error when the request body is not a valid Stripe event.', async () => {
       setupMockConfig({
         stripeSecretKey: 'stripeSecretKey',

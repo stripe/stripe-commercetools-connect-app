@@ -3,6 +3,8 @@ import * as Actions from '../../src/connectors/actions';
 import * as PostDeploy from '../../src/connectors/post-deploy';
 import { mock_Stripe_retrieveWebhookEnpoints_response } from '../utils/mock-actions-data';
 
+jest.mock('../../src/connectors/actions');
+
 describe('post-deploy', () => {
   const originalEnv = process.env
 

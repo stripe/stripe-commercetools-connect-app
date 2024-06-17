@@ -40,7 +40,7 @@ describe('actions', () => {
       .spyOn(Stripe.prototype.webhookEndpoints, 'retrieve')
       .mockResolvedValue(mock_Stripe_retrieveWebhookEnpoints_response);
 
-    const result = await Actions.retrieveWebhookEndpoint('https://myApp.com/');
+    const result = await Actions.retrieveWebhookEndpoint('we-11111');
 
     expect(Logger.log.info).toHaveBeenCalled();
     expect(Stripe.prototype.webhookEndpoints.retrieve).toHaveBeenCalled();
@@ -56,7 +56,7 @@ describe('actions', () => {
     });
 
     expect(async () => {
-      await Actions.retrieveWebhookEndpoint('https://myApp.com/');
+      await Actions.retrieveWebhookEndpoint('we-11111');
     }).rejects.toThrow();
     expect(Logger.log.info).toHaveBeenCalled();
     expect(Logger.log.error).toHaveBeenCalled();

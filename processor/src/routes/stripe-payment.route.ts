@@ -55,20 +55,14 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
 
       let event: Stripe.Event;
 
-      const stripeWebhookSecret = getConfig().stripeWebhookSigningSecret;
-
-      if (stripeWebhookSecret === '') {
-        const errorMsg =
-          'The Stripe Webhook Signing Secret is not configured, therefore events can not be accepted. Update this env var in the deployment and execute a redeploy.';
-        log.error(errorMsg);
-        return reply.status(400).send(`Webhook Error: ${errorMsg}`);
-      } else {
-        try {
-          event = await stripeApi().webhooks.constructEvent(request.rawBody as string, signature, stripeWebhookSecret);
-        } catch (err: any) {
-          log.error(JSON.stringify(err));
-          return reply.status(400).send(`Webhook Error: ${err.message}`);
-        }
+      try {
+        event = await stripeApi().webhooks.constructEvent(
+          request.rawBody as string,
+          signature,
+          getConfig().stripeWebhookSigningSecret);
+      } catch (err: any) {
+        log.error(JSON.stringify(err));
+        return reply.status(400).send(`Webhook Error: ${err.message}`);
       }
 
       switch (event.type) {
