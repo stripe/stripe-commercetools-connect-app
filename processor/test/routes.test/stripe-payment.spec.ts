@@ -118,7 +118,7 @@ describe('Stripe Payment APIs', () => {
     jest.setTimeout(10000);
     jest.resetAllMocks();
     process.env = { ...originalEnv }
-    process.env.STRIPE_WEBHOOK_SECRET = 'STRIPE_WEBHOOK_SECRET';
+    process.env.STRIPE_WEBHOOK_SIGNING_SECRET = 'STRIPE_WEBHOOK_SIGNING_SECRET';
   });
 
   afterEach(async () => {
@@ -139,7 +139,7 @@ describe('Stripe Payment APIs', () => {
     test('it should handle a payment_intent.payment_failed event gracefully.', async () => {
       setupMockConfig({
         stripeSecretKey: 'stripeSecretKey',
-        stripeWebhookSecret: 'stripeWebhookSecret',
+        stripeWebhookSigningSecret: 'stripeWebhookSigningSecret',
         authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
       });
 
@@ -164,7 +164,7 @@ describe('Stripe Payment APIs', () => {
     test('it should handle a payment_intent.succeeded event gracefully.', async () => {
       setupMockConfig({
         stripeSecretKey: 'stripeSecretKey',
-        stripeWebhookSecret: 'stripeWebhookSecret',
+        stripeWebhookSigningSecret: 'stripeWebhookSigningSecret',
         authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
       });
 
@@ -213,7 +213,7 @@ describe('Stripe Payment APIs', () => {
     test('it should handle a charge.refunded event gracefully.', async () => {
       setupMockConfig({
         stripeSecretKey: 'stripeSecretKey',
-        stripeWebhookSecret: 'stripeWebhookSecret',
+        stripeWebhookSigningSecret: 'stripeWebhookSigningSecret',
         authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
       });
 
@@ -238,7 +238,7 @@ describe('Stripe Payment APIs', () => {
     test('it should handle a payment_intent.canceled event gracefully.', async () => {
       setupMockConfig({
         stripeSecretKey: 'stripeSecretKey',
-        stripeWebhookSecret: 'stripeWebhookSecret',
+        stripeWebhookSigningSecret: 'stripeWebhookSigningSecret',
         authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
       });
 
@@ -260,14 +260,14 @@ describe('Stripe Payment APIs', () => {
       expect(spiedPaymentService.cancelAuthorizationInCt).toHaveBeenCalled();
     });
 
-    test('it should return a 400 status error when the process.env.STRIPE_WEBHOOK_SECRET var is not assigned.', async () => {
+    test('it should return a 400 status error when the process.env.STRIPE_WEBHOOK_SIGNING_SECRET var is not assigned.', async () => {
       setupMockConfig({
         stripeSecretKey: 'stripeSecretKey',
-        stripeWebhookSecret: '',
+        stripeWebhookSigningSecret: '',
         authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
       });
 
-      process.env.STRIPE_WEBHOOK_SECRET = '';
+      process.env.STRIPE_WEBHOOK_SIGNING_SECRET = '';
 
       //When
       const response = await fastifyApp.inject({
@@ -286,7 +286,7 @@ describe('Stripe Payment APIs', () => {
     test('it should return a 400 status error when the request body is not a valid Stripe event.', async () => {
       setupMockConfig({
         stripeSecretKey: 'stripeSecretKey',
-        stripeWebhookSecret: 'stripeWebhookSecret',
+        stripeWebhookSigningSecret: 'stripeWebhookSigningSecret',
         authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
       });
 
@@ -313,7 +313,7 @@ describe('Stripe Payment APIs', () => {
     test('it should print a log when the Stripe event received is not supported.', async () => {
       setupMockConfig({
         stripeSecretKey: 'stripeSecretKey',
-        stripeWebhookSecret: 'stripeWebhookSecret',
+        stripeWebhookSigningSecret: 'stripeWebhookSigningSecret',
         authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
       });
 

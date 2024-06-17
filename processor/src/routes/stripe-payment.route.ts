@@ -55,7 +55,7 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
 
       let event: Stripe.Event;
 
-      const stripeWebhookSecret = getConfig().stripeWebhookSecret;
+      const stripeWebhookSecret = getConfig().stripeWebhookSigningSecret;
 
       if (stripeWebhookSecret === '') {
         const errorMsg =

@@ -3,8 +3,8 @@ import { describe, test, expect, jest, afterEach, beforeEach } from '@jest/globa
 import * as Actions from '../../src/connectors/actions';
 import * as Logger from '../../src/libs/logger';
 import {
-  mock__Stripe_createWebhookEndpoints_response,
-  mock__Stripe_deleteWebhookEndpoints_response,
+  mock_Stripe_retrieveWebhookEnpoints_response,
+  mock_Stripe_updateWebhookEnpoints_response,
 } from '../utils/mock-actions-data';
 
 jest.mock('../../src/libs/logger');
@@ -12,12 +12,12 @@ jest.mock('stripe', () => ({
   __esModule: true,
   default: jest.fn().mockImplementation(() => ({
     webhookEndpoints: {
-      create: jest
+      retrieve: jest
         .fn<() => Promise<Stripe.Response<Stripe.WebhookEndpoint>>>()
-        .mockResolvedValue(mock__Stripe_createWebhookEndpoints_response),
-      del: jest
-        .fn<() => Promise<Stripe.Response<Stripe.DeletedWebhookEndpoint>>>()
-        .mockResolvedValue(mock__Stripe_deleteWebhookEndpoints_response),
+        .mockResolvedValue(mock_Stripe_retrieveWebhookEnpoints_response),
+      update: jest
+        .fn<() => Promise<Stripe.Response<Stripe.WebhookEndpoint>>>()
+        .mockResolvedValue(mock_Stripe_updateWebhookEnpoints_response),
     }
   })),
 }));
@@ -32,55 +32,62 @@ describe('actions', () => {
     jest.restoreAllMocks();
   });
 
-  test('createStripeWebhook succeded', async () => {
+  test('retrieveWebhookEndpoint function succeded', async () => {
     Stripe.prototype.webhookEndpoints = {
-      create: jest.fn(),
+      retrieve: jest.fn(),
     } as unknown as Stripe.WebhookEndpointsResource;
     jest
-      .spyOn(Stripe.prototype.webhookEndpoints, 'create')
-      .mockReturnValue(Promise.resolve(mock__Stripe_createWebhookEndpoints_response));
+      .spyOn(Stripe.prototype.webhookEndpoints, 'retrieve')
+      .mockResolvedValue(mock_Stripe_retrieveWebhookEnpoints_response);
 
-    await Actions.createStripeWebhook('https://host.com/');
+    const result = await Actions.retrieveWebhookEndpoint('https://myApp.com/');
 
-    expect(Stripe.prototype.webhookEndpoints.create).toHaveBeenCalled();
+    expect(Logger.log.info).toHaveBeenCalled();
+    expect(Stripe.prototype.webhookEndpoints.retrieve).toHaveBeenCalled();
+    expect(result).toBeDefined();
   });
 
-  test('createStripeWebhook failed, create webhook function throws error and a log is recorded', async () => {
+  test('retrieveWebhookEndpoint function failed', async () => {
     Stripe.prototype.webhookEndpoints = {
-      create: jest.fn(),
+      retrieve: jest.fn(),
     } as unknown as Stripe.WebhookEndpointsResource;
-    jest.spyOn(Stripe.prototype.webhookEndpoints, 'create').mockImplementation(() => {
+    jest.spyOn(Stripe.prototype.webhookEndpoints, 'retrieve').mockImplementation(() => {
       throw new Error('error');
     });
 
-    await Actions.createStripeWebhook('https://host.com/');
-
+    expect(async () => {
+      await Actions.retrieveWebhookEndpoint('https://myApp.com/');
+    }).rejects.toThrow();
+    expect(Logger.log.info).toHaveBeenCalled();
     expect(Logger.log.error).toHaveBeenCalled();
   });
 
-  test('deleteStripeWebhook succeded', async () => {
+  test('updateWebhookEndpoint function succeded', async () => {
     Stripe.prototype.webhookEndpoints = {
-      del: jest.fn(),
+      update: jest.fn(),
     } as unknown as Stripe.WebhookEndpointsResource;
     jest
-      .spyOn(Stripe.prototype.webhookEndpoints, 'del')
-      .mockReturnValue(Promise.resolve(mock__Stripe_deleteWebhookEndpoints_response));
+      .spyOn(Stripe.prototype.webhookEndpoints, 'update')
+      .mockResolvedValue(mock_Stripe_updateWebhookEnpoints_response);
 
-    await Actions.deleteStripeWebhook();
+    await Actions.updateWebhookEndpoint('we_11111', 'https://myApp.com/stripe/webhooks');
 
-    expect(Stripe.prototype.webhookEndpoints.del).toHaveBeenCalled();
+    expect(Logger.log.info).toHaveBeenCalled();
+    expect(Stripe.prototype.webhookEndpoints.update).toHaveBeenCalled();
   });
 
-  test('deleteStripeWebhook failed, delete webhook function throws error and a log is recorded', async () => {
+  test('updateWebhookEndpoint function failed', async () => {
     Stripe.prototype.webhookEndpoints = {
-      del: jest.fn(),
+      update: jest.fn(),
     } as unknown as Stripe.WebhookEndpointsResource;
-    jest.spyOn(Stripe.prototype.webhookEndpoints, 'del').mockImplementation(() => {
+    jest.spyOn(Stripe.prototype.webhookEndpoints, 'update').mockImplementation(() => {
       throw new Error('error');
     });
 
-    await Actions.deleteStripeWebhook();
-
+    expect(async () => {
+      await Actions.updateWebhookEndpoint('we_11111', 'https://myApp.com/stripe/webhooks');
+    }).rejects.toThrow();
+    expect(Logger.log.info).toHaveBeenCalled();
     expect(Logger.log.error).toHaveBeenCalled();
   });
 });

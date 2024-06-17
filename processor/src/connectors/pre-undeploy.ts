@@ -1,10 +1,5 @@
-import dotenv from 'dotenv';
-dotenv.config();
-
-import { deleteStripeWebhook } from './actions';
-
 async function preUndeploy() {
-  await deleteStripeWebhook();
+  // execute something if needed
 }
 
 async function run() {

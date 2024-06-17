@@ -2,37 +2,28 @@ import Stripe from 'stripe';
 import { log } from '../libs/logger/index';
 import { stripeApi } from '../clients/stripe.client';
 
-export async function createStripeWebhook(applicationUrl: string): Promise<void> {
-  log.info(`Starting the process for creating Stripe Webhook for this application[${applicationUrl}].`);
+export async function retrieveWebhookEndpoint(weId: string): Promise<Stripe.WebhookEndpoint> {
+  log.info(`[RETRIEVE_WEBHOOK_ENDPOINT] Starting the process for retrieving webhook endpoint[${weId}].`);
 
   try {
-    const result: Stripe.WebhookEndpoint = await stripeApi().webhookEndpoints.create({
-      enabled_events: [
-        'charge.succeeded',
-        'charge.refunded',
-        'payment_intent.canceled',
-        'payment_intent.succeeded',
-        'payment_intent.payment_failed',
-        'payment_intent.requires_action',
-      ],
-      url: `${applicationUrl}stripe/webhooks`,
-    });
-
-    log.info(`[CREATE_STRIPE_WEBHOOK] Stripe webhook endpoint created: ${result.id}`);
-  } catch (error) {
-    log.error('[CREATE_STRIPE_WEBHOOK]', error);
+    return await stripeApi().webhookEndpoints.retrieve(weId);
+  } catch (error: any) {
+    log.error('[RETRIEVE_WEBHOOK_ENDPOINT]', error);
+    throw new Error(error);
   }
 }
 
-export async function deleteStripeWebhook(): Promise<void> {
+export async function updateWebhookEndpoint(weId: string, weAppUrl: string): Promise<void> {
   log.info(
-    `[DELETE_STRIPE_WEBHOOK] Starting the process for deleting Stripe Webhook[${process.env.STRIPE_WEBHOOK_ID}] of this application.`,
+    `[UPDATE_WEBHOOK_ENDPOINT] Starting the process for updating webhook endpoint[${weId}] with url[${weAppUrl}].`,
   );
 
   try {
-    const webhookId = process.env.STRIPE_WEBHOOK_ID || '';
-    await stripeApi().webhookEndpoints.del(webhookId);
-  } catch (error) {
-    log.error('[DELETE_STRIPE_WEBHOOK]', error);
+    await stripeApi().webhookEndpoints.update(weId, {
+      url: weAppUrl,
+    });
+  } catch (error: any) {
+    log.error('[UPDATE_WEBHOOK_ENDPOINT]', error);
+    throw new Error(error);
   }
 }
