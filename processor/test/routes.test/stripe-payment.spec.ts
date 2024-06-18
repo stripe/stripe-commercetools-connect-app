@@ -23,6 +23,7 @@ import {
   mockRoute__payments_succeed,
   mockRoute__get_config_element_succeed,
   mockEvent__charge_succeeded_notCaptured,
+  mockEvent__paymentIntent_requiresAction,
 } from '../utils/mock-routes-data';
 import * as Config from '../../src/config/config';
 import * as Logger from '../../src/libs/logger/index';
@@ -136,31 +137,6 @@ describe('Stripe Payment APIs', () => {
   });
 
   describe('POST /stripe/webhooks', () => {
-    test('it should handle a payment_intent.payment_failed event gracefully.', async () => {
-      setupMockConfig({
-        stripeSecretKey: 'stripeSecretKey',
-        stripeWebhookSigningSecret: 'stripeWebhookSigningSecret',
-        authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
-      });
-
-      // Set mocked functions to Stripe and spyOn to set the result expected
-      Stripe.prototype.webhooks = { constructEvent: jest.fn() } as unknown as Stripe.Webhooks;
-      jest.spyOn(Stripe.prototype.webhooks, 'constructEvent').mockReturnValue(mockEvent__paymentIntent_paymentFailed);
-
-      //When
-      const response = await fastifyApp.inject({
-        method: 'POST',
-        url: `/stripe/webhooks`,
-        headers: {
-          'stripe-signature': 't=123123123,v1=gk2j34gk2j34g2k3j4',
-        },
-      });
-
-      //Then
-      expect(response.statusCode).toEqual(200);
-      // TODO Validate that the corresponding service has been called
-    });
-
     test('it should handle a payment_intent.succeeded event gracefully.', async () => {
       setupMockConfig({
         stripeSecretKey: 'stripeSecretKey',
@@ -260,6 +236,54 @@ describe('Stripe Payment APIs', () => {
       //Then
       expect(response.statusCode).toEqual(200);
       expect(spiedPaymentService.cancelAuthorizationInCt).toHaveBeenCalled();
+    });
+
+    test('it should handle a payment_intent.payment_failed event gracefully.', async () => {
+      setupMockConfig({
+        stripeSecretKey: 'stripeSecretKey',
+        authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
+      });
+
+      // Set mocked functions to Stripe and spyOn to set the result expected
+      Stripe.prototype.webhooks = { constructEvent: jest.fn() } as unknown as Stripe.Webhooks;
+      jest.spyOn(Stripe.prototype.webhooks, 'constructEvent').mockReturnValue(mockEvent__paymentIntent_paymentFailed);
+
+      //When
+      const response = await fastifyApp.inject({
+        method: 'POST',
+        url: `/stripe/webhooks`,
+        headers: {
+          'stripe-signature': 't=123123123,v1=gk2j34gk2j34g2k3j4',
+        },
+      });
+
+      //Then
+      expect(response.statusCode).toEqual(200);
+      expect(Logger.log.info).toHaveBeenCalled();
+    });
+
+    test('it should handle a payment_intent.requires_action event gracefully.', async () => {
+      setupMockConfig({
+        stripeSecretKey: 'stripeSecretKey',
+        authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
+      });
+
+      // Set mocked functions to Stripe and spyOn to set the result expected
+      Stripe.prototype.webhooks = { constructEvent: jest.fn() } as unknown as Stripe.Webhooks;
+      jest.spyOn(Stripe.prototype.webhooks, 'constructEvent').mockReturnValue(mockEvent__paymentIntent_requiresAction);
+
+      //When
+      const response = await fastifyApp.inject({
+        method: 'POST',
+        url: `/stripe/webhooks`,
+        headers: {
+          'stripe-signature': 't=123123123,v1=gk2j34gk2j34g2k3j4',
+        },
+      });
+
+      //Then
+      expect(response.statusCode).toEqual(200);
+      expect(Logger.log.info).toHaveBeenCalled();
     });
 
     test('it should return a 400 status error when the request body is not a valid Stripe event.', async () => {
