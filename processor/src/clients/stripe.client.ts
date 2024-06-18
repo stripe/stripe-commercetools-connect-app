@@ -4,12 +4,14 @@ import { StripeApiError, StripeApiErrorData } from '../errors/stripe-api.error';
 import { log } from '../libs/logger';
 
 export const stripeApi = (): Stripe => {
+  const properties = new Map(Object.entries(process.env));
+  const appInfoUrl = properties.get('CONNECT_SERVICE_URL') ?? 'https://example.com';
   return new Stripe(getConfig().stripeSecretKey, {
     appInfo: {
-      name: 'MyStripePlugin',
-      version: '1.2.34',
-      url: 'https://example.com',
-      partner_id: '{{PARTNER_ID}}',
+      name: 'Stripe app for Commercetools Connect',
+      version: '1.0.00',
+      url: appInfoUrl, //need to be updated
+      partner_id: 'pp_partner_c0mmercet00lsc0NNect', // Used by Stripe to identify your connector
     },
   });
 };
