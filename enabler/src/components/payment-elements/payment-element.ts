@@ -20,18 +20,13 @@ export class PaymentElement extends BaseStripePaymentComponent {
 
             return;
         }
-
+        //MVP if additional information needs to be included in the payment intent, this method should be supplied with the necessary data.
         let { errors : processorError, sClientSecret : client_secret} = await fetch(`${this.processorURL}/payments`,{
-            method : "POST",
+            method : "GET",
             headers : {
                 "Content-Type": "application/json",
                 "x-session-id" : this.sessionId
-            },
-            body : JSON.stringify({
-                paymentMethod : {
-                    type : "payment"
-                }
-            })
+            }
         }).then(res => res.json())
 
         if ( processorError && !client_secret) {
