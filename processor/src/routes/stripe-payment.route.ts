@@ -9,10 +9,10 @@ import {
 } from '../dtos/mock-payment.dto';
 import { log } from '../libs/logger';
 import { stripeApi } from '../clients/stripe.client';
-import { getConfig } from '../config/config';
 import { StripePaymentService } from '../services/stripe-payment.service';
 import { StripeHeaderAuthHook } from '../libs/fastify/hooks/stripe-header-auth.hook';
 import { Type } from '@sinclair/typebox';
+import { getConfig } from '../config/config';
 
 type PaymentRoutesOptions = {
   paymentService: StripePaymentService;
@@ -53,21 +53,19 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
     async (request, reply) => {
       const signature = request.headers['stripe-signature'] as string;
 
-      const stApi = await stripeApi();
       let event: Stripe.Event;
 
       try {
-        event = stApi.webhooks.constructEvent(request.rawBody as string, signature, getConfig().stripeWebhookSecret);
+        event = await stripeApi().webhooks.constructEvent(
+          request.rawBody as string,
+          signature,
+          getConfig().stripeWebhookSigningSecret);
       } catch (err: any) {
         log.error(JSON.stringify(err));
         return reply.status(400).send(`Webhook Error: ${err.message}`);
       }
 
       switch (event.type) {
-        case 'payment_intent.payment_failed':
-          // Payment intent has failed
-          log.info('--->>> payment_intent.payment_failed');
-          break;
         case 'payment_intent.succeeded':
           log.info(`Handle ${event.type} event of ${event.data.object.id}`);
           opts.paymentService.chargePaymentInCt(event);
@@ -84,8 +82,13 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
           log.info(`Handle ${event.type} event of ${event.data.object.id}`);
           opts.paymentService.cancelAuthorizationInCt(event);
           break;
+        case 'payment_intent.payment_failed':
+          log.info(`Received: ${event.type} event of ${event.data.object.id}`);
+          break;
+        case 'payment_intent.requires_action':
+          log.info(`Received: ${event.type} event of ${event.data.object.id}`);
+          break;
         default:
-          // This event is not supported
           log.info(`--->>> This Stripe event is not supported: ${event.type}`);
           break;
       }

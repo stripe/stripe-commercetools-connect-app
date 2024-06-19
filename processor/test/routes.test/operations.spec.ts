@@ -18,6 +18,7 @@ import { IncomingHttpHeaders } from 'node:http';
 import { operationsRoute } from '../../src/routes/operation.route';
 import { StripePaymentService } from '../../src/services/stripe-payment.service';
 import { mockRoute__paymentIntent_succeed, mockRoute__paymentsComponents_succeed } from '../utils/mock-routes-data';
+import { appLogger } from '../../src/payment-sdk';
 
 describe('/operations APIs', () => {
   const app = fastify({ logger: false });
@@ -50,21 +51,25 @@ describe('/operations APIs', () => {
     });
 
   const spiedJwtAuthenticationHook = new JWTAuthenticationHook({
+    logger: appLogger,
     authenticationManager: jest.fn() as unknown as JWTAuthenticationManager,
     contextProvider: jest.fn() as unknown as ContextProvider<RequestContextData>,
   });
 
   const spiedOauth2AuthenticationHook = new Oauth2AuthenticationHook({
+    logger: appLogger,
     authenticationManager: jest.fn() as unknown as Oauth2AuthenticationManager,
     contextProvider: jest.fn() as unknown as ContextProvider<RequestContextData>,
   });
 
   const spiedSessionHeaderAuthenticationHook = new SessionHeaderAuthenticationHook({
+    logger: appLogger,
     authenticationManager: jest.fn() as unknown as SessionHeaderAuthenticationManager,
     contextProvider: jest.fn() as unknown as ContextProvider<RequestContextData>,
   });
 
   const spiedAuthorityAuthorizationHook = new AuthorityAuthorizationHook({
+    logger: appLogger,
     authorizationManager: jest.fn() as unknown as AuthorityAuthorizationManager,
     contextProvider: jest.fn() as unknown as ContextProvider<RequestContextData>,
   });
