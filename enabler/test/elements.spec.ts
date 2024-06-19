@@ -13,6 +13,14 @@ describe("StripePayment Module", () => {
     let onComplete = () => {}
     let onError = jest.fn(() => {});
 
+    const mockElementConfiguration = {
+        cartInfo: {
+            amount: 10000,
+            currency: "usd",
+        },
+        captureMethod : "manual"
+    }
+
     beforeEach(() => {
         enablerInstance = new StripePayment({
             environment: "test",
@@ -34,11 +42,13 @@ describe("StripePayment Module", () => {
     });
     
     it("should create instances for supported payment elements", async () => {
-        fetchMock.mockResponseOnce(JSON.stringify({ client_secret : '12345' }))
+        fetchMock.mockResponseOnce(JSON.stringify(mockElementConfiguration))
         
         const paymentElement = await enablerInstance.createStripeElement({
             type : "payment"
         });
+
+
         const expressCheckoutElement = await enablerInstance.createStripeElement({
             type : "expressCheckout"
         });
@@ -48,7 +58,7 @@ describe("StripePayment Module", () => {
     });    
 
     it("should return an error when unsupported payment element is requested", async () => {
-        fetchMock.mockResponseOnce(JSON.stringify({ client_secret : '12345' }))
+        fetchMock.mockResponseOnce(JSON.stringify(mockElementConfiguration))
 
         const type = "addressElement";
 
@@ -61,7 +71,7 @@ describe("StripePayment Module", () => {
     });
 
     it("should call onError when error occurs", async () => {
-        fetchMock.mockResponseOnce(JSON.stringify({ client_secret : '12345'}));
+        fetchMock.mockResponseOnce(JSON.stringify(mockElementConfiguration));
 
         const element = await enablerInstance.createStripeElement({
             type : "payment"

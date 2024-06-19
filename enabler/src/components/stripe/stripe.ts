@@ -78,7 +78,6 @@ export class StripePayment {
 
     private async initializeStripeElements() {
         const { stripeSDK } = await this.setupData;
-
         this.elements = stripeSDK.elements?.({
             mode: 'payment',
             amount: this.elementsConfiguration.cartInfo.amount,
@@ -103,6 +102,7 @@ export class StripePayment {
         .then(res => res.json())
         .then(res => {
             res.cartInfo.currency = res.cartInfo.currency.toLowerCase()
+            
             return res;
         })
 
@@ -119,16 +119,17 @@ export class StripePayment {
                 ).join(", ")}`
             );
         }
-
+        console.log({test : !this.elementsConfiguration})
         if (!this.elementsConfiguration) {
+            console.log({test : !this.elementsConfiguration})
+
             this.elementsConfiguration = await this.fetchElementConfiguration(stripeElement.type);
+            console.log({test: this.elementsConfiguration})
         }
-        console.log(this.elements)
+
         if (!this.elements){
             await this.initializeStripeElements();
         }
-        
-        // this.elements.create("address", {options})
 
         switch(stripeElement.type) {
             case StripeElementTypes.payment : {
@@ -150,9 +151,13 @@ export class StripePayment {
                     elementsSDK : this.elements,
                     clientSecret : this.clientSecret,
                     ...configuration
-                });    
+                });
             }
         }
+    }
+
+    public submit(){
+        //TODO
     }
 
     async getStripeElements() : Promise<StripeElements | never>{
