@@ -18,7 +18,7 @@ export class AppLogger implements Logger {
   };
 }
 
-const appLogger = new AppLogger();
+export const appLogger = new AppLogger();
 
 export const paymentSDK = setupPaymentSDK({
   apiUrl: config.apiUrl,

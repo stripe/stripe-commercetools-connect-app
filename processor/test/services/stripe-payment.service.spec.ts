@@ -9,6 +9,7 @@ import {
   mockStripeCancelPaymentResult,
   mockStripeCreatePaymentResult,
   mockStripeCreateRefundResult,
+  mockStripePaymentMethodsList,
   mockStripeRetrievePaymentResult,
   mockStripeUpdatePaymentResult,
   mockUpdatePaymentResult,
@@ -54,6 +55,11 @@ jest.mock('stripe', () => ({
     },
     refunds: {
       create: jest.fn<() => Promise<Stripe.Response<Stripe.Refund>>>().mockResolvedValue(mockStripeCreateRefundResult),
+    },
+    paymentMethods: {
+      list: jest
+        .fn<() => Promise<Stripe.ApiList<Stripe.PaymentMethod>>>()
+        .mockResolvedValue(mockStripePaymentMethodsList),
     },
   })),
 }));
@@ -115,6 +121,12 @@ describe('stripe-payment.service', () => {
       };
       return result;
     };
+    Stripe.prototype.paymentMethods = {
+      list: jest
+        .fn<() => Promise<Stripe.ApiList<Stripe.PaymentMethod>>>()
+        .mockResolvedValue(mockStripePaymentMethodsList),
+    } as unknown as Stripe.PaymentMethodsResource;
+    //    const spi = jest.spyOn(Stripe.prototype.paymentMethods, 'list');
 
     jest.spyOn(StatusHandler, 'healthCheckCommercetoolsPermissions').mockReturnValue(mockHealthCheckFunction);
     const paymentService: AbstractPaymentService = new StripePaymentService(opts);
@@ -127,7 +139,7 @@ describe('stripe-payment.service', () => {
     expect(result?.checks[0]?.status).toStrictEqual('DOWN');
     expect(result?.checks[0]?.details).toStrictEqual({});
     expect(result?.checks[1]?.name).toStrictEqual('Stripe Status check');
-    expect(result?.checks[1]?.status).toStrictEqual('DOWN');
+    expect(result?.checks[1]?.status).toStrictEqual('UP');
     expect(result?.checks[1]?.details).toBeDefined();
   });
 
