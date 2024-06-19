@@ -59,7 +59,8 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
         event = await stripeApi().webhooks.constructEvent(
           request.rawBody as string,
           signature,
-          getConfig().stripeWebhookSigningSecret);
+          getConfig().stripeWebhookSigningSecret,
+        );
       } catch (err: any) {
         log.error(JSON.stringify(err));
         return reply.status(400).send(`Webhook Error: ${err.message}`);

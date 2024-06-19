@@ -3,7 +3,7 @@ import { ErrorAuthErrorResponse } from '@commercetools/connect-payments-sdk';
 
 export class StripeHeaderAuthHook {
   public authenticate() {
-    return async (request: FastifyRequest) => {
+    return async (request: FastifyRequest): Promise<void> => {
       if (request.headers['stripe-signature']) {
         return;
       }

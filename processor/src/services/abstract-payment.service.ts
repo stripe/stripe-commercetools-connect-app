@@ -20,6 +20,7 @@ import {
   PaymentModificationStatus,
   PaymentTransactions,
 } from '../dtos/operations/payment-intents.dto';
+import { log } from '../libs/logger';
 
 import { SupportedPaymentComponentsSchemaDTO } from '../dtos/operations/payment-componets.dto';
 
@@ -111,13 +112,10 @@ export abstract class AbstractPaymentService {
     });
     const request = opts.data.actions[0];
 
-    let requestAmount!: AmountSchemaDTO;
-    if (request.action != 'cancelPayment') {
-      //requestAmount = request.amount; get the amount from the request to make partial modifications to the payment
-      requestAmount = ctPayment.amountPlanned; // MVP capture/refund the total of the order
-    } else {
-      requestAmount = ctPayment.amountPlanned;
-    }
+    const requestAmount = ctPayment.amountPlanned;
+    // MVP capture/refund the total of the order
+    // To perform a partial capture or refund, retrieve the specific amount from 'request.amount'.
+    // requestAmount = request.amount;
 
     const transactionType = this.getPaymentTransactionType(request.action);
 
@@ -158,8 +156,8 @@ export abstract class AbstractPaymentService {
       case 'refundPayment': {
         return PaymentTransactions.REFUND;
       }
-      // TODO: Handle Error case
       default: {
+        log.error(`Operation ${action} not supported when modifying payment.`);
         throw new ErrorInvalidJsonInput(`Request body does not contain valid JSON.`);
       }
     }

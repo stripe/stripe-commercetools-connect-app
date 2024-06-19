@@ -126,7 +126,6 @@ describe('stripe-payment.service', () => {
         .fn<() => Promise<Stripe.ApiList<Stripe.PaymentMethod>>>()
         .mockResolvedValue(mockStripePaymentMethodsList),
     } as unknown as Stripe.PaymentMethodsResource;
-    //    const spi = jest.spyOn(Stripe.prototype.paymentMethods, 'list');
 
     jest.spyOn(StatusHandler, 'healthCheckCommercetoolsPermissions').mockReturnValue(mockHealthCheckFunction);
     const paymentService: AbstractPaymentService = new StripePaymentService(opts);
