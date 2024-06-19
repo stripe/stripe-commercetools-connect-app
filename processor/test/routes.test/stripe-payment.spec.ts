@@ -28,6 +28,7 @@ import {
 import * as Config from '../../src/config/config';
 import * as Logger from '../../src/libs/logger/index';
 import { StripeHeaderAuthHook } from '../../src/libs/fastify/hooks/stripe-header-auth.hook';
+import { appLogger } from '../../src/payment-sdk';
 
 jest.mock('stripe', () => ({
   __esModule: true,
@@ -83,6 +84,7 @@ describe('Stripe Payment APIs', () => {
     });
 
   const spiedSessionHeaderAuthenticationHook = new SessionHeaderAuthenticationHook({
+    logger: appLogger,
     authenticationManager: jest.fn() as unknown as SessionHeaderAuthenticationManager,
     contextProvider: jest.fn() as unknown as ContextProvider<RequestContextData>,
   });
@@ -118,7 +120,7 @@ describe('Stripe Payment APIs', () => {
   beforeEach(() => {
     jest.setTimeout(10000);
     jest.resetAllMocks();
-    process.env = { ...originalEnv }
+    process.env = { ...originalEnv };
     process.env.STRIPE_WEBHOOK_SIGNING_SECRET = 'STRIPE_WEBHOOK_SIGNING_SECRET';
   });
 
