@@ -6,7 +6,7 @@ import { mock_Stripe_retrieveWebhookEnpoints_response } from '../utils/mock-acti
 jest.mock('../../src/connectors/actions');
 
 describe('post-deploy', () => {
-  const originalEnv = process.env
+  const originalEnv = process.env;
 
   beforeEach(() => {
     jest.setTimeout(10000);

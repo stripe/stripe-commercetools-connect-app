@@ -24,6 +24,10 @@ type StripeRoutesOptions = {
   stripeHeaderAuthHook: StripeHeaderAuthHook;
 };
 
+/**
+ * MVP if additional information needs to be included in the payment intent, this method should be supplied with the necessary data.
+ *
+ */
 export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPluginOptions & PaymentRoutesOptions) => {
   fastify.get<{ Reply: PaymentResponseSchemaDTO }>(
     '/payments',
