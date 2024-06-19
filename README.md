@@ -20,10 +20,10 @@ The `connect-payment-integration-stripe` project presents a Stripe integration c
 ![overview.png](docs%2Foverview.png)
 ### Components
 
-1. **Commercetools Infrastructure**
-   Represents the e-commerce platform infrastructure provided by Commercetools.
+1. **commercetools Infrastructure**
+   Represents the e-commerce platform infrastructure provided by commercetools.
 2. **Stripe Connector**
-    - A connect integration within the infrastructure that facilitates communication between Commercetools and Stripe.
+    - A connect integration within the infrastructure that facilitates communication between commercetools and Stripe.
 3. **Processor**
     - Manages payment transactions and interacts with Stripe to:
         - Create payment intents.
@@ -83,7 +83,7 @@ In addition, please make sure the API client should have enough scope to be able
 Various URLs from commercetools platform are required to be configured so that the connect application can handle session and authentication process for endpoints.
 Their values are taken as input as environment variables/ configuration for connect with variable names `CTP_API_URL`, `CTP_AUTH_URL` and `CTP_SESSION_URL`.
 
-#### #### 3. Stripe account credentials and configurations
+#### 3. Stripe account credentials and configurations
 
 The following Stripe account credentials and configurations are required:
 
@@ -97,6 +97,10 @@ The following Stripe account credentials and configurations are required:
 3. **STRIPE_APPEARANCE_PAYMENT_ELEMENT**: This configuration enables the theming for the payment element component. The value needs to be valid. More information can be found [here](https://docs.stripe.com/elements/appearance-api).
 
 4. **STRIPE_APPEARANCE_EXPRESS_CHECKOUT**: This configuration enables the theming for the express checkout component. The value needs to be valid. More information can be found [here](https://docs.stripe.com/elements/appearance-api)
+
+5. **STRIPE_WEBHOOK_ID**: Unique identifier of a Webhook Endpoint in Stripe.
+
+6. **STRIPE_WEBHOOK_SIGNING_SECRET**: Signing secret of a Webhook Endpoint in Stripe.
 
 ## Development Guide
 
@@ -136,13 +140,13 @@ deployAs:
     configuration:  
       standardConfiguration:  
         - key: CTP_PROJECT_KEY  
-          description: Commercetools project key  
+          description: commercetools project key  
           required: true  
         - key: CTP_AUTH_URL  
-          description: Commercetools Auth URL  
+          description: commercetools Auth URL  
           required: true  
         - key: CTP_API_URL  
-          description: Commercetools API URL  
+          description: commercetools API URL  
           required: true  
         - key: CTP_SESSION_URL  
           description: Session API URL  
@@ -164,10 +168,10 @@ deployAs:
           description: Stripe Appearance for Express Checkout Element.  
       securedConfiguration:  
         - key: CTP_CLIENT_SECRET  
-          description: Commercetools client secret  
+          description: commercetools client secret  
           required: true  
         - key: CTP_CLIENT_ID  
-          description: Commercetools client ID  
+          description: commercetools client ID  
           required: true  
         - key: STRIPE_SECRET_KEY  
           description: Stripe secret key  
@@ -195,3 +199,6 @@ Here you can see the details about various variables in configuration
 - STRIPE_SECRET_KEY: Stripe authenticates your API requests using your account’s API keys
 - STRIPE_WEBHOOK_ID: Stripe unique identifier for the [Webhook Endpoints](https://docs.stripe.com/api/webhook_endpoints)
 - STRIPE_WEBHOOK_SIGNING_SECRET: Stripe Secret key to verify webhook signatures using the official libraries. This key is created in the [Stripe dashboard Webhook](https://docs.stripe.com/webhooks).
+
+### Considerations about the Webhook Endpoint
+Before installing the connector, it is necessary to create a Webhook Endpoint in Stripe (using a dummy URL). Once created, the ID and Signing Secret can be retrieved from the Stripe Console. This Webhook Endpoint will be updated during the post-deploy script after the connector has been deployed. It's important to set the correct values in the variables so the events are sent to the connector and can be accepted.
