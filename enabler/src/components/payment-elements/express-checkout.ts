@@ -10,7 +10,8 @@ export class ExpressCheckout extends BaseStripePaymentComponent {
     }
 
     async submit(){
-        let { errors : processorError, sClientSecret } = await fetch(`${this.processorURL}/payments`,{
+
+        let { errors : processorError, sClientSecret : client_secret} = await fetch(`${this.processorURL}/payments`,{
             method : "POST",
             headers : {
                 "Content-Type": "application/json",
@@ -18,19 +19,19 @@ export class ExpressCheckout extends BaseStripePaymentComponent {
             },
             body : JSON.stringify({
                 paymentMethod : {
-                    type : "expressCheckout",
-                    paymentIntent : this.clientSecret
+                    type : "expressCheckout"
                 }
             })
         }).then(res => res.json())
 
-        //This process does NOT cancel the payment confirm
-        if ( processorError ) {
-            console.warn(`Error in processor: ${processorError}`)
+        if ( processorError && !client_secret) {
+            console.warn(`Error in processor: ${processorError}`);
+            return
         }
 
         let { error } = await this.stripeSDK.confirmPayment({
             elements: this.elementsSDK,
+            clientSecret: client_secret,
             confirmParams : {
                 return_url : `${window.location.href}${this.returnURL}` 
             }
@@ -38,6 +39,7 @@ export class ExpressCheckout extends BaseStripePaymentComponent {
 
         if (error) {
             this.onError?.(error);
+
             return;
         }
 

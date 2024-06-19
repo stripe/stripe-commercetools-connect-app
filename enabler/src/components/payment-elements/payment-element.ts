@@ -5,6 +5,7 @@ import { BaseStripePaymentComponent, StripeElementConfiguration } from "../base-
 export class PaymentElement extends BaseStripePaymentComponent {
     
     private showPayButton : boolean;
+    
 
     constructor(baseOptions: StripeElementConfiguration) {
         super(baseOptions);
@@ -34,7 +35,7 @@ export class PaymentElement extends BaseStripePaymentComponent {
         }).then(res => res.json())
 
         if ( processorError && !client_secret) {
-            console.warn(`Error in processor: ${processorError}`)
+            console.warn(`Error in processor: ${processorError}`);
             return
         }
         
@@ -56,8 +57,14 @@ export class PaymentElement extends BaseStripePaymentComponent {
     }
 
     mount(selector : string) {
-        document.querySelector(selector)
-            .insertAdjacentHTML("afterbegin", this._getTemplate());
+        const element = document.querySelector(selector)
+        
+        if (!element) {
+            this.onError?.("Container element not found")
+            return;
+        }
+
+        element.insertAdjacentHTML("afterbegin", this._getTemplate());
         
         if (this.showPayButton){
             document.querySelector("#card-element-paymentButton")
