@@ -1,31 +1,46 @@
 import { Static, Type } from '@sinclair/typebox';
 
-export const CardPaymentMethodSchema = Type.Object({
-  // TODO: Remove the fields according to the payment provider solution,
-  //  Strongly recommend not to process PAN data to Connectors.
-  type: Type.Literal('card'),
-  cardNumber: Type.String(),
-  expiryMonth: Type.Number(),
-  expiryYear: Type.Number(),
-  cvc: Type.Number(),
-  holderName: Type.Optional(Type.String()),
+export const CreatePaymentMethodSchema = Type.Object({
+  type: Type.String(),
+  confirmationToken: Type.Optional(Type.String()),
 });
 
 export const PaymentRequestSchema = Type.Object({
-  paymentMethod: Type.Composite([CardPaymentMethodSchema]),
+  paymentMethod: Type.Composite([CreatePaymentMethodSchema]),
+  cart: Type.Object({
+    id: Type.String(),
+  }),
+  paymentIntent: Type.Object({
+    id: Type.String(),
+  }),
 });
 
 export enum PaymentOutcome {
   AUTHORIZED = 'Authorized',
   REJECTED = 'Rejected',
+  INITIAL = 'Initial',
 }
 
 export const PaymentOutcomeSchema = Type.Enum(PaymentOutcome);
 
 export const PaymentResponseSchema = Type.Object({
-  outcome: PaymentOutcomeSchema,
-  paymentReference: Type.String(),
+  sClientSecret: Type.String(),
+});
+
+export const ConfigElementResponseSchema = Type.Object({
+  cartInfo: Type.Object({
+    amount: Type.Number(),
+    currency: Type.String(),
+  }),
+  appearance: Type.Optional(Type.String()),
+  captureMethod: Type.String(),
+});
+
+export const CtPaymentSchema = Type.Object({
+  ctPaymentReference: Type.String(),
 });
 
 export type PaymentRequestSchemaDTO = Static<typeof PaymentRequestSchema>;
 export type PaymentResponseSchemaDTO = Static<typeof PaymentResponseSchema>;
+export type ConfigElementResponseSchemaDTO = Static<typeof ConfigElementResponseSchema>;
+export type CtPaymentSchemaDTO = Static<typeof CtPaymentSchema>;
