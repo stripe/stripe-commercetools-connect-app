@@ -2,6 +2,75 @@ import Stripe from 'stripe';
 import { Payment, Transaction } from '@commercetools/connect-payments-sdk';
 import { PaymentAmount } from '@commercetools/connect-payments-sdk/dist/commercetools/types/payment.type';
 
+const commonLastResponse = {
+  headers: {},
+  requestId: '11111',
+  statusCode: 200,
+  apiVersion: '',
+  idempotencyKey: '',
+  stripeAccount: '',
+};
+
+const commonMethodOptions = {
+  card: {
+    installments: null,
+    mandate_options: null,
+    network: null,
+    request_three_d_secure: 'automatic',
+  },
+  link: {
+    persistent_token: null,
+  },
+} as Stripe.PaymentIntent.PaymentMethodOptions;
+
+const commonPaymentResult = {
+  lastResponse: commonLastResponse,
+  id: 'pi_create_3MtwBwLkdIwHu7ix28a3tqPa',
+  object: 'payment_intent',
+  amount: 2000,
+  amount_capturable: 0,
+  amount_details: {
+    tip: {},
+  },
+  amount_received: 0,
+  application: null,
+  application_fee_amount: null,
+  automatic_payment_methods: {
+    enabled: true,
+  },
+  canceled_at: null,
+  cancellation_reason: null,
+  capture_method: 'automatic',
+  client_secret: 'pi_3MtwBwLkdIwHu7ix28a3tqPa_secret_YrKJUKribcBjcG8HVhfZluoGH',
+  confirmation_method: 'automatic',
+  created: 1680800504,
+  currency: 'usd',
+  customer: null,
+  description: null,
+  invoice: null,
+  last_payment_error: null,
+  latest_charge: null,
+  livemode: false,
+  metadata: {},
+  next_action: null,
+  on_behalf_of: null,
+  payment_method: null,
+  payment_method_options: commonMethodOptions,
+  payment_method_types: ['card', 'link'],
+  processing: null,
+  receipt_email: null,
+  review: null,
+  setup_future_usage: null,
+  shipping: null,
+  source: null,
+  statement_descriptor: null,
+  statement_descriptor_suffix: null,
+  status: 'requires_payment_method',
+  transfer_data: null,
+  transfer_group: null,
+  payment_method_configuration_details: null,
+} as Stripe.Response<Stripe.PaymentIntent>;
+
 export const mockGetPaymentResult: Payment = {
   id: '123456',
   version: 1,
@@ -58,14 +127,7 @@ export const mockUpdatePaymentResult: Payment = {
 };
 
 export const mockStripeCreateRefundResult: Stripe.Response<Stripe.Refund> = {
-  lastResponse: {
-    headers: {},
-    requestId: '11111',
-    statusCode: 200,
-    apiVersion: '',
-    idempotencyKey: '',
-    stripeAccount: '',
-  },
+  lastResponse: commonLastResponse,
   id: 're_11111',
   object: 'refund',
   amount: 1000,
@@ -92,14 +154,7 @@ export const mockStripeCreateRefundResult: Stripe.Response<Stripe.Refund> = {
 };
 
 export const mockStripeCancelPaymentResult: Stripe.Response<Stripe.PaymentIntent> = {
-  lastResponse: {
-    headers: {},
-    requestId: '11111',
-    statusCode: 200,
-    apiVersion: '',
-    idempotencyKey: '',
-    stripeAccount: '',
-  },
+  lastResponse: commonLastResponse,
   id: 'pi_3MtwBwLkdIwHu7ix28a3tqPa',
   object: 'payment_intent',
   amount: 2000,
@@ -131,17 +186,7 @@ export const mockStripeCancelPaymentResult: Stripe.Response<Stripe.PaymentIntent
   on_behalf_of: null,
   payment_method: null,
   payment_method_configuration_details: null,
-  payment_method_options: {
-    card: {
-      installments: null,
-      mandate_options: null,
-      network: null,
-      request_three_d_secure: 'automatic',
-    },
-    link: {
-      persistent_token: null,
-    },
-  },
+  payment_method_options: commonMethodOptions,
   payment_method_types: ['card', 'link'],
   processing: null,
   receipt_email: null,
@@ -183,14 +228,7 @@ export const mockCancelPaymentErrorResult = {
 };
 
 export const mockStripeRetrievePaymentResult: Stripe.Response<Stripe.PaymentIntent> = {
-  lastResponse: {
-    headers: {},
-    requestId: '11111',
-    statusCode: 200,
-    apiVersion: '',
-    idempotencyKey: '',
-    stripeAccount: '',
-  },
+  lastResponse: commonLastResponse,
   id: 'pi_retrieve_3MtwBwLkdIwHu7ix28a3tqPa',
   object: 'payment_intent',
   amount: 2000,
@@ -223,17 +261,7 @@ export const mockStripeRetrievePaymentResult: Stripe.Response<Stripe.PaymentInte
   next_action: null,
   on_behalf_of: null,
   payment_method: null,
-  payment_method_options: {
-    card: {
-      installments: null,
-      mandate_options: null,
-      network: null,
-      request_three_d_secure: 'automatic',
-    },
-    link: {
-      persistent_token: null,
-    },
-  },
+  payment_method_options: commonMethodOptions,
   payment_method_types: ['card', 'link'],
   processing: null,
   receipt_email: null,
@@ -249,135 +277,9 @@ export const mockStripeRetrievePaymentResult: Stripe.Response<Stripe.PaymentInte
   payment_method_configuration_details: null,
 };
 
-export const mockStripeCreatePaymentResult: Stripe.Response<Stripe.PaymentIntent> = {
-  lastResponse: {
-    headers: {},
-    requestId: '11111',
-    statusCode: 200,
-    apiVersion: '',
-    idempotencyKey: '',
-    stripeAccount: '',
-  },
-  id: 'pi_create_3MtwBwLkdIwHu7ix28a3tqPa',
-  object: 'payment_intent',
-  amount: 2000,
-  amount_capturable: 0,
-  amount_details: {
-    tip: {},
-  },
-  amount_received: 0,
-  application: null,
-  application_fee_amount: null,
-  automatic_payment_methods: {
-    enabled: true,
-  },
-  canceled_at: null,
-  cancellation_reason: null,
-  capture_method: 'automatic',
-  client_secret: 'pi_3MtwBwLkdIwHu7ix28a3tqPa_secret_YrKJUKribcBjcG8HVhfZluoGH',
-  confirmation_method: 'automatic',
-  created: 1680800504,
-  currency: 'usd',
-  customer: null,
-  description: null,
-  invoice: null,
-  last_payment_error: null,
-  latest_charge: null,
-  livemode: false,
-  metadata: {},
-  next_action: null,
-  on_behalf_of: null,
-  payment_method: null,
-  payment_method_options: {
-    card: {
-      installments: null,
-      mandate_options: null,
-      network: null,
-      request_three_d_secure: 'automatic',
-    },
-    link: {
-      persistent_token: null,
-    },
-  },
-  payment_method_types: ['card', 'link'],
-  processing: null,
-  receipt_email: null,
-  review: null,
-  setup_future_usage: null,
-  shipping: null,
-  source: null,
-  statement_descriptor: null,
-  statement_descriptor_suffix: null,
-  status: 'requires_payment_method',
-  transfer_data: null,
-  transfer_group: null,
-  payment_method_configuration_details: null,
-};
+export const mockStripeCreatePaymentResult: Stripe.Response<Stripe.PaymentIntent> = commonPaymentResult;
 
-export const mockStripeUpdatePaymentResult: Stripe.Response<Stripe.PaymentIntent> = {
-  lastResponse: {
-    headers: {},
-    requestId: '11111',
-    statusCode: 200,
-    apiVersion: '',
-    idempotencyKey: '',
-    stripeAccount: '',
-  },
-  id: 'pi_create_3MtwBwLkdIwHu7ix28a3tqPa',
-  object: 'payment_intent',
-  amount: 2000,
-  amount_capturable: 0,
-  amount_details: {
-    tip: {},
-  },
-  amount_received: 0,
-  application: null,
-  application_fee_amount: null,
-  automatic_payment_methods: {
-    enabled: true,
-  },
-  canceled_at: null,
-  cancellation_reason: null,
-  capture_method: 'automatic',
-  client_secret: 'pi_3MtwBwLkdIwHu7ix28a3tqPa_secret_YrKJUKribcBjcG8HVhfZluoGH',
-  confirmation_method: 'automatic',
-  created: 1680800504,
-  currency: 'usd',
-  customer: null,
-  description: null,
-  invoice: null,
-  last_payment_error: null,
-  latest_charge: null,
-  livemode: false,
-  metadata: {},
-  next_action: null,
-  on_behalf_of: null,
-  payment_method: null,
-  payment_method_options: {
-    card: {
-      installments: null,
-      mandate_options: null,
-      network: null,
-      request_three_d_secure: 'automatic',
-    },
-    link: {
-      persistent_token: null,
-    },
-  },
-  payment_method_types: ['card', 'link'],
-  processing: null,
-  receipt_email: null,
-  review: null,
-  setup_future_usage: null,
-  shipping: null,
-  source: null,
-  statement_descriptor: null,
-  statement_descriptor_suffix: null,
-  status: 'requires_payment_method',
-  transfer_data: null,
-  transfer_group: null,
-  payment_method_configuration_details: null,
-};
+export const mockStripeUpdatePaymentResult: Stripe.Response<Stripe.PaymentIntent> = commonPaymentResult;
 
 export const mockGetPaymentAmount: PaymentAmount = {
   centAmount: 150000,

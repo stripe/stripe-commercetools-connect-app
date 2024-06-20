@@ -18,7 +18,7 @@ jest.mock('stripe', () => ({
       update: jest
         .fn<() => Promise<Stripe.Response<Stripe.WebhookEndpoint>>>()
         .mockResolvedValue(mock_Stripe_updateWebhookEnpoints_response),
-    }
+    },
   })),
 }));
 
