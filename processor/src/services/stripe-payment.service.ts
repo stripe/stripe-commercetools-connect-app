@@ -196,7 +196,6 @@ export class StripePaymentService extends AbstractPaymentService {
       // obtain customer from ct to add to paymentIntent
       paymentIntent = await stripeApi().paymentIntents.create(
         {
-          confirm: true,
           amount: amountPlanned.centAmount,
           currency: amountPlanned.currencyCode,
           automatic_payment_methods: {
