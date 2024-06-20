@@ -6,12 +6,17 @@ fetchMock.enableMocks();
 jest.mock("../src/constants", () => {
     const fs = require('fs');
     const envFile = fs.readFileSync('.env.test', 'utf8');
+
     let envLines = envFile.split('\n');
-    
+
     return envLines.reduce((prev, curr) => {
+        console.log(curr);
+
         const [key, value] = curr.split('=');
+        if (!key)
+            return {...prev}
         return {
-            ...prev, 
+            ...prev,
             [key.trim()] : value.trim()
         }
     }, {});
@@ -27,14 +32,14 @@ jest.mock("@stripe/stripe-js", () => {
                     return {
                         create : (elementType, _options) => {
                             switch(elementType) {
-                                case 'payment': 
+                                case 'payment':
                                     return jest.fn().mockImplementation(() => {
                                         return {
                                             mount : (_selector) => {},
                                             on : (_evt, _cb) => {},
                                         }
                                     });
-                                case 'expressCheckout': 
+                                case 'expressCheckout':
                                     return jest.fn().mockImplementation(() => {
                                         return {
                                             mount : (_selector) => {},
