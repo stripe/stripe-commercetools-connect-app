@@ -18,7 +18,7 @@ import packageJSON from '../../package.json';
 
 import { AbstractPaymentService } from './abstract-payment.service';
 import { getConfig } from '../config/config';
-import { paymentSDK } from '../payment-sdk';
+import { appLogger, paymentSDK } from '../payment-sdk';
 import { CaptureMethod, StripePaymentServiceOptions } from './types/stripe-payment.type';
 import {
   ConfigElementResponseSchemaDTO,
@@ -63,6 +63,7 @@ export class StripePaymentService extends AbstractPaymentService {
    */
   public async status(): Promise<StatusResponse> {
     const handler = await statusHandler({
+      log: appLogger,
       timeout: getConfig().healthCheckTimeout,
       checks: [
         healthCheckCommercetoolsPermissions({
@@ -195,7 +196,6 @@ export class StripePaymentService extends AbstractPaymentService {
       // obtain customer from ct to add to paymentIntent
       paymentIntent = await stripeApi().paymentIntents.create(
         {
-          confirm: true,
           amount: amountPlanned.centAmount,
           currency: amountPlanned.currencyCode,
           automatic_payment_methods: {

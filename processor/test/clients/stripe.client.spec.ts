@@ -1,5 +1,4 @@
 import { describe, test, expect, afterEach, jest, beforeEach } from '@jest/globals';
-
 import * as StripeClient from '../../src/clients/stripe.client';
 import { mockCancelPaymentErrorResult } from '../utils/mock-payment-results';
 import { StripeApiError } from '../../src/errors/stripe-api.error';
@@ -7,7 +6,7 @@ import * as Logger from '../../src/libs/logger';
 
 jest.mock('../../src/libs/logger');
 
-describe('stripe.client', () => {
+describe('wrapStripeError', () => {
   beforeEach(() => {
     jest.setTimeout(10000);
     jest.resetAllMocks();
@@ -17,7 +16,7 @@ describe('stripe.client', () => {
     jest.restoreAllMocks();
   });
 
-  test('wrapStripeError returns the original error due to a general error', async () => {
+  test('should return the original error due to a general error', async () => {
     const error = new Error('Error');
 
     const result = StripeClient.wrapStripeError(error);
@@ -26,7 +25,7 @@ describe('stripe.client', () => {
     expect(Logger.log.error).toBeCalledTimes(1);
   });
 
-  test('wrapStripeError returns a StripeApiError', async () => {
+  test('should return a StripeApiError', async () => {
     const result = StripeClient.wrapStripeError(JSON.parse(JSON.stringify(mockCancelPaymentErrorResult)));
 
     const resultStripeApiError = result as StripeApiError;

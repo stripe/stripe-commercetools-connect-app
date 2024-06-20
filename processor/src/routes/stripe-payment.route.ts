@@ -66,10 +66,6 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
       }
 
       switch (event.type) {
-        case 'payment_intent.payment_failed':
-          // Payment intent has failed
-          log.info('--->>> payment_intent.payment_failed');
-          break;
         case 'payment_intent.succeeded':
           log.info(`Handle ${event.type} event of ${event.data.object.id}`);
           opts.paymentService.chargePaymentInCt(event);
@@ -86,8 +82,13 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
           log.info(`Handle ${event.type} event of ${event.data.object.id}`);
           opts.paymentService.cancelAuthorizationInCt(event);
           break;
+        case 'payment_intent.payment_failed':
+          log.info(`Received: ${event.type} event of ${event.data.object.id}`);
+          break;
+        case 'payment_intent.requires_action':
+          log.info(`Received: ${event.type} event of ${event.data.object.id}`);
+          break;
         default:
-          // This event is not supported
           log.info(`--->>> This Stripe event is not supported: ${event.type}`);
           break;
       }

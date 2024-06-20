@@ -2,6 +2,7 @@ import { Static, Type } from '@sinclair/typebox';
 
 export const CreatePaymentMethodSchema = Type.Object({
   type: Type.String(),
+  confirmationToken: Type.Optional(Type.String()),
 });
 
 export const PaymentRequestSchema = Type.Object({
