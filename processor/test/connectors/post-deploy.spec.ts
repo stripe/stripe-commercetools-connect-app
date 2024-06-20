@@ -5,8 +5,8 @@ import { mock_Stripe_retrieveWebhookEnpoints_response } from '../utils/mock-acti
 
 jest.mock('../../src/connectors/actions');
 
-describe('post-deploy', () => {
-  const originalEnv = process.env;
+describe('runPostDeployScripts', () => {
+  const originalEnv = process.env
 
   beforeEach(() => {
     jest.setTimeout(10000);
@@ -18,7 +18,7 @@ describe('post-deploy', () => {
     process.env = originalEnv;
   });
 
-  test('runPostDeployScripts function succeded, should update the webhook endpoint URL when the URLs are different', async () => {
+  test('should update the webhook endpoint URL when the URLs are different', async () => {
     process.env = { CONNECT_SERVICE_URL: 'https://yourApp.com/', STRIPE_WEBHOOK_ID: 'we_11111' };
 
     const mockRetrieveWe = jest
@@ -32,7 +32,7 @@ describe('post-deploy', () => {
     expect(mockUpdateWe).toHaveBeenCalled();
   });
 
-  test('runPostDeployScripts function succeded, should not update the webhook endpoint URL when the URLs are the same', async () => {
+  test('should not update the webhook endpoint URL when the URLs are the same', async () => {
     process.env = { CONNECT_SERVICE_URL: 'https://myApp.com/', STRIPE_WEBHOOK_ID: 'we_11111' };
 
     const mockRetrieveWe = jest
@@ -46,7 +46,7 @@ describe('post-deploy', () => {
     expect(mockUpdateWe).toHaveBeenCalledTimes(0);
   });
 
-  test('runPostDeployScripts function failed, retrieveWebhookEndpoint() function throws an error and a log is recorded', async () => {
+  test('should throw an error when a call to Stripe throws an error', async () => {
     process.env = { CONNECT_SERVICE_URL: 'https://yourApp.com/', STRIPE_WEBHOOK_ID: 'we_11111' };
 
     const mockError = new Error('No such webhook endpoint');
@@ -57,6 +57,17 @@ describe('post-deploy', () => {
     await PostDeploy.runPostDeployScripts();
 
     expect(mockRetrieveWe).toHaveBeenCalled();
+    expect(writeSpy).toHaveBeenCalledWith(mockErrorMessage);
+  });
+
+  test('should throw an error when the STRIPE_WEBHOOK_ID var is not assigned', async () => {
+    process.env = { CONNECT_SERVICE_URL: 'https://yourApp.com/' };
+
+    const mockErrorMessage = `Post-deploy failed: STRIPE_WEBHOOK_ID var is not assigned.\n`;
+    const writeSpy = jest.spyOn(process.stderr, 'write');
+
+    await PostDeploy.runPostDeployScripts();
+
     expect(writeSpy).toHaveBeenCalledWith(mockErrorMessage);
   });
 });

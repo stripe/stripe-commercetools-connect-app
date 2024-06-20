@@ -196,7 +196,6 @@ export class StripePaymentService extends AbstractPaymentService {
       // MVP Add customer address to the payment Intent creation
       paymentIntent = await stripeApi().paymentIntents.create(
         {
-          confirm: true,
           amount: amountPlanned.centAmount,
           currency: amountPlanned.currencyCode,
           automatic_payment_methods: {

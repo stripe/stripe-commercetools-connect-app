@@ -22,7 +22,7 @@ jest.mock('stripe', () => ({
   })),
 }));
 
-describe('actions', () => {
+describe('retrieveWebhookEndpoint', () => {
   beforeEach(() => {
     jest.setTimeout(10000);
     jest.resetAllMocks();
@@ -32,7 +32,7 @@ describe('actions', () => {
     jest.restoreAllMocks();
   });
 
-  test('retrieveWebhookEndpoint function succeded', async () => {
+  test('should retrieve webhook endpoint information successfully', async () => {
     Stripe.prototype.webhookEndpoints = {
       retrieve: jest.fn(),
     } as unknown as Stripe.WebhookEndpointsResource;
@@ -47,7 +47,7 @@ describe('actions', () => {
     expect(result).toBeDefined();
   });
 
-  test('retrieveWebhookEndpoint function failed', async () => {
+  test('should throw an error when Stripe throws an error', async () => {
     Stripe.prototype.webhookEndpoints = {
       retrieve: jest.fn(),
     } as unknown as Stripe.WebhookEndpointsResource;
@@ -61,8 +61,19 @@ describe('actions', () => {
     expect(Logger.log.info).toHaveBeenCalled();
     expect(Logger.log.error).toHaveBeenCalled();
   });
+});
 
-  test('updateWebhookEndpoint function succeded', async () => {
+describe('updateWebhookEndpoint', () => {
+  beforeEach(() => {
+    jest.setTimeout(10000);
+    jest.resetAllMocks();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test('should update webhook endpoint URL successfully', async () => {
     Stripe.prototype.webhookEndpoints = {
       update: jest.fn(),
     } as unknown as Stripe.WebhookEndpointsResource;
@@ -76,7 +87,7 @@ describe('actions', () => {
     expect(Stripe.prototype.webhookEndpoints.update).toHaveBeenCalled();
   });
 
-  test('updateWebhookEndpoint function failed', async () => {
+  test('should throw an error when Stripe throws an error', async () => {
     Stripe.prototype.webhookEndpoints = {
       update: jest.fn(),
     } as unknown as Stripe.WebhookEndpointsResource;

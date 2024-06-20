@@ -342,7 +342,7 @@ describe('Stripe Payment APIs', () => {
   });
 
   describe('GET /payment', () => {
-    it('should call /payment and return valid information', async () => {
+    test('should call /payment and return valid information', async () => {
       //Given
       jest.spyOn(spiedPaymentService, 'createPaymentIntentStripe').mockResolvedValue(mockRoute__payments_succeed);
 
@@ -364,7 +364,7 @@ describe('Stripe Payment APIs', () => {
   });
 
   describe('GET /get-config-element', () => {
-    it('should call /get-config-element', async () => {
+    test('should call /get-config-element', async () => {
       //Given
       jest.spyOn(spiedPaymentService, 'getConfigElement').mockResolvedValue(mockRoute__get_config_element_succeed);
 

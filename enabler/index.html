@@ -27,7 +27,7 @@
 
       <section class="jumbotron text-center">
         <div class="container">
-          <form action="/action_page.php">
+          <form>
             <div class="text-center mb-4">
               <h1 class="h3 mb-3 font-weight-normal">Dev Site</h1>
               <p>Use this site for development purposes</p>
@@ -43,43 +43,92 @@
 
       <div class="album py-5 bg-light">
         <div class="container">
-
           <script type="module">
             import { Enabler } from '/src/main.ts';
-      
-            document.getElementById('createCheckout').addEventListener('click', async (event) => {
-              event.preventDefault();
-              const cartId = document.getElementById('cartId').value;
-              const sessionId = await getSessionId(cartId);
+            
+            const card = document.getElementById("card-component")
+            const express = document.getElementById("express-checkout")
+            const payment = document.getElementById("payment")
+            const cartId = document.getElementById('cartId').value;
+            const createCheckout = document.getElementById("createCheckout")
+
+            const setup = async () => {
+              const sessionId = await getSessionId(document.getElementById("cartId").value);
+
+              console.log({sessionId})
+              
+              const onError = (e) => {
+                console.log({e})
+              }
 
               const enabler = new Enabler({
-                processorUrl: __VITE_PROCESSOR_URL__,
-                sessionId: sessionId,
-                config: {
-                  
-                },
-                onComplete: ({ isSuccess, paymentReference }) => {
-                  console.log('onComplete', { isSuccess, paymentReference });
-                },
-              });
-        
-              enabler.createComponent('card', {
-                config: {},
+                processorURL : __VITE_PROCESSOR_URL__, 
+                returnURL : "/success",
+                sessionId,
+                onActionRequired : () => {},
+                onComplete: () => {},
+                onError
               })
-              .then(e => e.mount('#card-component'));
-            });
-      
+
+              let promises = []
+
+              
+              const paymentElement = enabler.createStripeElement({
+                type : "payment",
+                //See https://docs.stripe.com/js/elements_object/create_payment_element#payment_element_create-options for this element options
+                options : {
+
+                }
+              })
+              .then(paymentElement => {
+                paymentElement.mount("#payment")
+                return paymentElement
+              })
+
+              promises.push(paymentElement);
+              
+              const expressCheckoutElement = enabler.createStripeElement({
+                type : "expressCheckout",
+                //See https://docs.stripe.com/js/elements_object/create_express_checkout_element#express_checkout_element_create-options for this element options
+                options : {
+                  
+                } 
+              })
+              .then(paymentElement => {
+                // paymentElement.mount("#express-checkout")
+                return paymentElement
+              });
+
+              promises.push(expressCheckoutElement);
+
+              const submitButton = document.querySelector("#submit-payment")
+
+              Promise.all(promises)
+                .then(results => {
+                  let [paymentElement, expressCheckoutElement] = results;
+                  
+                  submitButton.addEventListener("click", async (e) => {
+                    let result = await paymentElement.submit()
+                  })
+                  submitButton.style.display = "block";
+                })
+            }
+
+            createCheckout.addEventListener("click",e => {
+              e.preventDefault();
+              e.stopPropagation();
+              setup()
+            })
+            
           </script>
-      
-          <div id="card-component"></div>
+          <div id="payment"></div>
+          <div id="card-component" style="padding-top: 25px; padding-bottom: 25px;"></div>
+          <div id="express-checkout"></div>
+          <button id="submit-payment" class="btn btn-sm btn-primary btn-block" style="display: none;">Pay</button>
         </div>
       </div>
 
     </main>
-
-
-
-    
 
     
   </body>
