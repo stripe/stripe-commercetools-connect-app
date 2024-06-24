@@ -38,7 +38,7 @@ export class PaymentElement extends BaseStripePaymentComponent {
             elements: this.elementsSDK,
             clientSecret: client_secret,
             confirmParams : {
-                return_url : `${window.location.href}${this.returnURL}` 
+                return_url : `${this.returnURL}` 
             }
         });
 
