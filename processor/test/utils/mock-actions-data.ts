@@ -13,7 +13,7 @@ export const mock_Stripe_retrieveWebhookEnpoints_response: Stripe.Response<Strip
     'payment_intent.canceled',
     'payment_intent.succeeded',
     'payment_intent.payment_failed',
-    'payment_intent.requires_action'
+    'payment_intent.requires_action',
   ],
   livemode: false,
   metadata: {},
@@ -39,7 +39,7 @@ export const mock_Stripe_updateWebhookEnpoints_response: Stripe.Response<Stripe.
     'payment_intent.canceled',
     'payment_intent.succeeded',
     'payment_intent.payment_failed',
-    'payment_intent.requires_action'
+    'payment_intent.requires_action',
   ],
   livemode: false,
   metadata: {},

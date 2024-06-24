@@ -193,7 +193,7 @@ export class StripePaymentService extends AbstractPaymentService {
     let paymentIntent!: Stripe.PaymentIntent;
     try {
       const idempotencyKey = crypto.randomUUID();
-      // obtain customer from ct to add to paymentIntent
+      // MVP Add customer address to the payment Intent creation
       paymentIntent = await stripeApi().paymentIntents.create(
         {
           amount: amountPlanned.centAmount,

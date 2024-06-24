@@ -24,6 +24,10 @@ type StripeRoutesOptions = {
   stripeHeaderAuthHook: StripeHeaderAuthHook;
 };
 
+/**
+ * MVP if additional information needs to be included in the payment intent, this method should be supplied with the necessary data.
+ *
+ */
 export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPluginOptions & PaymentRoutesOptions) => {
   fastify.get<{ Reply: PaymentResponseSchemaDTO }>(
     '/payments',
@@ -59,7 +63,8 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
         event = await stripeApi().webhooks.constructEvent(
           request.rawBody as string,
           signature,
-          getConfig().stripeWebhookSigningSecret);
+          getConfig().stripeWebhookSigningSecret,
+        );
       } catch (err: any) {
         log.error(JSON.stringify(err));
         return reply.status(400).send(`Webhook Error: ${err.message}`);
