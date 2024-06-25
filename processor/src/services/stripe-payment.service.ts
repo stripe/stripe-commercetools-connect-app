@@ -134,18 +134,33 @@ export class StripePaymentService extends AbstractPaymentService {
   }
 
   /**
-   * Capture payment
+   * Capture payment in Stripe.
    *
    * @remarks
-   * Implementation to provide the mocking data for payment capture in external PSPs
+   * MVP: capture the total amount
    *
-   * @param request - contains the amount and {@link https://docs.commercetools.com/api/projects/payments | Payment } defined in composable commerce
+   * @param {CapturePaymentRequest} request - Information about the ct payment and the amount.
    * @returns Promise with mocking data containing operation status and PSP reference
    */
   public async capturePayment(request: CapturePaymentRequest): Promise<PaymentProviderModificationResponse> {
-    return { outcome: PaymentModificationStatus.APPROVED, pspReference: request.payment.interfaceId as string };
+    try {
+      const idempotencyKey = crypto.randomUUID();
+      await stripeApi().paymentIntents.capture(request.payment.interfaceId as string, {
+        idempotencyKey
+      });
+
+      return { outcome: PaymentModificationStatus.APPROVED, pspReference: request.payment.interfaceId as string };
+    } catch (e) {
+      throw wrapStripeError(e);
+    }
   }
 
+  /**
+   * Cancel payment in Stripe.
+   * 
+   * @param {CancelPaymentRequest} request - Information about the ct payment.
+   * @returns Promise with mocking data containing operation status and PSP reference
+   */
   public async cancelPayment(request: CancelPaymentRequest): Promise<PaymentProviderModificationResponse> {
     try {
       const idempotencyKey = crypto.randomUUID();
@@ -159,6 +174,15 @@ export class StripePaymentService extends AbstractPaymentService {
     }
   }
 
+  /**
+   * Refund payment in Stripe.
+   * 
+   * @remarks
+   * MVP: refund the total amount
+   * 
+   * @param {RefundPaymentRequest} request - Information about the ct payment and the amount.
+   * @returns Promise with mocking data containing operation status and PSP reference
+   */
   public async refundPayment(request: RefundPaymentRequest): Promise<PaymentProviderModificationResponse> {
     try {
       const idempotencyKey = crypto.randomUUID();
@@ -176,7 +200,7 @@ export class StripePaymentService extends AbstractPaymentService {
   }
 
   /**
-   * Crate the Payment Intent from Stripe
+   * Create the Payment Intent from Stripe
    *
    * @remarks
    * Implementation to provide the payment Intent from Stripe
