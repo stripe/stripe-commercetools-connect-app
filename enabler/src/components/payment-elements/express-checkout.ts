@@ -9,7 +9,7 @@ export class ExpressCheckout extends BaseStripePaymentComponent {
         super(baseOptions);
     }
 
-    async submit(){
+    async submit(e){
         //MVP if additional information needs to be included in the payment intent, this method should be supplied with the necessary data.
         let { errors : processorError, sClientSecret : client_secret} = await fetch(`${this.processorURL}/payments`,{
             method : "GET",
@@ -28,7 +28,7 @@ export class ExpressCheckout extends BaseStripePaymentComponent {
             elements: this.elementsSDK,
             clientSecret: client_secret,
             confirmParams : {
-                return_url : `${window.location.href}${this.returnURL}` 
+                return_url : `${this.returnURL}`
             }
         });
 
@@ -38,15 +38,15 @@ export class ExpressCheckout extends BaseStripePaymentComponent {
             return;
         }
 
-        this.onComplete();
+        this.onComplete(e);
     }
 
     mount(selector : string) {
-        
+
         (this.element as StripeExpressCheckoutElement).mount(selector);
 
-        (this.element as StripeExpressCheckoutElement).on("confirm", async (_ : StripeExpressCheckoutElementConfirmEvent) => {
-            this.submit();
+        (this.element as StripeExpressCheckoutElement).on("confirm", async (e : StripeExpressCheckoutElementConfirmEvent) => {
+            this.submit(e);
         })
     }
 
