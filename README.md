@@ -1,5 +1,5 @@
 # connect-payment-integration-stripe
-This repository provides a [connect](https://docs.commercetools.com/connect)  to integrate commercetools with the Stripe payment service provider (PSP). ==It features payment integration from Stripe to commercetools, including a listener for various webhooks responses from Stripe. These webhooks calls are converted into different payment status changes within commercetools.==
+This repository provides a [connect](https://docs.commercetools.com/connect)  to integrate commercetools with the Stripe payment service provider (PSP). It features payment integration from Stripe to commercetools, including a listener for various webhooks responses from Stripe. These webhooks calls are converted into different payment status changes within commercetools.
 
 ## Features
 - Typescript language supported.
