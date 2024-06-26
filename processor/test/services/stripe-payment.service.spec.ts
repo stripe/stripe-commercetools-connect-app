@@ -304,7 +304,6 @@ describe('stripe-payment.service', () => {
       jest
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockUpdatePaymentResult));
-      // Set mocked functions to Stripe and spyOn it
       Stripe.prototype.refunds = {
         create: jest.fn(),
       } as unknown as Stripe.RefundsResource;
@@ -521,37 +520,66 @@ describe('stripe-payment.service', () => {
     test('should refund a payment in ct successfully when the charge has been captured', async () => {
       const thisPaymentService: StripePaymentService = new StripePaymentService(opts);
 
-      jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
+      // Set mocked functions to Stripe and spyOn it
+      Stripe.prototype.paymentIntents = {
+        retrieve: jest.fn(),
+      } as unknown as Stripe.PaymentIntentsResource;
+      jest
+        .spyOn(Stripe.prototype.paymentIntents, 'retrieve')
+        .mockReturnValue(Promise.resolve(mockStripeRetrievePaymentResult));
+      jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
 
       await thisPaymentService.refundPaymentInCt(mockEvent__charge_refund_captured);
 
+      expect(Stripe.prototype.paymentIntents.retrieve).toBeCalled();
       expect(DefaultPaymentService.prototype.updatePayment).toBeCalled();
     });
 
     test('should not refund a payment in ct when the charge has not been captured', async () => {
       const thisPaymentService: StripePaymentService = new StripePaymentService(opts);
 
-      jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
+      jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
 
       await thisPaymentService.refundPaymentInCt(mockEvent__charge_refund_notCaptured);
 
+      expect(Stripe.prototype.paymentIntents.retrieve).toHaveBeenCalledTimes(0);
       expect(DefaultPaymentService.prototype.updatePayment).toHaveBeenCalledTimes(0);
     });
 
     test('should write a log when stripe.paymentIntents.retrieve function throws an error', async () => {
       const thisPaymentService: StripePaymentService = new StripePaymentService(opts);
-      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockImplementation(() => {
-        throw new Error('error');
-      });
+
+      // Set mocked functions to Stripe and spyOn it
+      Stripe.prototype.paymentIntents = {
+        retrieve: jest.fn(),
+      } as unknown as Stripe.PaymentIntentsResource;
+      jest
+        .spyOn(Stripe.prototype.paymentIntents, 'retrieve')
+        .mockImplementation(() => {
+          throw new Error('error');
+        });
 
       await thisPaymentService.refundPaymentInCt(mockEvent__charge_refund_captured);
 
       expect(Logger.log.error).toBeCalled();
+      expect(Stripe.prototype.paymentIntents.retrieve).toHaveBeenCalledTimes(1);
+      expect(Stripe.prototype.paymentIntents.retrieve).toThrowError();
     });
 
     test('should write a log when ctPaymentService.updatePayment function throws an error', async () => {
       const thisPaymentService: StripePaymentService = new StripePaymentService(opts);
 
+      // Set mocked functions to Stripe and spyOn it
+      Stripe.prototype.paymentIntents = {
+        retrieve: jest.fn(),
+      } as unknown as Stripe.PaymentIntentsResource;
+      jest
+        .spyOn(Stripe.prototype.paymentIntents, 'retrieve')
+        .mockReturnValue(Promise.resolve(mockStripeRetrievePaymentResult));
       jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockImplementation(() => {
         throw new Error('error');
       });
@@ -559,6 +587,8 @@ describe('stripe-payment.service', () => {
       await thisPaymentService.refundPaymentInCt(mockEvent__charge_refund_captured);
 
       expect(Logger.log.error).toBeCalled();
+      expect(DefaultPaymentService.prototype.updatePayment).toHaveBeenCalledTimes(1);
+      expect(DefaultPaymentService.prototype.updatePayment).toThrowError();
     });
   });
 
