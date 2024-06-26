@@ -48,3 +48,8 @@ deployAs:
           required: true
   - name: enabler
     applicationType: assets
+    configuration:
+      securedConfiguration:
+        - key: VITE_STRIPE_PUBLISHABLE_KEY
+          description: Stripe publishable key
+          required: true
