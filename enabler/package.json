@@ -4,7 +4,7 @@
     "version": "1.0.0",
     "type": "module",
     "scripts": {
-        "dev": "vite --port 3000",
+        "dev": "vite --port 3001",
         "start": "serve public -l 8080 --cors",
         "test": "jest",
         "jest-clear-cache": "jest --clearCache",

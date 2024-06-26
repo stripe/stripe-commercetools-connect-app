@@ -10,8 +10,6 @@ jest.mock("../src/constants", () => {
     let envLines = envFile.split('\n');
 
     return envLines.reduce((prev, curr) => {
-        console.log(curr);
-
         const [key, value] = curr.split('=');
         if (!key)
             return {...prev}

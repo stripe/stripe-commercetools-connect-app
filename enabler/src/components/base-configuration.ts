@@ -18,6 +18,7 @@ export abstract class BaseStripePaymentComponent implements BaseConfiguration{
     locale: StripeElementConfiguration["locale"];
     onActionRequired: StripeElementConfiguration["onActionRequired"];
     onConfirm: StripeElementConfiguration["onConfirm"];
+    publishableKey : StripeElementConfiguration["publishableKey"];
     protected clientSecret : string;
     
     constructor(baseOptions: StripeElementConfiguration) {
@@ -36,6 +37,7 @@ export abstract class BaseStripePaymentComponent implements BaseConfiguration{
         this.onActionRequired = baseOptions["onActionRequired"];
         this.onConfirm = baseOptions["onConfirm"];
         this.clientSecret = baseOptions["clientSecret"];
+        this.publishableKey = baseOptions["publishableKey"];
     }
   
     abstract mount(selector : string): void;
@@ -54,6 +56,7 @@ export type BaseConfiguration = {
     onConfirm?: () => Promise<void>;
     onComplete?: (result?: any) => void;
     onError?: (error: StripeError | 'fail' | 'invalid_shipping_address' | 'Container element not found') => void;
+    publishableKey : string;
 };
 
 export interface StripeElementConfiguration extends BaseConfiguration {

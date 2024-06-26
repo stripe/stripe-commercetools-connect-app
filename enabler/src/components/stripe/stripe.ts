@@ -59,7 +59,7 @@ export class StripePayment {
 
     private static async setup(options: BaseConfiguration) : Promise<SetupData> {
         
-        const stripeSDK = await loadStripe(env.VITE_STRIPE_PUBLISHABLE_KEY);
+        const stripeSDK = await loadStripe(options.publishableKey);
 
         let environment = "live";
         
