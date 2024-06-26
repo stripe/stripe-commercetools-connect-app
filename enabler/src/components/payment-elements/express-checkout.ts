@@ -28,7 +28,7 @@ export class ExpressCheckout extends BaseStripePaymentComponent {
             elements: this.elementsSDK,
             clientSecret: client_secret,
             confirmParams : {
-                return_url : `${this.returnURL}` 
+                return_url : `${this.returnURL}`
             }
         });
 
@@ -42,7 +42,7 @@ export class ExpressCheckout extends BaseStripePaymentComponent {
     }
 
     mount(selector : string) {
-        
+
         (this.element as StripeExpressCheckoutElement).mount(selector);
 
         (this.element as StripeExpressCheckoutElement).on("confirm", async (e : StripeExpressCheckoutElementConfirmEvent) => {
@@ -51,3 +51,4 @@ export class ExpressCheckout extends BaseStripePaymentComponent {
     }
 
 }
+
