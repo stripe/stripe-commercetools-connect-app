@@ -181,11 +181,6 @@ deployAs:
           required: true  
   - name: enabler  
     applicationType: assets
-    configuration:
-      securedConfiguration:
-        - key: VITE_STRIPE_PUBLISHABLE_KEY
-          description: Stripe publishable key
-          required: true
 ```
 
 Here you can see the details about various variables in configuration
@@ -204,7 +199,6 @@ Here you can see the details about various variables in configuration
 - STRIPE_SECRET_KEY: Stripe authenticates your API requests using your account’s API keys
 - STRIPE_WEBHOOK_ID: Stripe unique identifier for the [Webhook Endpoints](https://docs.stripe.com/api/webhook_endpoints)
 - STRIPE_WEBHOOK_SIGNING_SECRET: Stripe Secret key to verify webhook signatures using the official libraries. This key is created in the [Stripe dashboard Webhook](https://docs.stripe.com/webhooks).
-- VITE_STRIPE_PUBLISHABLE_KEY: Stripe Publishable key of your account.
 
 ### Considerations about the Webhook Endpoint
 Before installing the connector, it is necessary to create a Webhook Endpoint in Stripe (using a dummy URL). Once created, the ID and Signing Secret can be retrieved from the Stripe Console. This Webhook Endpoint will be updated during the post-deploy script after the connector has been deployed. It's important to set the correct values in the variables so the events are sent to the connector and can be accepted.
