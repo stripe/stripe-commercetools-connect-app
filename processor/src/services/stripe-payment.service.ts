@@ -266,18 +266,21 @@ export class StripePaymentService extends AbstractPaymentService {
     const charge = event as Stripe.ChargeRefundedEvent;
 
     try {
-      const paymentIntentId = charge.data.object.payment_intent as string;
-
       if (charge.data.object.captured) {
+        const stripePaymentIntentId = charge.data.object.payment_intent as string;
+
+        const stripePaymentIntent: Stripe.PaymentIntent =
+          await stripeApi().paymentIntents.retrieve(stripePaymentIntentId);
+
         await this.ctPaymentService.updatePayment({
-          id: charge.data.object.metadata.ct_payment_id || '',
+          id: this.getCtPaymentId(stripePaymentIntent),
           transaction: {
             type: PaymentTransactions.REFUND,
             amount: {
               centAmount: charge.data.object.amount_captured, // MVP refund the total captured
               currencyCode: charge.data.object.currency.toUpperCase(),
             },
-            interactionId: paymentIntentId,
+            interactionId: stripePaymentIntentId,
             state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
           },
         });
