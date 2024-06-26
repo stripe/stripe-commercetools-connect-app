@@ -13,6 +13,7 @@ import {
   mockStripeRetrievePaymentResult,
   mockStripeUpdatePaymentResult,
   mockUpdatePaymentResult,
+  mockStripeCapturePaymentResult,
 } from '../utils/mock-payment-results';
 import {
   mockEvent__charge_refund_captured,
@@ -52,6 +53,9 @@ jest.mock('stripe', () => ({
       update: jest
         .fn<() => Promise<Stripe.Response<Stripe.PaymentIntent>>>()
         .mockResolvedValue(mockStripeUpdatePaymentResult),
+      capture: jest
+        .fn<() => Promise<Stripe.Response<Stripe.PaymentIntent>>>()
+        .mockResolvedValue(mockStripeCapturePaymentResult),
     },
     refunds: {
       create: jest.fn<() => Promise<Stripe.Response<Stripe.Refund>>>().mockResolvedValue(mockStripeCreateRefundResult),
@@ -226,6 +230,13 @@ describe('stripe-payment.service', () => {
       };
 
       jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
+      // Set mocked functions to Stripe and spyOn it
+      Stripe.prototype.paymentIntents = {
+        capture: jest.fn(),
+      } as unknown as Stripe.PaymentIntentsResource;
+      jest
+        .spyOn(Stripe.prototype.paymentIntents, 'capture')
+        .mockReturnValue(Promise.resolve(mockStripeCapturePaymentResult));
       jest
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockUpdatePaymentResult));
@@ -235,6 +246,40 @@ describe('stripe-payment.service', () => {
 
       const result = await paymentService.modifyPayment(modifyPaymentOpts);
       expect(result?.outcome).toStrictEqual('approved');
+    });
+
+    test('should throw an error when Stripe service throws an error', async () => {
+      const modifyPaymentOpts: ModifyPayment = {
+        paymentId: 'dummy-paymentId',
+        data: {
+          actions: [
+            {
+              action: 'capturePayment',
+              amount: {
+                centAmount: 150000,
+                currencyCode: 'USD',
+              },
+            },
+          ],
+        },
+      };
+
+      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
+      // Set mocked functions to Stripe and spyOn it
+      Stripe.prototype.paymentIntents = {
+        capture: jest.fn(),
+      } as unknown as Stripe.PaymentIntentsResource;
+      jest.spyOn(Stripe.prototype.paymentIntents, 'capture').mockImplementation(() => {
+        throw new Error('error');
+      });
+      jest.spyOn(StripeClient, 'wrapStripeError').mockReturnValue(new Error('Unexpected error calling Stripe API'));
+      jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockReturnValue(Promise.resolve(mockUpdatePaymentResult));
+
+      expect(async () => {
+        await paymentService.modifyPayment(modifyPaymentOpts);
+      }).rejects.toThrow();
     });
   });
 
