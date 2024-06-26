@@ -376,7 +376,7 @@ export class StripePaymentService extends AbstractPaymentService {
 
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
     const appearance =
-      opts.toUpperCase() === PaymentComponentsSupported.PAYMENT_ELEMENT.toString()
+      opts.toUpperCase() === PaymentComponentsSupported.PAYMENT_ELEMENT.toString().toUpperCase()
         ? getConfig().stripePaymentElementAppearance
         : getConfig().stripeExpressCheckoutAppearance;
 
