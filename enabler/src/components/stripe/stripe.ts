@@ -82,7 +82,7 @@ export class StripePayment {
             mode: 'payment',
             amount: this.elementsConfiguration.cartInfo.amount,
             currency: this.elementsConfiguration.cartInfo.currency,
-            appearance : JSON.parse(this.elementsConfiguration.appearance ?? "{}"),
+            appearance : JSON.parse(this.elementsConfiguration.appearance ? this.elementsConfiguration.appearance : "{}"),
             capture_method: this.elementsConfiguration.captureMethod,
         })
     }
