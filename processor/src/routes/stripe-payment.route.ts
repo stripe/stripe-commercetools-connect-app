@@ -51,7 +51,7 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
   fastify.post<{ Body: string; Reply: any }>(
     '/stripe/webhooks',
     {
-      preHandler: opts.stripeHeaderAuthHook.authenticate(),
+      preHandler: [opts.stripeHeaderAuthHook.authenticate()],
       config: { rawBody: true },
     },
     async (request, reply) => {
