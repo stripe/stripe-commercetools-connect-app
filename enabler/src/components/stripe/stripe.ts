@@ -4,10 +4,11 @@ import { BaseConfiguration, StripeElementConfiguration } from "../base-configura
 import { ExpressCheckout } from "../payment-elements/express-checkout";
 import env from "../../constants";
 
-
 export type StripeElementType = {
     type : string
-    options : StripeExpressCheckoutElementOptions | StripePaymentElementOptions
+    options : StripeExpressCheckoutElementOptions | StripePaymentElementOptions,
+    onComplete : (e) => Promise<void>,
+    onError: (e) => void
 }
 
 export enum StripeElementTypes {
@@ -119,12 +120,9 @@ export class StripePayment {
                 ).join(", ")}`
             );
         }
-        console.log({test : !this.elementsConfiguration})
+        
         if (!this.elementsConfiguration) {
-            console.log({test : !this.elementsConfiguration})
-
             this.elementsConfiguration = await this.fetchElementConfiguration(stripeElement.type);
-            console.log({test: this.elementsConfiguration})
         }
 
         if (!this.elements){
@@ -140,6 +138,8 @@ export class StripePayment {
                     stripeSDK,
                     elementsSDK : this.elements, 
                     clientSecret : this.clientSecret,
+                    onComplete : stripeElement.onComplete,
+                    onError : stripeElement.onError,
                     ...configuration
                 });    
             }
@@ -150,6 +150,8 @@ export class StripePayment {
                     stripeSDK,
                     elementsSDK : this.elements,
                     clientSecret : this.clientSecret,
+                    onComplete : stripeElement.onComplete,
+                    onError : stripeElement.onError,
                     ...configuration
                 });
             }

@@ -11,13 +11,9 @@ export abstract class BaseStripePaymentComponent implements BaseConfiguration{
     element : StripeElementConfiguration["element"];
     environment : StripeElementConfiguration["environment"];
     returnURL: StripeElementConfiguration['returnURL']; 
-    onComplete: StripeElementConfiguration["onComplete"];
-    onError: StripeElementConfiguration["onError"];
     processorURL: StripeElementConfiguration["processorURL"];
     sessionId: StripeElementConfiguration["sessionId"];
     locale: StripeElementConfiguration["locale"];
-    onActionRequired: StripeElementConfiguration["onActionRequired"];
-    onConfirm: StripeElementConfiguration["onConfirm"];
     publishableKey : StripeElementConfiguration["publishableKey"];
     protected clientSecret : string;
     
@@ -27,15 +23,9 @@ export abstract class BaseStripePaymentComponent implements BaseConfiguration{
         this.element = baseOptions["element"];
         this.environment = baseOptions["environment"];
         this.returnURL = baseOptions["returnURL"];
-        this.onComplete = baseOptions["onComplete"];
-        this.onError = !!baseOptions["onError"] ? 
-            baseOptions["onError"] : 
-            () => console.warn('You must provide an "onError" callback')
         this.processorURL = baseOptions["processorURL"];
         this.sessionId = baseOptions["sessionId"];
         this.locale = baseOptions["locale"];
-        this.onActionRequired = baseOptions["onActionRequired"];
-        this.onConfirm = baseOptions["onConfirm"];
         this.clientSecret = baseOptions["clientSecret"];
         this.publishableKey = baseOptions["publishableKey"];
     }
@@ -52,10 +42,6 @@ export type BaseConfiguration = {
     returnURL: string;
     sessionId: string;
     locale?: string;
-    onActionRequired?: () => Promise<void>;
-    onConfirm?: () => Promise<void>;
-    onComplete?: (result?: any) => void;
-    onError?: (error: StripeError | 'fail' | 'invalid_shipping_address' | 'Container element not found') => void;
     publishableKey : string;
 };
 
@@ -64,4 +50,6 @@ export interface StripeElementConfiguration extends BaseConfiguration {
     elementsSDK : StripeElements;
     element : SupportedStripeElement;
     clientSecret : string;
+    onComplete : (e) => Promise<void>;
+    onError : (error: StripeError | 'fail' | 'invalid_shipping_address' | 'Container element not found') => void;
 }
