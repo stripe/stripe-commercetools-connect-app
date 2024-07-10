@@ -1,5 +1,5 @@
 import Stripe from 'stripe';
-import { ConfigElementResponseSchemaDTO, PaymentResponseSchemaDTO } from '../../src/dtos/mock-payment.dto';
+import { ConfigElementResponseSchemaDTO, PaymentResponseSchemaDTO } from '../../src/dtos/stripe-payment.dto';
 import { SupportedPaymentComponentsSchemaDTO } from '../../src/dtos/operations/payment-componets.dto';
 import {
   PaymentIntentResponseSchemaDTO,

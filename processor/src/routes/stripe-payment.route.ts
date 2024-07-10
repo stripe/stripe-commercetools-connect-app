@@ -6,7 +6,7 @@ import {
   ConfigElementResponseSchemaDTO,
   PaymentResponseSchema,
   PaymentResponseSchemaDTO,
-} from '../dtos/mock-payment.dto';
+} from '../dtos/stripe-payment.dto';
 import { log } from '../libs/logger';
 import { stripeApi } from '../clients/stripe.client';
 import { StripePaymentService } from '../services/stripe-payment.service';
