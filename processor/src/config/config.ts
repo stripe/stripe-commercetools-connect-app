@@ -23,11 +23,6 @@ export const config = {
 
   // Payment Providers config
   returnUrl: process.env.RETURN_URL,
-
-  // MVP review these configurations
-  // supportedUIElements: convertStringCommaSeparatedValuesToArray(process.env.SUPPORTED_UI_ELEMENTS),
-  // enableStoreDetails: process.env.ENABLE_STORE_DETAILS === 'true' ? true : false,
-  // sellerReturnUrl: process.env.SELLER_RETURN_URL || ''
 };
 
 export const getConfig = () => {
