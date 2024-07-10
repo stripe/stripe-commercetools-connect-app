@@ -48,6 +48,8 @@ describe('runPostDeployScripts', () => {
 
   test('should throw an error when a call to Stripe throws an error', async () => {
     process.env = { CONNECT_SERVICE_URL: 'https://yourApp.com/', STRIPE_WEBHOOK_ID: 'we_11111' };
+    const mockprocessExist = jest.fn() as never;
+    const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => mockprocessExist);
 
     const mockError = new Error('No such webhook endpoint');
     const mockErrorMessage = `Post-deploy failed: ${mockError.message}\n`;
@@ -58,6 +60,7 @@ describe('runPostDeployScripts', () => {
 
     expect(mockRetrieveWe).toHaveBeenCalled();
     expect(writeSpy).toHaveBeenCalledWith(mockErrorMessage);
+    expect(mockExit).toBeCalledWith(1);
   });
 
   test('should throw an error when the STRIPE_WEBHOOK_ID var is not assigned', async () => {

@@ -20,6 +20,14 @@ export async function updateWebhookEndpoint(weId: string, weAppUrl: string): Pro
 
   try {
     await stripeApi().webhookEndpoints.update(weId, {
+      enabled_events: [
+        'charge.succeeded',
+        'payment_intent.succeeded',
+        'charge.refunded',
+        'payment_intent.canceled',
+        'payment_intent.payment_failed',
+        'payment_intent.requires_action',
+      ],
       url: weAppUrl,
     });
   } catch (error: any) {

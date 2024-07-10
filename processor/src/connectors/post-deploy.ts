@@ -34,7 +34,7 @@ export async function runPostDeployScripts() {
     if (error instanceof Error) {
       process.stderr.write(`${msgError} ${error.message}\n`);
     }
-    process.exitCode = 1;
+    process.exit(1);
   }
 }
 

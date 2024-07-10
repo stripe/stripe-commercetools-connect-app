@@ -52,7 +52,7 @@ The `connect-payment-integration-stripe` project presents a Stripe integration c
     - The Processor sends a payment intent creation request to Stripe and awaits a valid response.
     - Stripe processes the request and may trigger various webhooks for events such as:
         - `charge.succeeded`
-        - `payment_intent.succeded`
+        - `payment_intent.succeeded`
         - `charge.refunded`
         - `payment_intent.canceled`
         - `payment_intent.payment_failed`
@@ -79,7 +79,7 @@ The following webhooks are supported:
 Users are expected to create API client responsible for payment management in composable commerce project. Details of the API client are taken as input as environment variables/ configuration for connect such as `CTP_PROJECT_KEY` , `CTP_CLIENT_ID`, `CTP_CLIENT_SECRET`, `CTP_SCOPE`, `CTP_REGION`. For details, please read [Deployment Configuration](#deployment-configuration).
 In addition, please make sure the API client should have enough scope to be able to manage payment. For details, please refer to [Running Application](processor%2FREADME.md#running-application)
 
-#### 2. various URLs from commercetools composable commerce
+#### 2. Various URLs from commercetools composable commerce
 Various URLs from commercetools platform are required to be configured so that the connect application can handle session and authentication process for endpoints.
 Their values are taken as input as environment variables/ configuration for connect with variable names `CTP_API_URL`, `CTP_AUTH_URL` and `CTP_SESSION_URL`.
 
@@ -109,6 +109,9 @@ The following Stripe account credentials and configurations are required:
 1. **STRIPE_WEBHOOK_ID**: Unique identifier of a Webhook Endpoint in Stripe.
 
 2. **STRIPE_WEBHOOK_SIGNING_SECRET**: Signing secret of a Webhook Endpoint in Stripe.
+
+#### Considerations about the Webhook Endpoint
+Before installing the connector, it is necessary to create a Webhook Endpoint in Stripe (using a dummy URL). Once created, the ID and Signing Secret can be retrieved from the Stripe Console. This Webhook Endpoint will be updated during the post-deploy script after the connector has been deployed. It's important to set the correct values in the variables so the events are sent to the connector and can be accepted.
 
 ## Development Guide
 
@@ -207,6 +210,3 @@ Here you can see the details about various variables in configuration
 - STRIPE_SECRET_KEY: Stripe authenticates your API requests using your account’s API keys
 - STRIPE_WEBHOOK_ID: Stripe unique identifier for the [Webhook Endpoints](https://docs.stripe.com/api/webhook_endpoints)
 - STRIPE_WEBHOOK_SIGNING_SECRET: Stripe Secret key to verify webhook signatures using the official libraries. This key is created in the [Stripe dashboard Webhook](https://docs.stripe.com/webhooks).
-
-### Considerations about the Webhook Endpoint
-Before installing the connector, it is necessary to create a Webhook Endpoint in Stripe (using a dummy URL). Once created, the ID and Signing Secret can be retrieved from the Stripe Console. This Webhook Endpoint will be updated during the post-deploy script after the connector has been deployed. It's important to set the correct values in the variables so the events are sent to the connector and can be accepted.
