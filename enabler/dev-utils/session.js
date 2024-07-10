@@ -20,18 +20,9 @@ const fetchAdminToken = async () => {
   const token = await response.json();
 
   if (response.status !== 200) {
-    console.log({
-      title: 'Token fetch failed',
-      message: `Error ${response.status} while fetching token`,
-    });
     return;
   } else {
-    console.log({
-      title: 'Token fetched',
-      message: `Token fetched: ${token.access_token}`,
-    });
   }
-  console.log("Token fetched:", token)
   return token.access_token;
 }
 
@@ -62,10 +53,8 @@ const getSessionId = async(cartId) => {
   const data = await res.json();
 
   if (!res.ok) {
-    console.error("Not able to create session:", url, data)
     throw new Error("Not able to create session")
   }
 
-  console.log("Session created:", data)
   return data.id;
 }

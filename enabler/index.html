@@ -45,7 +45,7 @@
         <div class="container">
           <script type="module">
             import { Enabler } from '/src/main.ts';
-            
+
             const card = document.getElementById("card-component")
             const express = document.getElementById("express-checkout")
             const payment = document.getElementById("payment")
@@ -55,25 +55,21 @@
             const setup = async () => {
               const sessionId = await getSessionId(document.getElementById("cartId").value);
 
-              console.log({sessionId})
-              
               const onError = (e) => {
-                console.log({e})
               }
 
               const onComplete = (e) => {
-                console.log({e})
               }
 
               const enabler = new Enabler({
-                processorURL : __VITE_PROCESSOR_URL__, 
+                processorURL : __VITE_PROCESSOR_URL__,
                 returnURL : "/success",
                 sessionId,
               })
 
               let promises = []
 
-              
+
               const paymentElement = enabler.createStripeElement({
                 type : "payment",
                 //See https://docs.stripe.com/js/elements_object/create_payment_element#payment_element_create-options for this element options
@@ -87,14 +83,14 @@
                 paymentElement.mount("#payment")
                 return paymentElement
               })
-              
+
               promises.push(paymentElement);
-              
+
               const expressCheckoutElement = enabler.createStripeElement({
                 type : "expressCheckout",
                 //See https://docs.stripe.com/js/elements_object/create_express_checkout_element#express_checkout_element_create-options for this element options
                 options : {
-                  
+
                 },
                 onComplete,
                 onError
@@ -111,7 +107,7 @@
               Promise.all(promises)
                 .then(results => {
                   let [paymentElement, expressCheckoutElement] = results;
-                  
+
                   submitButton.addEventListener("click", async (e) => {
                     let result = await paymentElement.submit()
                   })
@@ -124,7 +120,7 @@
               e.stopPropagation();
               setup()
             })
-            
+
           </script>
           <div id="payment"></div>
           <div id="card-component" style="padding-top: 25px; padding-bottom: 25px;"></div>
@@ -135,6 +131,6 @@
 
     </main>
 
-    
+
   </body>
 </html>

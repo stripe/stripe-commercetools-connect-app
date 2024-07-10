@@ -20,7 +20,7 @@ export type SetupData = {
     configuration : BaseConfiguration,
     stripeSDK : Stripe,
     elementsSDK? : StripeElementConfiguration
-} 
+}
 
 export type ConfigElementResponse = {
     cartInfo: {
@@ -44,12 +44,12 @@ export class StripePayment {
     public setupData : Promise<SetupData>;
     public elements? : StripeElements;
     public elementsConfiguration : ConfigElementResponse;
-    private clientSecret : string; 
+    private clientSecret : string;
 
 
     constructor(options: BaseConfiguration) {
         this.setupData = StripePayment.setup(options);
-        this.elementsConfiguration 
+        this.elementsConfiguration
     }
 
     get stripeSDK(){
@@ -59,18 +59,18 @@ export class StripePayment {
     }
 
     private static async setup(options: BaseConfiguration) : Promise<SetupData> {
-        
+
         const stripeSDK = await loadStripe(options.publishableKey);
 
         let environment = "live";
-        
+
         if(env.VITE_STRIPE_PUBLISHABLE_KEY?.includes("_test_")) {
             environment = "test"
         }
-        
+
         return {
             configuration : {
-                environment, 
+                environment,
                 ...options
             },
             stripeSDK
@@ -103,7 +103,7 @@ export class StripePayment {
         .then(res => res.json())
         .then(res => {
             res.cartInfo.currency = res.cartInfo.currency.toLowerCase()
-            
+
             return res;
         })
 
@@ -112,7 +112,7 @@ export class StripePayment {
 
     async createStripeElement(stripeElement : StripeElementType) : Promise<PaymentElement | ExpressCheckout | never> {
         const { configuration, stripeSDK } = await this.setupData;
-        
+
         if (!StripeElementTypes[stripeElement.type]){
             throw new Error(
                 `Component type not supported: ${stripeElement.type}. Supported types: ${Object.keys(
@@ -120,7 +120,7 @@ export class StripePayment {
                 ).join(", ")}`
             );
         }
-        
+
         if (!this.elementsConfiguration) {
             this.elementsConfiguration = await this.fetchElementConfiguration(stripeElement.type);
         }
@@ -132,16 +132,16 @@ export class StripePayment {
         switch(stripeElement.type) {
             case StripeElementTypes.payment : {
 
-                const element = this.elements.create(stripeElement.type, stripeElement.options as StripePaymentElementOptions); 
+                const element = this.elements.create(stripeElement.type, stripeElement.options as StripePaymentElementOptions);
                 return new PaymentElement({
                     element,
                     stripeSDK,
-                    elementsSDK : this.elements, 
+                    elementsSDK : this.elements,
                     clientSecret : this.clientSecret,
                     onComplete : stripeElement.onComplete,
                     onError : stripeElement.onError,
                     ...configuration
-                });    
+                });
             }
             case StripeElementTypes.expressCheckout : {
                 const element = this.elements.create(stripeElement.type, stripeElement.options as StripeExpressCheckoutElementOptions);
@@ -159,11 +159,10 @@ export class StripePayment {
     }
 
     public submit(){
-        //TODO
     }
 
     async getStripeElements() : Promise<StripeElements | never>{
-    
+
         if (!this.elements) {
             this.initializeStripeElements();
         }
