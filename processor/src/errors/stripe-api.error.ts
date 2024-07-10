@@ -20,20 +20,4 @@ export class StripeApiError extends Errorx {
       ...additionalOpts,
     });
   }
-}
-
-export type UnsupportedNotificationErrorData = {
-  notificationEvent: string;
 };
-
-export class UnsupportedNotificationError extends Errorx {
-  constructor(errorData: UnsupportedNotificationErrorData, additionalOpts?: ErrorxAdditionalOpts) {
-    super({
-      code: 'UnsupportedNotification',
-      httpErrorStatus: 400,
-      message: `Unsupported notification event: ${errorData.notificationEvent}`,
-      skipLog: true,
-      ...additionalOpts,
-    });
-  }
-}

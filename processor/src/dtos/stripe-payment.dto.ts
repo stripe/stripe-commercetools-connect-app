@@ -21,8 +21,6 @@ export enum PaymentOutcome {
   INITIAL = 'Initial',
 }
 
-export const PaymentOutcomeSchema = Type.Enum(PaymentOutcome);
-
 export const PaymentResponseSchema = Type.Object({
   sClientSecret: Type.String(),
 });
