@@ -27,7 +27,7 @@
         "jest-fetch-mock": "^3.0.3",
         "sass": "1.77.8",
         "ts-jest": "^29.2.3",
-        "typescript": "5.5.3",
+        "typescript": "5.5.4",
         "vite": "5.3.4",
         "vite-plugin-css-injected-by-js": "3.5.1"
     }
