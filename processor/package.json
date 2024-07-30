@@ -18,7 +18,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@commercetools-backend/loggers": "22.29.0",
+    "@commercetools-backend/loggers": "22.30.1",
     "@commercetools/connect-payments-sdk": "0.8.2",
     "@fastify/autoload": "5.10.0",
     "@fastify/cors": "9.0.1",
@@ -32,14 +32,14 @@
     "fastify": "4.28.1",
     "fastify-plugin": "4.5.1",
     "fastify-raw-body": "^4.3.0",
-    "stripe": "^16.4.0"
+    "stripe": "^16.5.0"
   },
   "devDependencies": {
     "@jest/globals": "29.7.0",
     "@types/jest": "29.5.12",
     "@types/node": "20.14.12",
-    "@typescript-eslint/eslint-plugin": "7.17.0",
-    "@typescript-eslint/parser": "7.17.0",
+    "@typescript-eslint/eslint-plugin": "7.18.0",
+    "@typescript-eslint/parser": "7.18.0",
     "eslint": "8.57.0",
     "eslint-config-prettier": "9.1.0",
     "eslint-plugin-import": "2.29.1",
