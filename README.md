@@ -110,6 +110,20 @@ The following Stripe account credentials and configurations are required:
 
 2. **STRIPE_WEBHOOK_SIGNING_SECRET**: Signing secret of a Webhook Endpoint in Stripe.
 
+### Considerations about Apple Pay
+
+To enable the Apple Pay button in the payment element component, your website must have the correct domain association file hosted. This file is crucial for Apple to verify that you control the domain where Apple Pay will be used.
+
+1. **Domain Association File**: Stripe generates a domain association file named `apple-developer-merchantid-domain-association`. You need to host this file at the following URL on your website:
+   - `https://yourwebsite.com/.well-known/apple-developer-merchantid-domain-association`
+   - Replace `https://yourwebsite.com` with your actual domain.
+
+2. **Verification Process**: Once the file is correctly hosted, Stripe will automatically attempt to verify your domain with Apple. This verification is necessary for Apple Pay to function correctly on your site.
+
+3. **Updating the File**: Keep in mind that this file has an expiration date. If you receive an error about an outdated file, you'll need to download the latest version from Stripe and replace the old file on your server.
+
+These steps ensure that the Apple Pay button is displayed and functional when using the payment element on your site.
+
 #### Considerations about the Webhook Endpoint
 Before installing the connector, it is necessary to create a Webhook Endpoint in Stripe (using a dummy URL). Once created, the ID and Signing Secret can be retrieved from the Stripe Console. This Webhook Endpoint will be updated during the post-deploy script after the connector has been deployed. It's important to set the correct values in the variables so the events are sent to the connector and can be accepted.
 
