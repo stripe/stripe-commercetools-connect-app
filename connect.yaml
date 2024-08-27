@@ -7,43 +7,49 @@ deployAs:
     configuration:
       standardConfiguration:
         - key: CTP_PROJECT_KEY
-          description: Commercetools project key
+          description: Commercetools project key.
           required: true
         - key: CTP_AUTH_URL
-          description: Commercetools Auth URL
+          description: Commercetools Auth URL (example - https://auth.europe-west1.gcp.commercetools.com).
           required: true
+          default: https://auth.europe-west1.gcp.commercetools.com
         - key: CTP_API_URL
-          description: Commercetools API URL
+          description: Commercetools API URL (example - https://api.europe-west1.gcp.commercetools.com).
           required: true
+          default: https://api.europe-west1.gcp.commercetools.com
         - key: CTP_SESSION_URL
-          description: Session API URL
+          description: Session API URL (example - https://session.europe-west1.gcp.commercetools.com).
           required: true
+          default: https://session.europe-west1.gcp.commercetools.com
         - key: CTP_JWKS_URL
-          description: JWKs url
+          description: WKs url (example - https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json).
           required: true
+          default: https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json
         - key: CTP_JWT_ISSUER
-          description: JWT Issuer for jwt validation
+          description: JWT Issuer for jwt validation (example - https://mc-api.europe-west1.gcp.commercetools.com).
           required: true
+          default: https://mc-api.europe-west1.gcp.commercetools.com
         - key: STRIPE_CAPTURE_METHOD
-          description: Stripe capture method (manual or automatic)
+          description: Stripe capture method (example - manual|automatic).
+          default: automatic
         - key: STRIPE_WEBHOOK_ID
-          description: Stripe Webhook ID
+          description: Stripe unique identifier for the Webhook Endpoints (example - we_*****).
           required: true
         - key: STRIPE_APPEARANCE_PAYMENT_ELEMENT
-          description: Stripe Appearance for Payment Element.
+          description: Stripe Appearance for Payment Element (example - "{\"theme\":\"stripe\",\"variables\":{\"colorPrimary\":\"#0570DE\",\"colorBackground\":\"#FFFFFF\",\"colorText\":\"#30313D\",\"colorDanger\":\"#DF1B41\",\"fontFamily\":\"Ideal Sans,system-ui,sansserif\",\"spacingUnit\":\"2px\",\"borderRadius\":\"4px\"}}").
         - key: STRIPE_APPEARANCE_EXPRESS_CHECKOUT
-          description: Stripe Appearance for Express Checkout Element.
+          description: Stripe Appearance for Express Checkout Element (example - "{\"theme\":\"stripe\",\"variables\":{\"colorPrimary\":\"#0570DE\",\"colorBackground\":\"#FFFFFF\",\"colorText\":\"#30313D\",\"colorDanger\":\"#DF1B41\",\"fontFamily\":\"Ideal Sans,system-ui,sansserif\",\"spacingUnit\":\"2px\",\"borderRadius\":\"4px\"}}").
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
-          description: Commercetools client secret
+          description: commercetools client secret.
           required: true
         - key: CTP_CLIENT_ID
-          description: Commercetools client ID
+          description: commercetools client ID with manage_payments, view_sessions, introspect_oauth_tokens, view_api_clients, manage_checkout_payment_intents, manage_orders.
           required: true
         - key: STRIPE_SECRET_KEY
-          description: Stripe secret key
+          description: Stripe secret key (example - sk_*****).
           required: true
-        - key: STRIPE_WEBHOOK_SIGNING_SECRET
+        - key: STRIPE_WEBHOOK_SIGNING_SECRET (example - whsec_*****).
           description: Stripe Webhook signing secret
           required: true
   - name: enabler
