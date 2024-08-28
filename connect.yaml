@@ -10,27 +10,27 @@ deployAs:
           description: Commercetools project key.
           required: true
         - key: CTP_AUTH_URL
-          description: Commercetools Auth URL (example - https://auth.europe-west1.gcp.commercetools.com).
+          description: Commercetools Auth URL \(example - https\://auth.europe-west1.gcp.commercetools.com\).
           required: true
           default: https://auth.europe-west1.gcp.commercetools.com
         - key: CTP_API_URL
-          description: Commercetools API URL (example - https://api.europe-west1.gcp.commercetools.com).
+          description: Commercetools API URL \(example - https\://api.europe-west1.gcp.commercetools.com\).
           required: true
           default: https://api.europe-west1.gcp.commercetools.com
         - key: CTP_SESSION_URL
-          description: Session API URL (example - https://session.europe-west1.gcp.commercetools.com).
+          description: Session API URL \(example - https\://session.europe-west1.gcp.commercetools.com\).
           required: true
           default: https://session.europe-west1.gcp.commercetools.com
         - key: CTP_JWKS_URL
-          description: WKs url (example - https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json).
+          description: WKs url \(example - https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json\).
           required: true
           default: https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json
         - key: CTP_JWT_ISSUER
-          description: JWT Issuer for jwt validation (example - https://mc-api.europe-west1.gcp.commercetools.com).
+          description: JWT Issuer for jwt validation \(example - https\://mc-api.europe-west1.gcp.commercetools.com\).
           required: true
           default: https://mc-api.europe-west1.gcp.commercetools.com
         - key: STRIPE_CAPTURE_METHOD
-          description: Stripe capture method (example - manual|automatic).
+          description: Stripe capture method \(example - manual\|automatic\).
           default: automatic
         - key: STRIPE_WEBHOOK_ID
           description: Stripe unique identifier for the Webhook Endpoints.
