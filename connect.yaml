@@ -33,12 +33,12 @@ deployAs:
           description: Stripe capture method (example - manual|automatic).
           default: automatic
         - key: STRIPE_WEBHOOK_ID
-          description: Stripe unique identifier for the Webhook Endpoints (example - we_*****).
+          description: Stripe unique identifier for the Webhook Endpoints.
           required: true
         - key: STRIPE_APPEARANCE_PAYMENT_ELEMENT
-          description: Stripe Appearance for Payment Element (example - "{\"theme\":\"stripe\",\"variables\":{\"colorPrimary\":\"#0570DE\",\"colorBackground\":\"#FFFFFF\",\"colorText\":\"#30313D\",\"colorDanger\":\"#DF1B41\",\"fontFamily\":\"Ideal Sans,system-ui,sansserif\",\"spacingUnit\":\"2px\",\"borderRadius\":\"4px\"}}").
+          description: Stripe Appearance for Payment Element.
         - key: STRIPE_APPEARANCE_EXPRESS_CHECKOUT
-          description: Stripe Appearance for Express Checkout Element (example - "{\"theme\":\"stripe\",\"variables\":{\"colorPrimary\":\"#0570DE\",\"colorBackground\":\"#FFFFFF\",\"colorText\":\"#30313D\",\"colorDanger\":\"#DF1B41\",\"fontFamily\":\"Ideal Sans,system-ui,sansserif\",\"spacingUnit\":\"2px\",\"borderRadius\":\"4px\"}}").
+          description: Stripe Appearance for Express Checkout Element.
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
           description: commercetools client secret.
@@ -47,9 +47,9 @@ deployAs:
           description: commercetools client ID with manage_payments, view_sessions, introspect_oauth_tokens, view_api_clients, manage_checkout_payment_intents, manage_orders.
           required: true
         - key: STRIPE_SECRET_KEY
-          description: Stripe secret key (example - sk_*****).
+          description: Stripe secret key.
           required: true
-        - key: STRIPE_WEBHOOK_SIGNING_SECRET (example - whsec_*****).
+        - key: STRIPE_WEBHOOK_SIGNING_SECRET.
           description: Stripe Webhook signing secret
           required: true
   - name: enabler
