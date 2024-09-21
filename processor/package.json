@@ -30,7 +30,7 @@
     "@sinclair/typebox": "0.33.12",
     "dotenv": "16.4.5",
     "fastify": "4.28.1",
-    "fastify-plugin": "4.5.1",
+    "fastify-plugin": "5.0.0",
     "fastify-raw-body": "^4.3.0",
     "stripe": "^16.12.0"
   },
