@@ -13,8 +13,8 @@
         "serve": "npm run build && serve public -l 3000 --cors"
     },
     "dependencies": {
-        "@babel/preset-typescript": "^7.24.7",
-        "@stripe/stripe-js": "^4.5.0",
+        "@babel/preset-typescript": "^7.25.7",
+        "@stripe/stripe-js": "^4.6.0",
         "serve": "14.2.3",
         "ts-node": "^10.9.2"
     },
