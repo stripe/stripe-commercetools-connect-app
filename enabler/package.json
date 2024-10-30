@@ -15,7 +15,7 @@
     "dependencies": {
         "@babel/preset-typescript": "^7.24.7",
         "@stripe/stripe-js": "^4.5.0",
-        "serve": "14.2.3",
+        "serve": "14.2.4",
         "ts-node": "^10.9.2"
     },
     "devDependencies": {
