@@ -1,5 +1,7 @@
-# connect-payment-integration-stripe
+# connect-payment-integration-template [**Early Access**]
+
 This repository provides a [connect](https://docs.commercetools.com/connect)  to integrate commercetools with the Stripe payment service provider (PSP). It features payment integration from Stripe to commercetools, including a listener for various webhooks responses from Stripe. These webhooks calls are converted into different payment status changes within commercetools.
+
 
 ## Features
 - Typescript language supported.
@@ -75,11 +77,14 @@ The following webhooks are supported:
 - **payment_intent.requires_action**: Logs the information in the connector app inside the Processor logs.
 
 ## Prerequisite
-#### 1. commercetools composable commerce API client
-Users are expected to create API client responsible for payment management in composable commerce project. Details of the API client are taken as input as environment variables/ configuration for connect such as `CTP_PROJECT_KEY` , `CTP_CLIENT_ID`, `CTP_CLIENT_SECRET`, `CTP_SCOPE`, `CTP_REGION`. For details, please read [Deployment Configuration](#deployment-configuration).
-In addition, please make sure the API client should have enough scope to be able to manage payment. For details, please refer to [Running Application](processor%2FREADME.md#running-application)
 
-#### 2. Various URLs from commercetools composable commerce
+#### 1. commercetools composable commerce API client
+
+Users are expected to create API client responsible for payment management in composable commerce project. Details of the API client are taken as input as environment variables/ configuration for connect such as `CTP_PROJECT_KEY` , `CTP_CLIENT_ID`, `CTP_CLIENT_SECRET`. For details, please read [Deployment Configuration](./README.md#deployment-configuration).
+In addition, please make sure the API client should have enough scope to be able to manage payment. For details, please refer to [Running Application](./processor/README.md#running-application)
+
+#### 2. various URLs from commercetools composable commerce
+
 Various URLs from commercetools platform are required to be configured so that the connect application can handle session and authentication process for endpoints.
 Their values are taken as input as environment variables/ configuration for connect with variable names `CTP_API_URL`, `CTP_AUTH_URL` and `CTP_SESSION_URL`.
 
@@ -129,19 +134,36 @@ Before installing the connector, it is necessary to create a Webhook Endpoint in
 
 ## Development Guide
 
+## Getting started
+
+The template contains two modules :
+
+- Enabler: Acts as a wrapper implementation in which frontend components from PSPs embedded. It gives control to checkout product on when and how to load the connector frontend based on business configuration. In cases connector is used directly and not through Checkout product, the connector library can be loaded directly on frontend than the PSP one.
+- Processor : Acts as backend services which is middleware to 3rd party PSPs to be responsible for managing transactions with PSPs and updating payment entity in composable commerce. `connect-payment-sdk` will be offered to be used in connector to manage request context, sessions and other tools necessary to transact.
+
+Regarding the development of processor module, please refer to the following documentations:
+
 Regarding the development of enabler module, please refer to the following documentations:
 - [Development of Enabler](enabler%2FREADME.md#payment-integration-enabler)
 
 Regarding the development of processor module, please refer to the following documentations:
 - [Development of Processor](processor%2FREADME.md#payment-integration-processor)
 
-#### Connector in commercetools Connect
-Use public connector listed in connect marketplace. If any customization done, follow guidelines [here](https://docs.commercetools.com/connect/getting-started) to register the connector for private use.
+#### 1. Develop your specific needs
 
-#### Deployment Configuration
+To proceed payment operations via external PSPs, users need to extend this connector with the following task
+
+- API communication: Implementation to communicate between this connector application and the external system using libraries provided by PSPs. Please remember that the payment requests might not be sent to PSPs successfully in a single attempt. It should have needed retry and recovery mechanism.
+
+#### 2. Register as connector in commercetools Connect
+
+Follow guidelines [here](https://docs.commercetools.com/connect/getting-started) to register the connector for public/private use.
+
+## Deployment Configuration
 
 In order to deploy your customized connector application on commercetools Connect, it needs to be published. For details, please refer to [documentation about commercetools Connect](https://docs.commercetools.com/connect/concepts)
 In addition, in order to support connect, the tax integration connector template has a folder structure as listed below
+
 ```
 ├── enabler
 │   ├── src
@@ -154,34 +176,42 @@ In addition, in order to support connect, the tax integration connector template
 └── connect.yaml
 ```
 
-Connect deployment configuration is specified in `connect.yaml` which is required information needed for publishing of the application. Following is the deployment configuration used by full ingestion and incremental updater modules
+Connect deployment configuration is specified in `connect.yaml` which is required information needed for publishing of the application. Following is the deployment configuration used by Enabler and Processor modules
+
 ```
-deployAs:  
+deployAs:
+  - name: enabler  
+    applicationType: assets  
   - name: processor  
     applicationType: service  
     endpoint: /  
     scripts:  
-      postDeploy: npm run connector:post-deploy  
+      postDeploy: npm install && npm run connector:post-deploy  
     configuration:  
       standardConfiguration:  
-        - key: CTP_PROJECT_KEY  
-          description: commercetools project key  
-          required: true  
-        - key: CTP_AUTH_URL  
-          description: commercetools Auth URL  
-          required: true  
-        - key: CTP_API_URL  
-          description: commercetools API URL  
-          required: true  
-        - key: CTP_SESSION_URL  
-          description: Session API URL  
-          required: true  
-        - key: CTP_JWKS_URL  
-          description: JWKs url  
-          required: true  
-        - key: CTP_JWT_ISSUER  
-          description: JWT Issuer for jwt validation  
-          required: true  
+        - key: CTP_PROJECT_KEY
+          description: commercetools project key
+          required: true
+        - key: CTP_AUTH_URL
+          description: commercetools Auth URL
+          required: true
+          default: https://auth.europe-west1.gcp.commercetools.com
+        - key: CTP_API_URL
+          description: commercetools API URL
+          required: true
+          default: https://api.europe-west1.gcp.commercetools.com  
+        - key: CTP_SESSION_URL
+          description: Session API URL
+          required: true
+          default: https://session.europe-west1.gcp.commercetools.com 
+        - key: CTP_JWKS_URL
+          description: JWKs url (example - https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json)
+          required: true
+          default: https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json 
+        - key: CTP_JWT_ISSUER
+          description: JWT Issuer for jwt validation (example - https://mc-api.europe-west1.gcp.commercetools.com)
+          required: true
+          default: https://mc-api.europe-west1.gcp.commercetools.com  
         - key: STRIPE_CAPTURE_METHOD  
           description: Stripe capture method (manual or automatic)  
         - key: STRIPE_WEBHOOK_ID  
@@ -195,32 +225,58 @@ deployAs:
         - key: CTP_CLIENT_SECRET  
           description: commercetools client secret  
           required: true  
-        - key: CTP_CLIENT_ID  
-          description: commercetools client ID  
-          required: true  
+        - key: CTP_CLIENT_ID
+          description: commercetools client ID with manage_payments, manage_orders, view_sessions, view_api_clients, manage_checkout_payment_intents & introspect_oauth_tokens scopes
+          required: true
         - key: STRIPE_SECRET_KEY  
           description: Stripe secret key  
           required: true  
         - key: STRIPE_WEBHOOK_SIGNING_SECRET  
           description: Stripe Webhook signing secret  
           required: true  
-  - name: enabler  
-    applicationType: assets
 ```
 
 Here you can see the details about various variables in configuration
-- CTP_PROJECT_KEY: The key of commercetools composable commerce project.
-- CTP_SCOPE: The scope constrains the endpoints to which the commercetools client has access, as well as the read/write access right to an endpoint.
-- CTP_AUTH_URL: The URL for authentication in commercetools platform. It is used to generate OAuth 2.0 token which is required in every API call to commercetools composable commerce. The default value is `https://auth.europe-west1.gcp.commercetools.com`. For details, please refer to documentation [here](https://docs.commercetools.com/tutorials/api-tutorial#authentication).
-- CTP_API_URL: The URL for commercetools composable commerce API. Default value is `https://api.europe-west1.gcp.commercetools.com`.
-- CTP_SESSION_URL: The URL for session creation in commercetools platform. Connectors relies on the session created to be able to share information between enabler and processor. The default value is `https://session.europe-west1.gcp.commercetools.com`.
-- CTP_JWKS_URL: The URL which provides JSON Web Key Set (set the region of your project): https://mc-api.{region}.commercetools.com/.well-known/jwks.json
-- CTP_JWT_ISSUER: The issuer inside JSON Web Token which is required in JWT validation process (set the region of your project): https://mc-api.{region}.commercetools.com
-- STRIPE_CAPTURE_METHOD: Stripe capture method (manual or automatic), default value: automatic.
-- STRIPE_APPEARANCE_PAYMENT_ELEMENT: Stripe Elements supports visual customization, which allows you to match the design of your site with the `appearance` option. This value has the specific appearance of the Payment Element component.
-- STRIPE_APPEARANCE_EXPRESS_CHECKOUT: Stripe Elements supports visual customization, which allows you to match the design of your site with the `appearance` option. This value has the specific appearance of the Express Checkout Element component.
-- CTP_CLIENT_SECRET: The client secret of commercetools composable commerce user account. It is used in commercetools client to communicate with commercetools composable commerce via SDK.
-- CTP_CLIENT_ID: The client ID of your commercetools composable commerce user account. It is used in commercetools client to communicate with commercetools composable commerce via SDK.
-- STRIPE_SECRET_KEY: Stripe authenticates your API requests using your account’s API keys
-- STRIPE_WEBHOOK_ID: Stripe unique identifier for the [Webhook Endpoints](https://docs.stripe.com/api/webhook_endpoints)
-- STRIPE_WEBHOOK_SIGNING_SECRET: Stripe Secret key to verify webhook signatures using the official libraries. This key is created in the [Stripe dashboard Webhook](https://docs.stripe.com/webhooks).
+- `CTP_PROJECT_KEY`: The key of commercetools composable commerce project.
+- `CTP_SCOPE`: The scope constrains the endpoints to which the commercetools client has access, as well as the read/write access right to an endpoint.
+- `CTP_AUTH_URL`: The URL for authentication in commercetools platform. It is used to generate OAuth 2.0 token which is required in every API call to commercetools composable commerce. The default value is `https://auth.europe-west1.gcp.commercetools.com`. For details, please refer to documentation [here](https://docs.commercetools.com/tutorials/api-tutorial#authentication).
+- `CTP_API_URL`: The URL for commercetools composable commerce API. Default value is `https://api.europe-west1.gcp.commercetools.com`.
+- `CTP_SESSION_URL`: The URL for session creation in commercetools platform. Connectors relies on the session created to be able to share information between enabler and processor. The default value is `https://session.europe-west1.gcp.commercetools.com`.
+- `CTP_JWKS_URL`: The URL which provides JSON Web Key Set. Default value is `https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json`
+- `CTP_JWT_ISSUER`: The issuer inside JSON Web Token which is required in JWT validation process. Default value is `https://mc-api.europe-west1.gcp.commercetools.com`
+- `STRIPE_CAPTURE_METHOD`: Stripe capture method (manual or automatic), default value: automatic.
+- `STRIPE_APPEARANCE_PAYMENT_ELEMENT`: Stripe Elements supports visual customization, which allows you to match the design of your site with the `appearance` option. This value has the specific appearance of the Payment Element component.
+- `STRIPE_APPEARANCE_EXPRESS_CHECKOUT`: Stripe Elements supports visual customization, which allows you to match the design of your site with the `appearance` option. This value has the specific appearance of the Express Checkout Element component.
+- `CTP_CLIENT_SECRET`: The client secret of commercetools composable commerce user account. It is used in commercetools client to communicate with commercetools composable commerce via SDK.
+- `CTP_CLIENT_ID`: The client ID of your commercetools composable commerce user account. It is used in commercetools client to communicate with commercetools composable commerce via SDK. Expected scopes are: `manage_payments` `manage_orders` `view_sessions` `view_api_clients` `manage_checkout_payment_intents` `introspect_oauth_tokens` `manage_types` `view_types`.
+- `STRIPE_SECRET_KEY`: Stripe authenticates your API requests using your account’s API keys
+- `STRIPE_WEBHOOK_ID`: Stripe unique identifier for the [Webhook Endpoints](https://docs.stripe.com/api/webhook_endpoints)
+- `STRIPE_WEBHOOK_SIGNING_SECRET`: Stripe Secret key to verify webhook signatures using the official libraries. This key is created in the [Stripe dashboard Webhook](https://docs.stripe.com/webhooks).
+
+## Development
+
+In order to get started developing this connector certain configuration are necessary, most of which involve updating environment variables in both services (enabler, processor).
+
+#### Configuration steps
+
+#### 1. Environment Variable Setup
+
+Navigate to each service directory and duplicate the .env.template file, renaming the copy to .env. Populate the newly created .env file with the appropriate values.
+
+```bash
+cp .env.template .env
+```
+
+#### 2. Spin Up Components via Docker Compose
+
+With the help of docker compose, you are able to spin up all necessary components required for developing the connector by running the following command from the root directory;
+
+```bash
+docker compose up
+```
+
+This command would start 3 required services, necessary for development
+
+1. JWT Server
+2. Enabler
+3. Processor

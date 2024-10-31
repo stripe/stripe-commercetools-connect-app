@@ -15,6 +15,13 @@ import {
   PaymentIntentResponseSchemaDTO,
 } from '../dtos/operations/payment-intents.dto';
 import { StatusResponseSchema, StatusResponseSchemaDTO } from '../dtos/operations/status.dto';
+import { AbstractPaymentService } from '../services/abstract-payment.service';
+import {
+  TransactionDraft,
+  TransactionDraftDTO,
+  TransactionResponse,
+  TransactionResponseDTO,
+} from '../dtos/operations/transaction.dto';
 import { StripePaymentService } from '../services/stripe-payment.service';
 
 type OperationRouteOptions = {
@@ -36,7 +43,7 @@ export const operationsRoute = async (fastify: FastifyInstance, opts: FastifyPlu
         },
       },
     },
-    async (request, reply) => {
+    async (_, reply) => {
       const config = await opts.paymentService.config();
       reply.code(200).send(config);
     },
@@ -52,7 +59,7 @@ export const operationsRoute = async (fastify: FastifyInstance, opts: FastifyPlu
         },
       },
     },
-    async (request, reply) => {
+    async (_, reply) => {
       const status = await opts.paymentService.status();
       reply.code(200).send(status);
     },
@@ -68,7 +75,7 @@ export const operationsRoute = async (fastify: FastifyInstance, opts: FastifyPlu
         },
       },
     },
-    async (request, reply) => {
+    async (_, reply) => {
       const result = await opts.paymentService.getSupportedPaymentComponents();
       reply.code(200).send(result);
     },
@@ -83,7 +90,12 @@ export const operationsRoute = async (fastify: FastifyInstance, opts: FastifyPlu
       ],
       schema: {
         params: {
-          id: Type.String(),
+          $id: 'paramsSchema',
+          type: 'object',
+          properties: {
+            id: Type.String(),
+          },
+          required: ['id'],
         },
         body: PaymentIntentRequestSchema,
         response: {
@@ -99,6 +111,27 @@ export const operationsRoute = async (fastify: FastifyInstance, opts: FastifyPlu
       });
 
       return reply.status(200).send(resp);
+    },
+  );
+
+  // Create transaction
+  fastify.post<{ Body: TransactionDraftDTO; Reply: TransactionResponseDTO }>(
+    '/transactions',
+    {
+      preHandler: [
+        opts.oauth2AuthHook.authenticate(),
+        opts.authorizationHook.authorize('manage_project', 'manage_checkout_transactions'),
+      ],
+      schema: {
+        body: TransactionDraft,
+        response: {
+          201: TransactionResponse,
+        },
+      },
+    },
+    async (request, reply) => {
+      const result = await opts.paymentService.handleTransaction(request.body);
+      return reply.status(201).send(result);
     },
   );
 };

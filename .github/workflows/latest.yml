@@ -1,0 +1,29 @@
+name: Tag Latest
+
+on:
+  push:
+    branches:
+      - main
+
+
+jobs:
+  tag-latest:
+    name: Tag latest version
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    defaults:
+      run:
+        working-directory: enabler
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup git config
+        run: git config user.name "GitHub cd-deploy-dev Bot" && git config user.email "<>"
+
+      - name: Notify argo to trigger dev
+        run: git tag -f -- "latest" && git push -f origin "latest"
+
+      - name: Trigger publish workflow
+        run: gh workflow run publish.yml --ref latest
+

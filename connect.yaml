@@ -1,20 +1,23 @@
 deployAs:
+  - name: enabler
+    applicationType: assets
   - name: processor
     applicationType: service
     endpoint: /
     scripts:
-      postDeploy: npm run connector:post-deploy
+      postDeploy: npm install && npm run connector:post-deploy
+      preUndeploy: npm install && npm run connector:pre-undeploy
     configuration:
       standardConfiguration:
         - key: CTP_PROJECT_KEY
-          description: Commercetools project key.
+          description: commercetools project key
           required: true
         - key: CTP_AUTH_URL
-          description: Commercetools Auth URL (example - https://auth.europe-west1.gcp.commercetools.com).
+          description: commercetools Auth URL (example - https://auth.europe-west1.gcp.commercetools.com).
           required: true
           default: https://auth.europe-west1.gcp.commercetools.com
         - key: CTP_API_URL
-          description: Commercetools API URL (example - https://api.europe-west1.gcp.commercetools.com).
+          description: commercetools API URL (example - https://api.europe-west1.gcp.commercetools.com).
           required: true
           default: https://api.europe-west1.gcp.commercetools.com
         - key: CTP_SESSION_URL
@@ -22,11 +25,11 @@ deployAs:
           required: true
           default: https://session.europe-west1.gcp.commercetools.com
         - key: CTP_JWKS_URL
-          description: WKs url (example - https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json).
+          description: JWKs url (example - https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json)
           required: true
           default: https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json
         - key: CTP_JWT_ISSUER
-          description: JWT Issuer for jwt validation (example - https://mc-api.europe-west1.gcp.commercetools.com).
+          description: JWT Issuer for jwt validation (example - https://mc-api.europe-west1.gcp.commercetools.com)
           required: true
           default: https://mc-api.europe-west1.gcp.commercetools.com
         - key: STRIPE_CAPTURE_METHOD
@@ -44,7 +47,7 @@ deployAs:
           description: commercetools client secret.
           required: true
         - key: CTP_CLIENT_ID
-          description: commercetools client ID with manage_payments, view_sessions, introspect_oauth_tokens, view_api_clients, manage_checkout_payment_intents, manage_orders.
+          description: commercetools client ID with manage_payments, manage_orders, view_sessions, view_api_clients, manage_checkout_payment_intents, introspect_oauth_tokens, manage_types and view_types scopes
           required: true
         - key: STRIPE_SECRET_KEY
           description: Stripe secret key (example - sk_*****).
@@ -52,5 +55,3 @@ deployAs:
         - key: STRIPE_WEBHOOK_SIGNING_SECRET
           description: Stripe Webhook signing secret  (example - whsec_*****).
           required: true
-  - name: enabler
-    applicationType: assets

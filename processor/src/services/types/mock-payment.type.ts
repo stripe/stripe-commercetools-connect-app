@@ -6,6 +6,6 @@ export type MockPaymentServiceOptions = {
   ctPaymentService: CommercetoolsPaymentService;
 };
 
-export type CreatePayment = {
+export type CreatePaymentRequest = {
   data: PaymentRequestSchemaDTO;
 };

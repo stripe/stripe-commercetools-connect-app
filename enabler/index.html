@@ -21,116 +21,311 @@
     <script src="../dev-utils/session.js"></script>
   </head>
   <body>
-
-
     <main role="main">
-
       <section class="jumbotron text-center">
         <div class="container">
-          <form>
+          <form action="/action_page.php">
             <div class="text-center mb-4">
               <h1 class="h3 mb-3 font-weight-normal">Dev Site</h1>
               <p>Use this site for development purposes</p>
             </div>
-            <div class="form-group">
-              <label for="cartId">Cart ID:</label>
-              <input type="text" class="form-control" id="cartId">
+            <div class="row">
+              <div class="form-group col-md-6">
+                <div>
+                  <label for="cartId">Cart ID:</label>
+                  <input type="text" class="form-control" id="cartId" />
+                </div>
+              </div>
+              <div class="form-group col-md-6">
+                <label for="paymentMethod">Payment Method:</label>
+                <select
+                  class="form-control"
+                  id="paymentMethod"
+                  required
+                ></select>
+              </div>
             </div>
-            <button id="createCheckout" class="btn btn-lg btn-primary btn-block" type="submit">Create checkout</button>
+            <button
+              id="createCheckout"
+              class="btn btn-lg btn-primary btn-block"
+              type="submit"
+            >
+              Create checkout
+            </button>
           </form>
         </div>
       </section>
 
       <div class="album py-5 bg-light">
         <div class="container">
+
           <script type="module">
-            import { Enabler } from '/src/main.ts';
+            import { Enabler } from "/src/main.ts";
 
-            const card = document.getElementById("card-component")
-            const express = document.getElementById("express-checkout")
-            const payment = document.getElementById("payment")
-            const cartId = document.getElementById('cartId').value;
-            const createCheckout = document.getElementById("createCheckout")
-
-            const setup = async () => {
-              const sessionId = await getSessionId(document.getElementById("cartId").value);
-
-              const onError = (e) => {
-              }
-
-              const onComplete = (e) => {
-              }
-
-              const enabler = new Enabler({
-                processorURL : __VITE_PROCESSOR_URL__,
-                returnURL : "/success",
-                sessionId,
-              })
-
-              let promises = []
-
-
-              const paymentElement = enabler.createStripeElement({
-                type : "payment",
-                //See https://docs.stripe.com/js/elements_object/create_payment_element#payment_element_create-options for this element options
-                options : {
-
+            document.addEventListener("DOMContentLoaded", async () => {
+              const paymentMethodSelect =
+                document.getElementById("paymentMethod");
+              const response = await fetch("http://localhost:9000/jwt/token", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
                 },
-                onComplete,
-                onError
-              })
-              .then(paymentElement => {
-                paymentElement.mount("#payment")
-                return paymentElement
-              })
-
-              promises.push(paymentElement);
-
-              const expressCheckoutElement = enabler.createStripeElement({
-                type : "expressCheckout",
-                //See https://docs.stripe.com/js/elements_object/create_express_checkout_element#express_checkout_element_create-options for this element options
-                options : {
-
-                },
-                onComplete,
-                onError
-              })
-              .then(paymentElement => {
-                // paymentElement.mount("#express-checkout")
-                return paymentElement
+                body: JSON.stringify({
+                  iss: "https://issuer.com",
+                  sub: "test-sub",
+                  "https://issuer.com/claims/project_key": `${__VITE_CTP_PROJECT_KEY__}`,
+                }),
               });
 
-              promises.push(expressCheckoutElement);
+              const accessToken = await response.json();
 
-              const submitButton = document.querySelector("#submit-payment")
+              const res = await fetch(
+                `${__VITE_PROCESSOR_URL__}/operations/payment-components`,
+                {
+                  method: "GET",
+                  headers: {
+                    Authorization: `Bearer ${accessToken.token}`,
+                  },
+                }
+              );
+              const paymentMethods = await res.json();
+              paymentMethods.components.forEach((method) => {
+                const option = document.createElement("option");
+                option.value = method.type;
+                option.textContent = method.type;
+                paymentMethodSelect.appendChild(option);
+              });
+            });
 
-              Promise.all(promises)
-                .then(results => {
-                  let [paymentElement, expressCheckoutElement] = results;
+            document
+              .getElementById("createCheckout")
+              .addEventListener("click", async (event) => {
+                event.preventDefault();
+                const cartId = document.getElementById("cartId").value;
+                const sessionId = await getSessionId(cartId);
 
-                  submitButton.addEventListener("click", async (e) => {
-                    let result = await paymentElement.submit()
-                  })
-                  submitButton.style.display = "block";
-                })
-            }
+                const paymentMethodSelect =
+                  document.getElementById("paymentMethod");
+                const selectedValue = paymentMethodSelect.value;
 
-            createCheckout.addEventListener("click",e => {
-              e.preventDefault();
-              e.stopPropagation();
-              setup()
-            })
+                const enabler = new Enabler({
+                  processorUrl: __VITE_PROCESSOR_URL__,
+                  sessionId: sessionId,
+                  currency: "EUR",
+                  onComplete: ({ isSuccess, paymentReference }) => {
+                    console.log("onComplete", { isSuccess, paymentReference });
+                  },
+                  onError: (err) => {
+                    console.error("onError", err);
+                  },
+                });
 
+                const builder = await enabler.createComponentBuilder(
+                  selectedValue
+                );
+                const component = await builder.build({
+                  showPayButton: !builder.componentHasSubmit,
+                  ...(builder.componentHasSubmit
+                    ? {}
+                    : {
+                        onPayButtonClick: async () => {
+                          // to be used for validation
+                          const termsChecked =
+                            document.getElementById("termsCheckbox").checked;
+                          if (!termsChecked) {
+                            event.preventDefault();
+                            alert(
+                              "You must agree to the terms and conditions."
+                            );
+                            return Promise.reject("error-occurred");
+                          }
+                          return Promise.resolve(); // change to true, to test payment flow
+                        },
+                      }),
+                });
+
+                if (builder.componentHasSubmit) {
+                  if (selectedValue === 'card' || selectedValue === 'purchaseorder') {
+                    component.mount("#container--external");
+                  }
+
+                  const customButton = document.createElement("button");
+                  customButton.textContent = "Pay with "+ selectedValue;
+                  customButton.className = "btn btn-lg btn-primary btn-block";
+                  customButton.addEventListener("click", () => {
+                    const termsChecked =
+                      document.getElementById("termsCheckbox").checked;
+                    if (!termsChecked) {
+                      event.preventDefault();
+                      alert("You must agree to the terms and conditions.");
+                      return;
+                    }
+                    component.submit();
+                  });
+                  document
+                    .getElementById("container--internal")
+                    .appendChild(customButton);
+                } else{
+                  component.mount("#container--external");
+                }
+              });
           </script>
-          <div id="payment"></div>
-          <div id="card-component" style="padding-top: 25px; padding-bottom: 25px;"></div>
-          <div id="express-checkout"></div>
-          <button id="submit-payment" class="btn btn-sm btn-primary btn-block" style="display: none;">Pay</button>
+
+          <div id="container--external"></div>
+          <div class="form-group form-check">
+            <input
+              type="checkbox"
+              class="form-check-input"
+              id="termsCheckbox"
+              required
+            />
+            <label class="form-check-label" for="termsCheckbox"
+              >I agree to the terms and conditions</label
+            >
+          </div>
+          <div id="container--internal"></div>
         </div>
       </div>
-
     </main>
-
-
   </body>
 </html>
+
+
+
+<!-- legacy connector-->
+<!--doctype html>
+<html-- lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vite + TS</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.0.0/dist/css/bootstrap.min.css" integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
+    <script src="https://code.jquery.com/jquery-3.2.1.slim.min.js" integrity="sha384-KJ3o2DKtIkvYIK3UENzmM7KCkRr/rE9/Qpg6aAZGJwFDMVNA/GpGFF93hXpG5KkN" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.12.9/dist/umd/popper.min.js" integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.0.0/dist/js/bootstrap.min.js" integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl" crossorigin="anonymous"></script>
+    <script>
+      var __VITE_CTP_AUTH_URL__ = !'%VITE_CTP_AUTH_URL%'.startsWith('%') && '%VITE_CTP_AUTH_URL%';
+      var __VITE_CTP_API_URL__ = !'%VITE_CTP_API_URL%'.startsWith('%') && '%VITE_CTP_API_URL%';
+      var __VITE_CTP_SESSION_URL__ = !'%VITE_CTP_SESSION_URL%'.startsWith('%') && '%VITE_CTP_SESSION_URL%';
+      var __VITE_CTP_CLIENT_ID__ = !'%VITE_CTP_CLIENT_ID%'.startsWith('%') && '%VITE_CTP_CLIENT_ID%';
+      var __VITE_CTP_CLIENT_SECRET__ = !'%VITE_CTP_CLIENT_SECRET%'.startsWith('%') && '%VITE_CTP_CLIENT_SECRET%';
+      var __VITE_CTP_PROJECT_KEY__ = !'%VITE_CTP_PROJECT_KEY%'.startsWith('%') && '%VITE_CTP_PROJECT_KEY%';
+      var __VITE_PROCESSOR_URL__ = !'%VITE_PROCESSOR_URL%'.startsWith('%') && '%VITE_PROCESSOR_URL%';
+    </script>
+    <script src="../dev-utils/session.js"></script>
+</head>
+<body>
+
+
+<main role="main">
+
+    <section class="jumbotron text-center">
+        <div class="container">
+            <form>
+                <div class="text-center mb-4">
+                    <h1 class="h3 mb-3 font-weight-normal">Dev Site</h1>
+                    <p>Use this site for development purposes</p>
+                </div>
+                <div class="form-group">
+                    <label for="cartId">Cart ID:</label>
+                    <input type="text" class="form-control" id="cartId">
+                </div>
+                <button id="createCheckout" class="btn btn-lg btn-primary btn-block" type="submit">Create checkout</button>
+            </form>
+        </div>
+    </section>
+
+    <div class="album py-5 bg-light">
+        <div class="container">
+            <script type="module">
+              import { Enabler } from '/src/main.ts';
+
+              const card = document.getElementById("card-component")
+              const express = document.getElementById("express-checkout")
+              const payment = document.getElementById("payment")
+              const cartId = document.getElementById('cartId').value;
+              const createCheckout = document.getElementById("createCheckout")
+
+              const setup = async () => {
+                const sessionId = await getSessionId(document.getElementById("cartId").value);
+
+                const onError = (e) => {
+                }
+
+                const onComplete = (e) => {
+                }
+
+                const enabler = new Enabler({
+                  processorURL : __VITE_PROCESSOR_URL__,
+                  returnURL : "/success",
+                  sessionId,
+                })
+
+                let promises = []
+
+
+                const paymentElement = enabler.createStripeElement({
+                  type : "payment",
+                  //See https://docs.stripe.com/js/elements_object/create_payment_element#payment_element_create-options for this element options
+                  options : {
+
+                  },
+                  onComplete,
+                  onError
+                })
+                  .then(paymentElement => {
+                    paymentElement.mount("#payment")
+                    return paymentElement
+                  })
+
+                promises.push(paymentElement);
+
+                const expressCheckoutElement = enabler.createStripeElement({
+                  type : "expressCheckout",
+                  //See https://docs.stripe.com/js/elements_object/create_express_checkout_element#express_checkout_element_create-options for this element options
+                  options : {
+
+                  },
+                  onComplete,
+                  onError
+                })
+                  .then(paymentElement => {
+                    // paymentElement.mount("#express-checkout")
+                    return paymentElement
+                  });
+
+                promises.push(expressCheckoutElement);
+
+                const submitButton = document.querySelector("#submit-payment")
+
+                Promise.all(promises)
+                  .then(results => {
+                    let [paymentElement, expressCheckoutElement] = results;
+
+                    submitButton.addEventListener("click", async (e) => {
+                      let result = await paymentElement.submit()
+                    })
+                    submitButton.style.display = "block";
+                  })
+              }
+
+              createCheckout.addEventListener("click",e => {
+                e.preventDefault();
+                e.stopPropagation();
+                setup()
+              })
+
+            </script>
+            <div id="payment"></div>
+            <div id="card-component" style="padding-top: 25px; padding-bottom: 25px;"></div>
+            <div id="express-checkout"></div>
+            <button id="submit-payment" class="btn btn-sm btn-primary btn-block" style="display: none;">Pay</button>
+        </div>
+    </div>
+
+</main>
+
+
+</body>
+</html-->

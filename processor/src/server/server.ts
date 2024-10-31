@@ -9,9 +9,6 @@ import { requestContextPlugin } from '../libs/fastify/context/context';
 import { errorHandler } from '../libs/fastify/error-handler';
 const rawBody = import('fastify-raw-body');
 
-// const __filename = fileURLToPath(import.meta.url)
-// const __dirname = dirname(__filename)
-
 /**
  * Setup Fastify server instance
  * @returns

@@ -1,0 +1,53 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      # Release tags v1.0.0, v1.0.1, v1.0.2, etc.
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      # Pre-release tags v1.0.0-alpha.0, v1.0.0-beta.0, etc.
+      - 'v[0-9]+.[0-9]+.[0-9]+-[a-z]+.[0-9]+'
+      - latest
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Publish for commercetools Checkout 
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag'
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+
+      - name: Install
+        env:
+          CKO_CLIENT_ID: ${{ secrets.CKO_CLIENT_ID }}
+          CKO_CLIENT_SECRET: ${{ secrets.CKO_CLIENT_SECRET }}
+          CKO_CONNECTOR_KEY: ${{ secrets.CKO_CONNECTOR_KEY }}
+        run: |
+          echo Updating connector to tag $GITHUB_REF_NAME
+          
+          echo Authenticating with commercetools
+
+          OAUTH_RESPONSE=$(curl --silent --show-error --location --request POST 'https://auth.europe-west1.gcp.commercetools.com/oauth/token?grant_type=client_credentials' -u $CKO_CLIENT_ID:$CKO_CLIENT_SECRET)
+          
+          ACCESS_TOKEN=$(echo $OAUTH_RESPONSE | jq -r '.access_token')
+          echo Access token retrieved
+          
+          CONNECTOR_DETAILS=$(curl --silent --show-error --location "https://connect.europe-west1.gcp.commercetools.com/connectors/drafts/key=$CKO_CONNECTOR_KEY" \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $ACCESS_TOKEN")
+          
+          VERSION=$(echo $CONNECTOR_DETAILS | jq -r '.version')
+
+          echo Updating version $VERSION
+          
+          curl --fail-with-body --silent --location POST "https://connect.europe-west1.gcp.commercetools.com/connectors/drafts/key=$CKO_CONNECTOR_KEY" \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer $ACCESS_TOKEN" \
+              --data-raw "{\"version\": $VERSION, \"actions\": [{\"action\": \"setRepository\",\"url\": \"git@github.com:commercetools/connect-payment-integration-template.git\",\"tag\": \"$GITHUB_REF_NAME\"},{\"action\": \"updatePreviewable\"}]}"

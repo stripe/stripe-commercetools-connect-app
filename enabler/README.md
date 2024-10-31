@@ -11,7 +11,7 @@ Please run following npm commands under `enabler` folder for development work in
 ```
 $ npm install
 ```
-#### Build the application in local environment. NodeJS source codes are then generated under dist folder
+#### Build the application in local environment. NodeJS source codes are then generated under public folder
 ```
 $ npm run build
 ```
