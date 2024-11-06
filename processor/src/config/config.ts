@@ -14,12 +14,16 @@ export const config = {
   loggerLevel: process.env.LOGGER_LEVEL || 'info',
 
   // Update with specific payment providers config
+  mockClientKey: process.env.MOCK_CLIENT_KEY || 'stripe',
+  mockEnvironment: process.env.MOCK_ENVIRONMENT || 'TEST',
+
+  // Update with specific payment providers config
   stripeSecretKey: process.env.STRIPE_SECRET_KEY || 'stripeSecretKey',
   stripeWebhookSigningSecret: process.env.STRIPE_WEBHOOK_SIGNING_SECRET || '',
   stripeCaptureMethod: process.env.STRIPE_CAPTURE_METHOD || 'automatic',
-  mockEnvironment: process.env.MOCK_ENVIRONMENT || 'TEST',
   stripePaymentElementAppearance: process.env.STRIPE_APPEARANCE_PAYMENT_ELEMENT,
   stripeExpressCheckoutAppearance: process.env.STRIPE_APPEARANCE_EXPRESS_CHECKOUT,
+  stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '', //TODO add documentation about it
 
   // Payment Providers config
   returnUrl: process.env.RETURN_URL,

@@ -1,4 +1,5 @@
 import { Stripe, StripeElements, StripeError, StripeExpressCheckoutElement, StripePaymentElement } from "@stripe/stripe-js";
+import {PaymentResult} from "../payment-enabler/payment-enabler.ts";
 
 
 /**
@@ -6,17 +7,16 @@ import { Stripe, StripeElements, StripeError, StripeExpressCheckoutElement, Stri
  */
 export abstract class BaseStripePaymentComponent implements BaseConfiguration{
 
-    stripeSDK : StripeElementConfiguration["stripeSDK"];    
+    stripeSDK : StripeElementConfiguration["stripeSDK"];
     elementsSDK : StripeElementConfiguration["elementsSDK"];
     element : StripeElementConfiguration["element"];
     environment : StripeElementConfiguration["environment"];
-    returnURL: StripeElementConfiguration['returnURL']; 
+    returnURL: StripeElementConfiguration['returnURL'];
     processorURL: StripeElementConfiguration["processorURL"];
     sessionId: StripeElementConfiguration["sessionId"];
     locale: StripeElementConfiguration["locale"];
     publishableKey : StripeElementConfiguration["publishableKey"];
-    protected clientSecret : string;
-    
+
     constructor(baseOptions: StripeElementConfiguration) {
         this.stripeSDK = baseOptions["stripeSDK"];
         this.elementsSDK = baseOptions["elementsSDK"];
@@ -26,10 +26,9 @@ export abstract class BaseStripePaymentComponent implements BaseConfiguration{
         this.processorURL = baseOptions["processorURL"];
         this.sessionId = baseOptions["sessionId"];
         this.locale = baseOptions["locale"];
-        this.clientSecret = baseOptions["clientSecret"];
         this.publishableKey = baseOptions["publishableKey"];
     }
-  
+
     abstract mount(selector : string): void;
 }
 
@@ -49,7 +48,6 @@ export interface StripeElementConfiguration extends BaseConfiguration {
     stripeSDK : SupportedSDK;
     elementsSDK : StripeElements;
     element : SupportedStripeElement;
-    clientSecret : string;
-    onComplete : (e) => Promise<void>;
+    onComplete : (result: PaymentResult) => void;
     onError : (error: StripeError | 'fail' | 'invalid_shipping_address' | 'Container element not found') => void;
 }

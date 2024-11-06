@@ -1,4 +1,9 @@
-import {StripePayment} from './components/stripe/stripe'
+//import {StripePayment} from './components/stripe/stripe'
 
 
-export { StripePayment as Enabler };
+//export { StripePayment as Enabler };
+
+
+import { MockPaymentEnabler } from './payment-enabler/payment-enabler-mock';
+
+export { MockPaymentEnabler as Enabler };

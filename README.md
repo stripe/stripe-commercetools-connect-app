@@ -25,46 +25,46 @@ The `connect-payment-integration-stripe` project presents a Stripe integration c
 1. **commercetools Infrastructure**
    Represents the e-commerce platform infrastructure provided by commercetools.
 2. **Stripe Connector**
-    - A connect integration within the infrastructure that facilitates communication between commercetools and Stripe.
+   - A connect integration within the infrastructure that facilitates communication between commercetools and Stripe.
 3. **Processor**
-    - Manages payment transactions and interacts with Stripe to:
-        - Create payment intents.
-        - Handle manual API payment transactions.
-        - Listening to webhooks events triggered by Stripe and processing all related payment operations.
+   - Manages payment transactions and interacts with Stripe to:
+      - Create payment intents.
+      - Handle manual API payment transactions.
+      - Listening to webhooks events triggered by Stripe and processing all related payment operations.
 4. **Enabler**
-    - Assists in the creation of payment intents and handling of payment element and express checkout components.
-    - Connects to any sample site that wants to integrate the connector, providing the available payment components for seamless integration.
+   - Assists in the creation of payment intents and handling of payment element and express checkout components.
+   - Connects to any sample site that wants to integrate the connector, providing the available payment components for seamless integration.
 5. **Stripe**
-    - The external payment service provider that handles various payment operations, sends webhooks for events such as authorization, capture, refund, and cancel.
+   - The external payment service provider that handles various payment operations, sends webhooks for events such as authorization, capture, refund, and cancel.
 6. **Integration Showcase for Connector**
-    - A sample site that demonstrates the integration and implementation of the Stripe connector components.
+   - A sample site that demonstrates the integration and implementation of the Stripe connector components.
 
 ### Flow of Interactions
 
 1. **Payment Transaction Initiation**
-    - The payment transaction starts when the Integration Showcase for Connector renders the payment support components provided by the Enabler, and is then sent to the Processor within the Stripe Connector.
+   - The payment transaction starts when the Integration Showcase for Connector renders the payment support components provided by the Enabler, and is then sent to the Processor within the Stripe Connector.
 
 2. **Processor Actions**
-    - The Processor within the Stripe Connector is responsible for:
-        - Creating payment intents.
-        - Handling manual API payment transactions.
-        - Listen to webhooks events triggered by Stripe and process all related payment operations.
+   - The Processor within the Stripe Connector is responsible for:
+      - Creating payment intents.
+      - Handling manual API payment transactions.
+      - Listen to webhooks events triggered by Stripe and process all related payment operations.
 
 3. **Communication with Stripe**
-    - The Processor sends a payment intent creation request to Stripe and awaits a valid response.
-    - Stripe processes the request and may trigger various webhooks for events such as:
-        - `charge.succeeded`
-        - `payment_intent.succeeded`
-        - `charge.refunded`
-        - `payment_intent.canceled`
-        - `payment_intent.payment_failed`
-        - `payment_intent.requires_action`
+   - The Processor sends a payment intent creation request to Stripe and awaits a valid response.
+   - Stripe processes the request and may trigger various webhooks for events such as:
+      - `charge.succeeded`
+      - `payment_intent.succeeded`
+      - `charge.refunded`
+      - `payment_intent.canceled`
+      - `payment_intent.payment_failed`
+      - `payment_intent.requires_action`
 
 4. **Enabler Role**
-    - The Enabler within the Stripe Connector assists in managing the payment intents and express checkout components.
+   - The Enabler within the Stripe Connector assists in managing the payment intents and express checkout components.
 
 5. **Stripe Sample Site**
-    - The Integration Showcase for Connector site is used to show how the Stripe connector can be implemented and work in a real-world scenario.
+   - The Integration Showcase for Connector site is used to show how the Stripe connector can be implemented and work in a real-world scenario.
 
 # Webhooks
 
@@ -221,6 +221,9 @@ deployAs:
           description: Stripe Appearance for Payment Element.  
         - key: STRIPE_APPEARANCE_EXPRESS_CHECKOUT  
           description: Stripe Appearance for Express Checkout Element.  
+        - key: STRIPE_PUBLISHABLE_KEY  
+          description: #TODO review infomartion  
+          
       securedConfiguration:  
         - key: CTP_CLIENT_SECRET  
           description: commercetools client secret  

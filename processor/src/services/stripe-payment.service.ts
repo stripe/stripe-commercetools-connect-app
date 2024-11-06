@@ -1,5 +1,10 @@
 import Stripe from 'stripe';
-import { statusHandler, healthCheckCommercetoolsPermissions } from '@commercetools/connect-payments-sdk';
+import {
+  statusHandler,
+  healthCheckCommercetoolsPermissions,
+  TransactionType,
+  TransactionState,
+} from '@commercetools/connect-payments-sdk';
 import {
   CancelPaymentRequest,
   CapturePaymentRequest,
@@ -30,7 +35,8 @@ import {
 import { getCartIdFromContext, getPaymentInterfaceFromContext } from '../libs/fastify/context/context';
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
-import crypto from 'crypto';
+import crypto, { randomUUID } from 'crypto';
+import { TransactionDraftDTO, TransactionResponseDTO } from '../dtos/operations/transaction.dto';
 
 export class StripePaymentService extends AbstractPaymentService {
   constructor(opts: StripePaymentServiceOptions) {
@@ -50,6 +56,7 @@ export class StripePaymentService extends AbstractPaymentService {
     return {
       clientKey: config.stripeSecretKey,
       environment: config.mockEnvironment,
+      publishableKey: config.stripePublishableKey,
     };
   }
 
@@ -122,6 +129,11 @@ export class StripePaymentService extends AbstractPaymentService {
    */
   public async getSupportedPaymentComponents(): Promise<SupportedPaymentComponentsSchemaDTO> {
     return {
+      dropins: [
+        {
+          type: 'embedded',
+        },
+      ],
       components: [
         {
           type: PaymentComponentsSupported.PAYMENT_ELEMENT.toString(),
@@ -146,7 +158,7 @@ export class StripePaymentService extends AbstractPaymentService {
     try {
       const idempotencyKey = crypto.randomUUID();
       await stripeApi().paymentIntents.capture(request.payment.interfaceId as string, {
-        idempotencyKey
+        idempotencyKey,
       });
 
       return { outcome: PaymentModificationStatus.APPROVED, pspReference: request.payment.interfaceId as string };
@@ -157,7 +169,7 @@ export class StripePaymentService extends AbstractPaymentService {
 
   /**
    * Cancel payment in Stripe.
-   * 
+   *
    * @param {CancelPaymentRequest} request - Information about the ct payment.
    * @returns Promise with mocking data containing operation status and PSP reference
    */
@@ -176,10 +188,10 @@ export class StripePaymentService extends AbstractPaymentService {
 
   /**
    * Refund payment in Stripe.
-   * 
+   *
    * @remarks
    * MVP: refund the total amount
-   * 
+   *
    * @param {RefundPaymentRequest} request - Information about the ct payment and the amount.
    * @returns Promise with mocking data containing operation status and PSP reference
    */
@@ -513,6 +525,85 @@ export class StripePaymentService extends AbstractPaymentService {
         return 'Failure';
       default:
         return 'Initial';
+    }
+  }
+
+  /**
+   * Handle the payment transaction request. It will create a new Payment in CoCo and associate it with the provided cartId. If no amount is given it will use the full cart amount.
+   *
+   * @remarks
+   * Abstract method to handle payment transaction requests. The actual invocation to PSPs should be implemented in subclasses
+   *
+   * @param transactionDraft the incoming request payload
+   * @returns Promise with the created Payment and whether or not it was a success or not
+   */
+  public async handleTransaction(transactionDraft: TransactionDraftDTO): Promise<TransactionResponseDTO> {
+    const TRANSACTION_AUTHORIZATION_TYPE: TransactionType = 'Authorization';
+    const TRANSACTION_STATE_SUCCESS: TransactionState = 'Success';
+    const TRANSACTION_STATE_FAILURE: TransactionState = 'Failure';
+
+    const maxCentAmountIfSuccess = 10000;
+
+    const ctCart = await this.ctCartService.getCart({ id: transactionDraft.cartId });
+
+    let amountPlanned = transactionDraft.amount;
+    if (!amountPlanned) {
+      amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
+    }
+
+    const isBelowSuccessStateThreshold = amountPlanned.centAmount < maxCentAmountIfSuccess;
+
+    const newlyCreatedPayment = await this.ctPaymentService.createPayment({
+      amountPlanned,
+      paymentMethodInfo: {
+        paymentInterface: transactionDraft.paymentInterface,
+      },
+    });
+
+    await this.ctCartService.addPayment({
+      resource: {
+        id: ctCart.id,
+        version: ctCart.version,
+      },
+      paymentId: newlyCreatedPayment.id,
+    });
+
+    const transactionState: TransactionState = isBelowSuccessStateThreshold
+      ? TRANSACTION_STATE_SUCCESS
+      : TRANSACTION_STATE_FAILURE;
+
+    const pspReference = randomUUID().toString();
+
+    await this.ctPaymentService.updatePayment({
+      id: newlyCreatedPayment.id,
+      pspReference: pspReference,
+      transaction: {
+        amount: amountPlanned,
+        type: TRANSACTION_AUTHORIZATION_TYPE,
+        state: transactionState,
+        interactionId: pspReference,
+      },
+    });
+
+    if (isBelowSuccessStateThreshold) {
+      return {
+        transactionStatus: {
+          errors: [],
+          state: 'Pending',
+        },
+      };
+    } else {
+      return {
+        transactionStatus: {
+          errors: [
+            {
+              code: 'PaymentRejected',
+              message: `Payment '${newlyCreatedPayment.id}' has been rejected.`,
+            },
+          ],
+          state: 'Failed',
+        },
+      };
     }
   }
 }

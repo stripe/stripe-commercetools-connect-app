@@ -9,24 +9,24 @@ const CONNECT_SERVICE_URL = 'CONNECT_SERVICE_URL';
 const STRIPE_WEBHOOK_ID = 'STRIPE_WEBHOOK_ID';
 const msgError = 'Post-deploy failed:';
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function postDeploy(_properties: Map<string, unknown>) {
   await createLaunchpadPurchaseOrderNumberCustomType();
 
-    const applicationUrl = _properties.get(CONNECT_SERVICE_URL);
-    const stripeWebhookId = _properties.get(STRIPE_WEBHOOK_ID) ?? '';
+  const applicationUrl = _properties.get(CONNECT_SERVICE_URL) as string;
+  //TODO review if this is working as expected
+  const stripeWebhookId = (_properties.get(STRIPE_WEBHOOK_ID) as string) ?? '';
 
-    if (_properties) {
-        if (stripeWebhookId === '') {
-            process.stderr.write(`${msgError} STRIPE_WEBHOOK_ID var is not assigned.\n`);
-        } else {
-            const we = await retrieveWebhookEndpoint(stripeWebhookId);
-            const weAppUrl = `${applicationUrl}${STRIPE_WEBHOOKS_ROUTE}`;
-            if (we.url !== weAppUrl) {
-                updateWebhookEndpoint(stripeWebhookId, weAppUrl);
-            }
-        }
+  if (_properties) {
+    if (stripeWebhookId === '') {
+      process.stderr.write(`${msgError} STRIPE_WEBHOOK_ID var is not assigned.\n`);
+    } else {
+      const we = await retrieveWebhookEndpoint(stripeWebhookId);
+      const weAppUrl = `${applicationUrl}${STRIPE_WEBHOOKS_ROUTE}`;
+      if (we.url !== weAppUrl) {
+        updateWebhookEndpoint(stripeWebhookId, weAppUrl);
+      }
     }
+  }
 }
 
 async function runPostDeployScripts() {
