@@ -543,6 +543,11 @@ export const mockRoute__payments_succeed: PaymentResponseSchemaDTO = {
 };
 
 export const mockRoute__paymentsComponents_succeed: SupportedPaymentComponentsSchemaDTO = {
+  dropins: [
+    {
+      type: 'embedded',
+    },
+  ],
   components: [
     {
       type: 'payment',

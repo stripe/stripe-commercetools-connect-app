@@ -1,18 +1,26 @@
 import { Static, Type } from '@sinclair/typebox';
+import { PaymentMethodType, PaymentOutcomeSchema } from './mock-payment.dto';
 
 export const CreatePaymentMethodSchema = Type.Object({
-  type: Type.String(),
+  type: Type.Union([Type.Enum(PaymentMethodType), Type.String()]),
+  poNumber: Type.Optional(Type.String()),
+  invoiceMemo: Type.Optional(Type.String()),
   confirmationToken: Type.Optional(Type.String()),
 });
 
 export const PaymentRequestSchema = Type.Object({
   paymentMethod: Type.Composite([CreatePaymentMethodSchema]),
-  cart: Type.Object({
-    id: Type.String(),
-  }),
-  paymentIntent: Type.Object({
-    id: Type.String(),
-  }),
+  cart: Type.Optional(
+    Type.Object({
+      id: Type.String(),
+    }),
+  ),
+  paymentIntent: Type.Optional(
+    Type.Object({
+      id: Type.String(),
+    }),
+  ),
+  paymentOutcome: Type.Optional(PaymentOutcomeSchema),
 });
 
 export enum PaymentOutcome {

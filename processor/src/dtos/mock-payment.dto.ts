@@ -9,6 +9,7 @@ export enum PaymentMethodType {
   CARD = 'card',
   INVOICE = 'invoice',
   PURCHASE_ORDER = 'purchaseorder',
+  PAYMENT = 'payment',
 }
 
 export const PaymentResponseSchema = Type.Object({

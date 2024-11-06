@@ -12,13 +12,14 @@
     "serve": "npm run build && serve public -l 3000 --cors"
   },
   "dependencies": {
-    "serve": "14.2.3",
-    "@stripe/stripe-js": "^4.5.0"
+    "@stripe/stripe-js": "^4.5.0",
+    "serve": "14.2.3"
   },
   "devDependencies": {
     "@types/node": "22.7.4",
     "dotenv": "^16.4.5",
     "jest": "29.7.0",
+    "jest-fetch-mock": "^3.0.3",
     "sass": "1.79.4",
     "ts-jest": "^29.2.5",
     "typescript": "5.6.2",

@@ -29,7 +29,7 @@ async function postDeploy(_properties: Map<string, unknown>) {
   }
 }
 
-async function runPostDeployScripts() {
+export async function runPostDeployScripts() {
   try {
     const properties = new Map(Object.entries(process.env));
     await await postDeploy(properties);

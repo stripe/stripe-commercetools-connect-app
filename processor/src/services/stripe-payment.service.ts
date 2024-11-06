@@ -446,7 +446,7 @@ export class StripePaymentService extends AbstractPaymentService {
    */
   private async createPaymentCt(opts: PaymentRequestSchemaDTO, transactionType: string): Promise<CtPaymentSchemaDTO> {
     const ctCart = await this.ctCartService.getCart({
-      id: opts.cart.id,
+      id: opts.cart?.id || '',
     });
 
     const paymentMethod = opts.paymentMethod;
@@ -456,7 +456,7 @@ export class StripePaymentService extends AbstractPaymentService {
       amountPlanned: await this.ctCartService.getPaymentAmount({
         cart: ctCart,
       }),
-      interfaceId: opts.paymentIntent.id,
+      interfaceId: opts.paymentIntent?.id,
       paymentMethodInfo: {
         paymentInterface: getPaymentInterfaceFromContext() || 'stripe',
       },
@@ -482,7 +482,7 @@ export class StripePaymentService extends AbstractPaymentService {
       transaction: {
         type: transactionType,
         amount: ctPayment.amountPlanned,
-        interactionId: opts.paymentIntent.id,
+        interactionId: opts.paymentIntent?.id,
         state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
       },
     });
@@ -490,7 +490,7 @@ export class StripePaymentService extends AbstractPaymentService {
     try {
       const idempotencyKey = crypto.randomUUID();
       await stripeApi().paymentIntents.update(
-        opts.paymentIntent.id,
+        opts.paymentIntent?.id || '',
         {
           metadata: {
             ct_payment_id: updatedPayment.id,
@@ -504,7 +504,7 @@ export class StripePaymentService extends AbstractPaymentService {
 
     log.info(`Payment created and assigned PSP reference.`, {
       ctCartId: ctCart.id,
-      stripePaymentIntentId: opts.paymentIntent.id,
+      stripePaymentIntentId: opts.paymentIntent?.id,
       ctPaymentId: updatedPayment.id,
     });
 

@@ -44,7 +44,7 @@ export class StripePayment {
     public setupData : Promise<SetupData>;
     public elements? : StripeElements;
     public elementsConfiguration : ConfigElementResponse;
-    private clientSecret : string;
+    //private clientSecret : string;
 
 
     constructor(options: BaseConfiguration) {
@@ -137,7 +137,7 @@ export class StripePayment {
                     element,
                     stripeSDK,
                     elementsSDK : this.elements,
-                    clientSecret : this.clientSecret,
+                    //clientSecret : this.clientSecret,
                     onComplete : stripeElement.onComplete,
                     onError : stripeElement.onError,
                     ...configuration
@@ -149,7 +149,7 @@ export class StripePayment {
                     element,
                     stripeSDK,
                     elementsSDK : this.elements,
-                    clientSecret : this.clientSecret,
+                    //clientSecret : this.clientSecret,
                     onComplete : stripeElement.onComplete,
                     onError : stripeElement.onError,
                     ...configuration

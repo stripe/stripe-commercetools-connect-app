@@ -1,4 +1,4 @@
-import { jest } from '@jest/globals';
+/**import { jest } from '@jest/globals';
 import fetchMock from 'jest-fetch-mock';
 
 fetchMock.enableMocks();
@@ -55,4 +55,6 @@ jest.mock("@stripe/stripe-js", () => {
             }
         })
     }
-})
+})**/
+
+

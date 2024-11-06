@@ -501,6 +501,7 @@ describe('stripe-payment.service', () => {
       try {
         await stripePaymentService.createPaymentIntentStripe();
       } catch (e) {
+        console.log(e);
         expect(wrapStripeError).toHaveBeenCalledWith(new Error('error'));
       }
 
@@ -557,11 +558,9 @@ describe('stripe-payment.service', () => {
       Stripe.prototype.paymentIntents = {
         retrieve: jest.fn(),
       } as unknown as Stripe.PaymentIntentsResource;
-      jest
-        .spyOn(Stripe.prototype.paymentIntents, 'retrieve')
-        .mockImplementation(() => {
-          throw new Error('error');
-        });
+      jest.spyOn(Stripe.prototype.paymentIntents, 'retrieve').mockImplementation(() => {
+        throw new Error('error');
+      });
 
       await thisPaymentService.refundPaymentInCt(mockEvent__charge_refund_captured);
 
@@ -596,7 +595,9 @@ describe('stripe-payment.service', () => {
     test('should cancel an authorized payment in ct successfully', async () => {
       const thisPaymentService: StripePaymentService = new StripePaymentService(opts);
 
-      jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
+      jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
 
       await thisPaymentService.cancelAuthorizationInCt(mockEvent__paymentIntent_canceled);
 
@@ -620,7 +621,9 @@ describe('stripe-payment.service', () => {
     test('should add a "Charge" transaction to ct payment when "capture_method"="manual" ', async () => {
       const thisPaymentService: StripePaymentService = new StripePaymentService(opts);
 
-      jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
+      jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
 
       await thisPaymentService.chargePaymentInCt(mockEvent__paymentIntent_succeeded_captureMethodManual);
 

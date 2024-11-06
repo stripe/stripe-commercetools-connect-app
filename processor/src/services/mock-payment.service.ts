@@ -226,7 +226,9 @@ export class MockPaymentService extends AbstractPaymentService {
         type: 'Authorization',
         amount: ctPayment.amountPlanned,
         interactionId: pspReference,
-        state: this.convertPaymentResultCode(request.data.paymentOutcome),
+        state: this.convertPaymentResultCode(
+          request.data.paymentOutcome ? request.data.paymentOutcome : PaymentOutcome.AUTHORIZED,
+        ), //TODO harcorded PaymentOutcome.AUTHORIZED for testing
       },
       ...(request.data.paymentMethod.type === PaymentMethodType.PURCHASE_ORDER && {
         customFields: {

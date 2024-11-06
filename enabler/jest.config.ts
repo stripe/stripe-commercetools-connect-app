@@ -2,14 +2,14 @@
 
 module.exports = {
     preset: 'ts-jest',
-    testEnvironment: 'jsdom',
+    testEnvironment: 'node',
     setupFiles: ['./test/jest.setup.ts'],
-    moduleDirectories: ['src', 'node_modules'],
+    /**moduleDirectories: ['src', 'node_modules'],**/
     roots: ['./test'],
-    verbose: true,
+    /**verbose: true,
     transform: {
         '^.+\\.ts?$': ['esbuild-jest', 'babel-jest', {
             tsconfig : './tsconfig.json'
         }]
-    },
+    },**/
 };

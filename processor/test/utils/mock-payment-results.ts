@@ -346,7 +346,7 @@ export const mockStripeCapturePaymentResult: Stripe.Response<Stripe.PaymentInten
   amount: 112300,
   amount_capturable: 0,
   amount_details: {
-    tip: {}
+    tip: {},
   },
   amount_received: 112300,
   application: null,
@@ -372,15 +372,13 @@ export const mockStripeCapturePaymentResult: Stripe.Response<Stripe.PaymentInten
   payment_method_configuration_details: null,
   payment_method_options: {
     card: {
-      'installments': null,
-      'mandate_options': null,
-      'network': null,
-      'request_three_d_secure': 'automatic'
-    }
+      installments: null,
+      mandate_options: null,
+      network: null,
+      request_three_d_secure: 'automatic',
+    },
   },
-  payment_method_types: [
-    'card'
-  ],
+  payment_method_types: ['card'],
   processing: null,
   receipt_email: null,
   review: null,
@@ -391,5 +389,5 @@ export const mockStripeCapturePaymentResult: Stripe.Response<Stripe.PaymentInten
   statement_descriptor_suffix: null,
   status: 'succeeded',
   transfer_data: null,
-  transfer_group: null
+  transfer_group: null,
 };

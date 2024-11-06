@@ -7,7 +7,17 @@ import { AppLogger } from '../src/payment-sdk';
 jest.mock('@commercetools/connect-payments-sdk');
 jest.mock('../src/config/config');
 jest.mock('../src/libs/fastify/context/context');
-jest.mock('../src/libs/logger/index');
+jest.mock('../src/libs/logger/index', () => {
+  return {
+    log: {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      // Add any additional methods as required by the library
+    },
+  };
+});
 
 describe('Payment-sdk test', () => {
   let logger: AppLogger;
@@ -20,28 +30,28 @@ describe('Payment-sdk test', () => {
     const debugSpy = jest.spyOn(log, 'debug');
     const message = 'Debug message';
     logger.debug({}, message);
-    expect(debugSpy).toHaveBeenCalledWith({});
+    expect(debugSpy).toHaveBeenCalledWith(message, {});
   });
 
   it('should log info messages', () => {
     const infoSpy = jest.spyOn(log, 'info');
     const message = 'Info message';
     logger.info({}, message);
-    expect(infoSpy).toHaveBeenCalledWith({});
+    expect(infoSpy).toHaveBeenCalledWith(message, {});
   });
 
   it('should log warn messages', () => {
     const warnSpy = jest.spyOn(log, 'warn');
     const message = 'Warn message';
     logger.warn({}, message);
-    expect(warnSpy).toHaveBeenCalledWith({});
+    expect(warnSpy).toHaveBeenCalledWith(message, {});
   });
 
   it('should log error messages', () => {
     const errorSpy = jest.spyOn(log, 'error');
     const message = 'Error message';
     logger.error({}, message);
-    expect(errorSpy).toHaveBeenCalledWith({});
+    expect(errorSpy).toHaveBeenCalledWith(message, {});
   });
 });
 

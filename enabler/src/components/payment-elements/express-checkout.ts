@@ -1,11 +1,12 @@
 import { StripeExpressCheckoutElement, StripeExpressCheckoutElementConfirmEvent } from "@stripe/stripe-js";
 import { BaseStripePaymentComponent, StripeElementConfiguration } from "../base-configuration";
+import {PaymentResult} from "../../payment-enabler/payment-enabler.ts";
 
 export type ExpressCheckoutErrorReason = {reason?: 'fail' | 'invalid_shipping_address'};
 
 export class ExpressCheckout extends BaseStripePaymentComponent {
 
-    public onComplete : ((e) => Promise<void>) | undefined;
+    public onComplete : (result: PaymentResult) => void;
     public onError : ((e) => void) | undefined;
 
     constructor(baseOptions: StripeElementConfiguration) {
@@ -29,7 +30,7 @@ export class ExpressCheckout extends BaseStripePaymentComponent {
             console.warn(`Error in processor: ${processorError}`);
             return
         }
-        
+
         let { error, paymentIntent } = await this.stripeSDK.confirmPayment({
             elements: this.elementsSDK,
             clientSecret: client_secret,
@@ -38,16 +39,17 @@ export class ExpressCheckout extends BaseStripePaymentComponent {
             },
             redirect : "if_required"
         });
-        
-        
+
+
         if (error) {
             this.onError?.(error);
-            
+
             return;
         }
-        
-        await this.onComplete?.(e);
-        
+
+        //await this.onComplete?.(e);//TODO review
+        console.log(e)
+
         const redirectUrl = new URL(this.returnURL)
 
         redirectUrl.searchParams.set("payment_intent", paymentIntent.id);

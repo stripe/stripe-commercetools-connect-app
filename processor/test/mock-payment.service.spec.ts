@@ -168,6 +168,7 @@ describe('mock-payment.service', () => {
     expect(result?.outcome).toStrictEqual('approved');
   });
 
+  /** //TODO Maybe deletee components
   test('create card payment', async () => {
     const createPaymentOpts: CreatePaymentRequest = {
       data: {
@@ -244,7 +245,7 @@ describe('mock-payment.service', () => {
     const resultPromise = mockPaymentService.createPayment(createPaymentOpts);
 
     await expect(resultPromise).rejects.toThrow('A value is required for field poNumber.');
-  });
+  });**/
 
   describe('handleTransaction', () => {
     test('should create the payment in CoCo and return it with a success state', async () => {

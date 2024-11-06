@@ -20,4 +20,4 @@ export class StripeApiError extends Errorx {
       ...additionalOpts,
     });
   }
-};
+}
