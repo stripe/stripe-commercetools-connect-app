@@ -179,6 +179,7 @@ export enum PaymentMethod {
   purchaseorder = "purchaseorder",
   /* TWINT */
   twint = "twint",
+  dropin = "dropin",
 }
 
 /**
