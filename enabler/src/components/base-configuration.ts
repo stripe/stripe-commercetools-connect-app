@@ -8,7 +8,7 @@ import {PaymentResult} from "../payment-enabler/payment-enabler.ts";
 export abstract class BaseStripePaymentComponent implements BaseConfiguration{
 
     stripeSDK : StripeElementConfiguration["stripeSDK"];
-    elementsSDK : StripeElementConfiguration["elementsSDK"];
+    elementsSDK : StripeElementConfiguration["element"];
     element : StripeElementConfiguration["element"];
     environment : StripeElementConfiguration["environment"];
     returnURL: StripeElementConfiguration['returnURL'];
@@ -46,8 +46,9 @@ export type BaseConfiguration = {
 
 export interface StripeElementConfiguration extends BaseConfiguration {
     stripeSDK : SupportedSDK;
-    elementsSDK : StripeElements;
+    paymentElement : StripeElements;
     element : SupportedStripeElement;
     onComplete : (result: PaymentResult) => void;
     onError : (error: StripeError | 'fail' | 'invalid_shipping_address' | 'Container element not found') => void;
+    dropinHasSubmit: boolean;
 }
