@@ -12,13 +12,10 @@ import {
   StripeExpressCheckoutElementOptions,
   StripePaymentElementOptions
 } from "@stripe/stripe-js";
-import {PaymentElement} from "../components/payment-elements/payment-element.ts";
-import {ExpressCheckout} from "../components/payment-elements/express-checkout.ts";
 import {
   BaseConfiguration,
-  StripeElementConfiguration
 } from "../components/base-configuration.ts";
-
+import {StripePaymentElement} from "@stripe/stripe-js/dist/stripe-js/elements/index";
 
 
 declare global {
@@ -28,26 +25,19 @@ declare global {
   }
 }
 
-export type ConfigElementResponse = {
-  cartInfo: {
-    amount: number,
-    currency: string,
-  },
-  appearance?: string,
-  captureMethod : "manual" | "automatic"
-};
-
 export type BaseOptions = {
-  stripeSDK: Stripe;
-  elementsSDK? : StripeElementConfiguration
-  element : PaymentElement | ExpressCheckout
-  configuration: BaseConfiguration
+  sdk: Stripe;
+  environment: string;
+  processorUrl: string;
+  sessionId: string;
+  locale?: string;
+  onComplete: (result: PaymentResult) => void;
+  onError: (error?: any) => void;
+  paymentElement: StripePaymentElement;
+  elements: StripeElements;
 };
 
-type StripeEnablerOptions = EnablerOptions & {
-  onActionRequired?: (action: any) => Promise<void>;
-  stripeElement: StripeElementType
-};
+
 
 export type StripeElementType = {
   type : string
@@ -58,25 +48,24 @@ export type StripeElementType = {
 
 export enum StripeElementTypes {
   payment = "payment",
-  expressCheckout = "expressCheckout",
-  subscription = "subscription",
 }
+
 type StripeElementParams = {
   stripeElement: StripeElementType;
   elements: StripeElements;
   stripeSDK: Stripe;
   configuration: BaseConfiguration;
 };
+
 export class MockPaymentEnabler implements PaymentEnabler {
   setupData: Promise<{ baseOptions: BaseOptions }>;
 
-  constructor(options: StripeEnablerOptions) {
+  constructor(options: EnablerOptions) {
     this.setupData = MockPaymentEnabler._Setup(options);
-    //this.elementsConfiguration
   }
 
   private static _Setup = async (
-    options: StripeEnablerOptions
+    options: EnablerOptions
   ): Promise<{ baseOptions: BaseOptions }> => {
 
     //TODO: Dynamic value or all configurations for all elements
@@ -97,21 +86,14 @@ export class MockPaymentEnabler implements PaymentEnabler {
         },
       }),
     ]);
+    //const [configElementJson, configEnvJson] = await Promise.all([configElementResponse.json(), configEnvResponse.json()]);
     const [configElementJson, configEnvJson] = await Promise.all([configElementResponse.json(), configEnvResponse.json()]);
-
-    // Fetch SDK config from processor if needed, for example:
-    // const configResponse = await fetch(instance.processorUrl + '/config', {
-    //   method: 'GET',
-    //   headers: { 'Content-Type': 'application/json', 'X-Session-Id': options.sessionId },
-
-    // });
-    // const configJson = awai  t configResponse.json();
 
     const stripeSDK = await MockPaymentEnabler.getStripeSDK(configEnvJson);
 
     const configuration: BaseConfiguration = MockPaymentEnabler.getConfiguration(configEnvJson, options)
 
-
+    console.log(configElementJson)
     const stripeElementParams: StripeElementParams = {
       stripeElement: MockPaymentEnabler.getStripeElementType(options),
       elements: MockPaymentEnabler.getElements(stripeSDK, configElementJson),
@@ -119,15 +101,35 @@ export class MockPaymentEnabler implements PaymentEnabler {
       configuration
     }
 
+    const elements= await MockPaymentEnabler.getElements(stripeSDK, configElementJson)
 
-    return {
+    const elementsOptions = {
+      type: 'payment',
+      options: {},
+      onComplete: options.onComplete,
+      onError: options.onError,
+      //terms: {objet never}, //TODO review if need it
+      layout: {
+        type: 'tabs',
+        defaultCollapsed: false,
+      }
+    }
+
+
+    console.log(stripeElementParams)
+
+    return Promise.resolve({
       baseOptions: {
-        stripeSDK,
-        element : await MockPaymentEnabler.getStripeElement(stripeElementParams),
-        configuration
+        sdk: stripeSDK,
+        environment: configuration.environment,
+        processorUrl: configuration.processorURL,
+        sessionId: configuration.sessionId,
+        onComplete: options.onComplete || (() => {}),
+        onError: options.onError || (() => {}),
+        paymentElement: elements.create('payment', elementsOptions as StripePaymentElementOptions ),
+        elements: elements,
       },
-    };
-
+    });
   };
 
   async createComponentBuilder(
@@ -169,6 +171,9 @@ export class MockPaymentEnabler implements PaymentEnabler {
         ).join(", ")}`
       );
     }
+    console.log('JSON.stringify(setupData.baseOptions, null, 2)');
+    console.log(JSON.stringify(setupData.baseOptions, null, 2));
+    console.log('JSON.stringify(setupData.baseOptions, null, 2)');
     return new supportedMethods[type](setupData.baseOptions);
   }
 
@@ -211,7 +216,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
     };
   }
 
-  private static getStripeElementType(options: StripeEnablerOptions): StripeElementType {
+  private static getStripeElementType(options: EnablerOptions): StripeElementType {
     return {
       type: 'payment',
       options: {},
@@ -220,47 +225,18 @@ export class MockPaymentEnabler implements PaymentEnabler {
     };
   }
 
-  private static async getStripeElement( stripeElementParams :StripeElementParams):
-    Promise<PaymentElement | ExpressCheckout> {
+  /**private static async getStripeElement( stripeElementParams :StripeElementParams):
+    Promise<PaymentElement> {
     const {stripeElement, elements, stripeSDK, configuration} = stripeElementParams
-    switch(stripeElement.type) {
-      case (StripeElementTypes.payment || StripeElementTypes.subscription) : {
-        /**
-         const element = elements.create('expressCheckout', stripeElement.options as StripeExpressCheckoutElementOptions);
-         return new ExpressCheckout({
-         element,
-         stripeSDK,
-         elementsSDK : elements,
-         clientSecret : clientSecret,
-         onComplete : stripeElement.onComplete,
-         onError : stripeElement.onError,
-         ...configuration
-         });
-         **/
-        console.log('|||||||||||||||||||||||||||||||||||||||||||')
+      const element = elements.create('payment', stripeElement.options as StripePaymentElementOptions);
+      return new PaymentElement({
+        element,
+        stripeSDK,
+        paymentElement : elements,
+        onComplete : stripeElement.onComplete,
+        onError : stripeElement.onError,
+        ...configuration
+      });
 
-        const element = elements.create('payment', stripeElement.options as StripePaymentElementOptions);
-        return new PaymentElement({
-          element,
-          stripeSDK,
-          elementsSDK : elements,
-          onComplete : stripeElement.onComplete,
-          onError : stripeElement.onError,
-          ...configuration
-        });
-
-      }
-      case StripeElementTypes.expressCheckout : {
-        const element = elements.create(stripeElement.type, stripeElement.options as StripeExpressCheckoutElementOptions);
-        return new ExpressCheckout({
-          element,
-          stripeSDK,
-          elementsSDK : elements,
-          onComplete : stripeElement.onComplete,
-          onError : stripeElement.onError,
-          ...configuration
-        });
-      }
-    }
-  }
+    }**/
 }

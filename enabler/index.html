@@ -80,13 +80,13 @@
           const accessToken = await response.json();
 
           const res = await fetch(
-                  `${__VITE_PROCESSOR_URL__}/operations/payment-components`,
-                  {
-                    method: "GET",
-                    headers: {
-                      Authorization: `Bearer ${accessToken.token}`,
-                    },
-                  }
+            `${__VITE_PROCESSOR_URL__}/operations/payment-components`,
+            {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${accessToken.token}`,
+              },
+            }
           );
           const paymentMethods = await res.json();
           paymentMethods.components.forEach((method) => {
@@ -104,95 +104,97 @@
         });
 
         document
-                .getElementById("createCheckout")
-                .addEventListener("click", async (event) => {
-                  event.preventDefault();
-                  const cartId = document.getElementById("cartId").value;
-                  const sessionId = await getSessionId(cartId);
+          .getElementById("createCheckout")
+          .addEventListener("click", async (event) => {
+            event.preventDefault();
+            const cartId = document.getElementById("cartId").value;
+            const sessionId = await getSessionId(cartId);
 
-                  const paymentMethodSelect =
-                          document.getElementById("paymentMethod");
-                  const selectedValue = paymentMethodSelect.value;
-                  const selectedText = paymentMethodSelect.options[
-                          paymentMethodSelect.selectedIndex
-                          ].text;
-                  const isDropin = selectedText.startsWith('dropin');
+            const paymentMethodSelect =
+                    document.getElementById("paymentMethod");
+            const selectedValue = paymentMethodSelect.value;
+            const selectedText = paymentMethodSelect.options[
+                    paymentMethodSelect.selectedIndex
+                    ].text;
+            const isDropin = selectedText.startsWith('dropin');
 
-                  const enabler = new Enabler({
-                    processorUrl: __VITE_PROCESSOR_URL__,
-                    sessionId: sessionId,
-                    currency: "EUR",
-                    onComplete: ({ isSuccess, paymentReference }) => {
-                      console.log("onComplete", { isSuccess, paymentReference });
-                    },
-                    onError: (err) => {
-                      console.error("onError", err);
-                    },
-                  });
+            const enabler = new Enabler({
+              processorUrl: __VITE_PROCESSOR_URL__,
+              sessionId: sessionId,
+              currency: "EUR",
+              onComplete: ({ isSuccess, paymentReference }) => {
+                console.log("onComplete", { isSuccess, paymentReference });
+              },
+              onError: (err) => {
+                console.error("onError", err);
+              },
+            });
 
-                  let builder;
+            let builder;
 
-                  console.log('JSON.stringify(enabler,null,2)')
-                  console.log(JSON.stringify(enabler,null,2))
+            console.log('JSON.stringify(enabler,null,2)')
+            console.log(JSON.stringify(enabler,null,2))
 
-                  if(isDropin){
-                    console.log('dropin')
-                    builder = await enabler.createDropinBuilder(selectedValue);
-                  } else {
-                    console.log('No dropin')
-                    builder = await enabler.createComponentBuilder(selectedValue);
-                  }
-                  console.log('JSON.stringify(builder,null,2)');
-                  console.log(JSON.stringify(builder,null,2));
-                  console.log('JSON.stringify(builder,null,2)');
-                  const component = await builder.build({
-                    showPayButton: !builder.componentHasSubmit,
-                    ...(builder.componentHasSubmit
-                            ? {}
-                            : {
-                              onPayButtonClick: async () => {
+            if(isDropin){
+              console.log('dropin' + selectedValue)
+              builder = await enabler.createDropinBuilder(selectedValue);
+            } else {
+              console.log('No dropin')
+              builder = await enabler.createComponentBuilder(selectedValue);
+            }
+            console.log('JSON.stringify(builder,null,2)');
+            console.log(JSON.stringify(builder,null,2));
+            console.log('JSON.stringify(builder,null,2)');
+            const component = await builder.build({
+              showPayButton: !builder.dropinHasSubmit,
+              ...(builder.dropinHasSubmit
+                ? {}
+                : {
+                  onPayButtonClick: async () => {
 
-                                console.log('<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<onPayButtonClick')
-                                // to be used for validation
-                                const termsChecked =
-                                        document.getElementById("termsCheckbox").checked;
-                                if (!termsChecked) {
-                                  event.preventDefault();
-                                  alert(
-                                          "You must agree to the terms and conditions."
-                                  );
-                                  return Promise.reject("error-occurred");
-                                }
-                                return Promise.resolve(); // change to true, to test payment flow
-                              },
-                            }),
-                  });
-
-                  if (builder.componentHasSubmit) {
-                    if (selectedValue === 'card' || selectedValue === 'purchaseorder') {
-                      component.mount("#container--external");
+                    console.log('<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<onPayButtonClick')
+                    // to be used for validation
+                    const termsChecked =
+                            document.getElementById("termsCheckbox").checked;
+                    if (!termsChecked) {
+                      event.preventDefault();
+                      alert(
+                              "You must agree to the terms and conditions."
+                      );
+                      return Promise.reject("error-occurred");
                     }
+                    return Promise.resolve(); // change to true, to test payment flow
+                  },
+                }),
+            });
+            console.log('builder.dropinHasSubmit---------------------');
+            console.log(builder.dropinHasSubmit)
+            console.log(JSON.stringify(builder,null,2));
+            if (builder.dropinHasSubmit) {
+              if (selectedValue === 'card' || selectedValue === 'purchaseorder' || selectedValue === 'embedded') {
+                component.mount("#container--external");
+              }
 
-                    const customButton = document.createElement("button");
-                    customButton.textContent = "Pay with "+ selectedValue;
-                    customButton.className = "btn btn-lg btn-primary btn-block";
-                    customButton.addEventListener("click", () => {
-                      const termsChecked =
-                              document.getElementById("termsCheckbox").checked;
-                      if (!termsChecked) {
-                        event.preventDefault();
-                        alert("You must agree to the terms and conditions.");
-                        return;
-                      }
-                      component.submit();
-                    });
-                    document
-                            .getElementById("container--internal")
-                            .appendChild(customButton);
-                  } else{
-                    component.mount("#container--external");
-                  }
-                });
+              const customButton = document.createElement("button");
+              customButton.textContent = "Pay with "+ selectedValue;
+              customButton.className = "btn btn-lg btn-primary btn-block";
+              customButton.addEventListener("click", () => {
+                const termsChecked =
+                        document.getElementById("termsCheckbox").checked;
+                if (!termsChecked) {
+                  event.preventDefault();
+                  alert("You must agree to the terms and conditions.");
+                  return;
+                }
+                component.submit();
+              });
+              document
+                      .getElementById("container--internal")
+                      .appendChild(customButton);
+            } else{
+              component.mount("#container--external");
+            }
+          });
       </script>
 
       <div id="container--external"></div>
@@ -295,6 +297,8 @@
                   options : {
 
                   },
+                  aacoutnId: "acct_1290142141",
+                  priceId: "pid_231231",
                   onComplete,
                   onError
                 })
