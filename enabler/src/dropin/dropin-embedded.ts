@@ -56,41 +56,38 @@ export class DropinComponents implements DropinComponent {
     //this.overrideOnSubmit();
     this.dropinOptions.showPayButton = true;
 
-    this.addSubmitButton();
-
   }
 
-  addSubmitButton(): void {
-    const existingButton = document.getElementById("dropin-submit-button");
-    if (!existingButton) {
-      // Create the submit button
-      const button = document.createElement("button");
-      button.id = "dropin-submit-button";
-      button.textContent = "Submit Payment";
-      button.style.cssText = "padding: 10px 20px; font-size: 16px; background-color: #0070f3; color: white; border: none; cursor: pointer;";
+  addSubmitButton(selector): void {
+    // Create the submit button
+    const button = document.createElement("button");
+    button.id = "dropin-submit-button";
+    button.textContent = "Submit Payment";
+    button.style.cssText = "padding: 10px 20px; font-size: 16px; background-color: #0070f3; color: white; border: none; cursor: pointer;";
 
-      // Attach an event listener to trigger the submit function
-      button.addEventListener("click", () => {
-        console.log("Submit button clicked");
-        this.submit().catch((error) => {
-          console.error("Error during payment submission:", error);
-        });
+    // Attach an event listener to trigger the submit function
+    button.addEventListener("click", () => {
+      console.log("Submit button clicked");
+      this.submit().catch((error) => {
+        console.error("Error during payment submission:", error);
       });
+    });
 
-      // Append the button to the parent element of the payment element
-      const paymentElementParent = document.querySelector(".payment-element-parent");
-      if (paymentElementParent) {
-        paymentElementParent.appendChild(button);
-      } else {
-        console.error("Payment element parent not found. Ensure the selector is correct.");
-      }
+    // Append the button to the parent element of the payment element
+    const paymentElementParent = document.querySelector(selector);
+    if (paymentElementParent) {
+      paymentElementParent.appendChild(button);
+    } else {
+      console.error("Payment element parent not found. Ensure the selector is correct.");
     }
+
   }
 
   mount(selector: string) {
     if (this.baseOptions.paymentElement) {
       this.paymentElement.mount(selector);
 
+      this.addSubmitButton(selector);
 
     } else {
       console.error("Payment Element not initialized");
