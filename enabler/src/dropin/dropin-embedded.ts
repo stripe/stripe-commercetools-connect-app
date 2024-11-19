@@ -8,7 +8,7 @@ import { BaseOptions } from "../payment-enabler/payment-enabler-mock";
 import { StripePaymentElement} from "@stripe/stripe-js";
 
 export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
-  public dropinHasSubmit = true;
+  public dropinHasSubmit = false;
 
   private baseOptions: BaseOptions;
 
@@ -22,7 +22,7 @@ export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
     console.log('Dropin Options---dropin-embedded START');
     console.log(JSON.stringify(config, null, 2));
     console.log('Dropin Options---dropin-embedded START');
-    config.showPayButton = false; // dropinHasSubmit
+    config.showPayButton = true; // dropinHasSubmit
     const dropin = new DropinComponents({
       baseOptions: this.baseOptions,
       dropinOptions: config,
@@ -53,7 +53,14 @@ export class DropinComponents implements DropinComponent {
   init(): void {
     this.paymentElement = this.baseOptions.paymentElement;
     //this.overrideOnSubmit();
-    this.dropinOptions.onDropinReady?.();
+    this.dropinOptions.showPayButton = true;
+    this.dropinOptions
+      .onDropinReady()
+      .then((test) => {
+        console.log('testing '+ test)
+      })
+      .catch((error) => console.error(error));
+
   }
 
   mount(selector: string) {

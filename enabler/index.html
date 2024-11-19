@@ -146,8 +146,8 @@
             console.log(JSON.stringify(builder,null,2));
             console.log('JSON.stringify(builder,null,2)');
             const component = await builder.build({
-              showPayButton: !builder.dropinHasSubmit,
-              ...(builder.dropinHasSubmit
+              showPayButton: !builder.componentHasSubmit,
+              ...(builder.componentHasSubmit
                 ? {}
                 : {
                   onPayButtonClick: async () => {
@@ -167,11 +167,11 @@
                   },
                 }),
             });
-            console.log('builder.dropinHasSubmit---------------------');
-            console.log(builder.dropinHasSubmit)
+            console.log('builder.componentHasSubmit---------------------');
+            console.log(builder.componentHasSubmit)
             console.log(JSON.stringify(builder,null,2));
-            if (builder.dropinHasSubmit) {
-              if (selectedValue === 'card' || selectedValue === 'purchaseorder' || selectedValue === 'embedded') {
+            if (builder.componentHasSubmit) {
+              if (selectedValue === 'card' || selectedValue === 'purchaseorder' ) {
                 component.mount("#container--external");
               }
 
@@ -193,6 +193,22 @@
                       .appendChild(customButton);
             } else{
               component.mount("#container--external");
+              const customButton = document.createElement("button");
+              customButton.textContent = "Pay with "+ selectedValue;
+              customButton.className = "btn btn-lg btn-primary btn-block";
+              customButton.addEventListener("click", () => {
+                const termsChecked =
+                        document.getElementById("termsCheckbox").checked;
+                if (!termsChecked) {
+                  event.preventDefault();
+                  alert("You must agree to the terms and conditions.");
+                  return;
+                }
+                component.submit();
+              });
+              document
+                      .getElementById("container--external")
+                      .appendChild(customButton);
             }
           });
       </script>
