@@ -54,12 +54,6 @@ export class DropinComponents implements DropinComponent {
     this.paymentElement = this.baseOptions.paymentElement;
     //this.overrideOnSubmit();
     this.dropinOptions.showPayButton = true;
-    this.dropinOptions
-      .onDropinReady()
-      .then((test) => {
-        console.log('testing '+ test)
-      })
-      .catch((error) => console.error(error));
 
   }
 
