@@ -22,13 +22,21 @@ export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
     console.log('Dropin Options---dropin-embedded START');
     console.log(JSON.stringify(config, null, 2));
     console.log('Dropin Options---dropin-embedded START');
-    config.showPayButton = true; // dropinHasSubmit
+    config.showPayButton = false; // dropinHasSubmit
     const dropin = new DropinComponents({
       baseOptions: this.baseOptions,
       dropinOptions: config,
     });
 
     dropin.init();
+
+    if (config.onDropinReady) {
+      config
+        .onDropinReady()
+        .then(() => {})
+        .catch((error) => console.error(error));
+    }
+
     return dropin;
   }
 }
@@ -53,7 +61,7 @@ export class DropinComponents implements DropinComponent {
   init(): void {
     this.paymentElement = this.baseOptions.paymentElement;
     //this.overrideOnSubmit();
-    this.dropinOptions.showPayButton = true;
+    this.dropinOptions.showPayButton = false;
 
   }
 
