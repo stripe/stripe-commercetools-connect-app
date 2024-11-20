@@ -257,7 +257,7 @@ export class StripePaymentService extends AbstractPaymentService {
     });
 
     return {
-      sClientSecret: paymentIntent.client_secret ?? '',
+      sClientSecret: ctCart.paymentInfo?.payments[0].id ?? '',
     };
   }
 
