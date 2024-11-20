@@ -585,11 +585,13 @@ export class StripePaymentService extends AbstractPaymentService {
       },
     });
 
+    console.log(`isBelowSuccessStateThreshold = ${isBelowSuccessStateThreshold}`);
+
     if (isBelowSuccessStateThreshold) {
       return {
         transactionStatus: {
           errors: [],
-          state: 'Pending',
+          state: 'Completed',
         },
       };
     } else {

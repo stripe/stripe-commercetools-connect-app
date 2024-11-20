@@ -124,7 +124,12 @@ export abstract class AbstractPaymentService {
     });
     const request = opts.data.actions[0];
 
-    const requestAmount = ctPayment.amountPlanned;
+    let requestAmount!: AmountSchemaDTO;
+    if (request.action != 'cancelPayment') {
+      requestAmount = request.amount;
+    } else {
+      requestAmount = ctPayment.amountPlanned;
+    }
     // MVP capture/refund the total of the order
     // To perform a partial capture or refund, retrieve the specific amount from 'request.amount'.
     // requestAmount = request.amount;
@@ -140,6 +145,11 @@ export abstract class AbstractPaymentService {
       },
     });
 
+    log.info(`Processing payment modification.`, {
+      paymentId: updatedPayment.id,
+      action: request.action,
+    });
+
     const res = await this.processPaymentModification(updatedPayment, transactionType, requestAmount);
 
     await this.ctPaymentService.updatePayment({
@@ -150,6 +160,12 @@ export abstract class AbstractPaymentService {
         interactionId: res.pspReference,
         state: this.convertPaymentModificationOutcomeToState(res.outcome),
       },
+    });
+
+    log.info(`Payment modification completed.`, {
+      paymentId: updatedPayment.id,
+      action: request.action,
+      result: res.outcome,
     });
 
     return {

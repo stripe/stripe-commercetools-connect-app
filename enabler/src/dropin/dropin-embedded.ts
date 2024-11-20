@@ -9,7 +9,7 @@ import { StripePaymentElement} from "@stripe/stripe-js";
 
 export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
   public dropinHasSubmit = true;
-  public componentHasSubmit = true;
+
 
   private baseOptions: BaseOptions;
 
@@ -46,10 +46,8 @@ export class DropinComponents implements DropinComponent {
     dropinOptions: DropinOptions
   }) {
     console.log(`+++++++${JSON.stringify(opts, null, 2)}`)
-
     this.baseOptions = opts.baseOptions;
     this.dropinOptions = opts.dropinOptions;
-
   }
 
   init(): void {
@@ -73,6 +71,12 @@ export class DropinComponents implements DropinComponent {
         console.error("Error during payment submission:", error);
       });
     });
+    this.dropinOptions.onPayButtonClick = async () => {
+      console.log("Pay button clicked");
+      this.submit().catch((error) => {
+        console.error("Error during payment submission:", error);
+      });
+    };
 
     // Append the button to the parent element of the payment element
     const paymentElementParent = document.querySelector(selector);
@@ -84,11 +88,15 @@ export class DropinComponents implements DropinComponent {
 
   }
 
-  mount(selector: string) {
+  async mount(selector: string) {
     if (this.baseOptions.paymentElement) {
       this.paymentElement.mount(selector);
 
       this.addSubmitButton(selector);
+      this.dropinOptions
+        .onDropinReady()
+        .then(() => {})
+        .catch((error) => console.error(error));
 
     } else {
       console.error("Payment Element not initialized");
@@ -102,6 +110,7 @@ export class DropinComponents implements DropinComponent {
       const { error : submitError } = await this.baseOptions.elements.submit();
 
       if (submitError) {
+        console.log('<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< Payment submitError')
         this.baseOptions.onError?.(submitError);
 
         return;
@@ -121,6 +130,8 @@ export class DropinComponents implements DropinComponent {
         this.baseOptions.onError?.({message: processorError?.message})
         return
       }
+      console.log('<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< Payment data')
+      console.log(`<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ${client_secret}`)
 
       let { error, paymentIntent } = await this.baseOptions.sdk.confirmPayment({
         elements: this.baseOptions.elements,
@@ -132,11 +143,14 @@ export class DropinComponents implements DropinComponent {
       });
 
       if (error) {
+        console.log('<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< Payment confir error')
+        console.log(`<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ${error}`)
         this.baseOptions.onError?.(error);
 
         return;
       }
-
+      console.log('<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< Payment intent id')
+      console.log(`<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ${JSON.stringify(paymentIntent,null,2)}`)
       //TODO e.g. if (data.resultCode === "Authorised" || data.resultCode === "Pending") {
       //               component.setStatus("success");
       //               options.onComplete && options.onComplete({ isSuccess: true, paymentReference });
@@ -145,7 +159,8 @@ export class DropinComponents implements DropinComponent {
       //               component.setStatus("error");
       //             }
       //TODO review what is what we need to return if beacuse paymentIntent.status can be different
-      await this.baseOptions.onComplete?.({isSuccess:true, paymentReference:paymentIntent.id});
+      this.baseOptions.onComplete?.({isSuccess:true, paymentReference:paymentIntent.id});
+
 
       //TODO remove if, only testing the redirect of submit.
       if(false){
