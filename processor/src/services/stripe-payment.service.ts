@@ -257,7 +257,8 @@ export class StripePaymentService extends AbstractPaymentService {
     });
 
     return {
-      sClientSecret: ctCart.paymentInfo?.payments[0].id ?? '',
+      sClientSecret: ctCart.paymentInfo?.payments[ctCart.paymentInfo?.payments.length - 1].id ?? '',
+      paymentReference: ctCart.paymentInfo?.payments[ctCart.paymentInfo?.payments.length - 1].id ?? '',
     };
   }
 

@@ -117,7 +117,7 @@ export class DropinComponents implements DropinComponent {
       }
 
       //MVP if additional information needs to be included in the payment intent, this method should be supplied with the necessary data.
-      let { errors : processorError, sClientSecret : client_secret} = await fetch(`${this.baseOptions.processorUrl}/payments`,{
+      let { errors : processorError, sClientSecret : client_secret, paymentReference: paymentReference} = await fetch(`${this.baseOptions.processorUrl}/payments`,{
         method : "GET",
         headers : {
           "Content-Type": "application/json",
@@ -159,7 +159,7 @@ export class DropinComponents implements DropinComponent {
       //               component.setStatus("error");
       //             }
       //TODO review what is what we need to return if beacuse paymentIntent.status can be different
-      this.baseOptions.onComplete?.({isSuccess:true, paymentReference:paymentIntent.id});
+      this.baseOptions.onComplete?.({isSuccess:true, paymentReference: paymentReference});
 
 
       //TODO remove if, only testing the redirect of submit.
