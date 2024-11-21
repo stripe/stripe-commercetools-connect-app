@@ -174,7 +174,15 @@ export class MockPaymentEnabler implements PaymentEnabler {
     console.log('JSON.stringify(setupData.baseOptions, null, 2)');
     console.log(JSON.stringify(setupData.baseOptions, null, 2));
     console.log('JSON.stringify(setupData.baseOptions, null, 2)');
-    return new supportedMethods[type](setupData.baseOptions);
+    const test = new supportedMethods[type](setupData.baseOptions);
+    console.log('-----------------------++++++++before');
+    console.log(JSON.stringify(test, null, 2));
+    console.log('-----------------------++++++++before');
+    test.dropinHasSubmit = true;
+    console.log('-----------------------++++++++after');
+    console.log(JSON.stringify(test, null, 2));
+    console.log('-----------------------++++++++after');
+    return test;
   }
 
   private static async getStripeSDK(configEnvJson): Promise<Stripe | null> {
