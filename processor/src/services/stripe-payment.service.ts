@@ -271,7 +271,7 @@ export class StripePaymentService extends AbstractPaymentService {
     const { ctPaymentReference } = await this.createPaymentCt(
       createPaymentRequest,
       PaymentTransactions.AUTHORIZATION,
-      PaymentOutcome.INITIAL,
+      PaymentOutcome.AUTHORIZED,
     );
 
     return {
