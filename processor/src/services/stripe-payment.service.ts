@@ -268,6 +268,7 @@ export class StripePaymentService extends AbstractPaymentService {
       },
     };
 
+    //TODO when to create the initial and authorized stage of the payment so checkout can move cart and order
     const { ctPaymentReference } = await this.createPaymentCt(
       createPaymentRequest,
       PaymentTransactions.AUTHORIZATION,

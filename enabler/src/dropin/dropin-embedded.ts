@@ -87,6 +87,7 @@ export class DropinComponents implements DropinComponent {
       this.paymentElement.mount(selector);
 
       this.addSubmitButton(selector);
+      this.dropinOptions.showPayButton = true;
       /**if(this.dropinOptions.onDropinReady){
         this.dropinOptions
           .onDropinReady()
