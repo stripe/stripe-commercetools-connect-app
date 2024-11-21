@@ -256,9 +256,27 @@ export class StripePaymentService extends AbstractPaymentService {
       stripePaymentIntentId: paymentIntent.id,
     });
 
+    const createPaymentRequest: PaymentRequestSchemaDTO = {
+      paymentMethod: {
+        type: paymentIntent.payment_method as string,
+      },
+      cart: {
+        id: ctCart.id,
+      },
+      paymentIntent: {
+        id: paymentIntent.id,
+      },
+    };
+
+    const { ctPaymentReference } = await this.createPaymentCt(
+      createPaymentRequest,
+      PaymentTransactions.AUTHORIZATION,
+      PaymentOutcome.INITIAL,
+    );
+
     return {
-      sClientSecret: ctCart.paymentInfo?.payments[ctCart.paymentInfo?.payments.length - 1].id ?? '',
-      paymentReference: ctCart.paymentInfo?.payments[ctCart.paymentInfo?.payments.length - 1].id ?? '',
+      sClientSecret: paymentIntent.client_secret ?? '',
+      paymentReference: ctPaymentReference,
     };
   }
 
@@ -445,7 +463,11 @@ export class StripePaymentService extends AbstractPaymentService {
    * @param {string} transactionType - Transaction type to add to the payment in ct once is created
    * @returns {CtPaymentSchemaDTO} - Commercetools payment reference
    */
-  private async createPaymentCt(opts: PaymentRequestSchemaDTO, transactionType: string): Promise<CtPaymentSchemaDTO> {
+  private async createPaymentCt(
+    opts: PaymentRequestSchemaDTO,
+    transactionType: string,
+    paymentOutcome: string = PaymentOutcome.AUTHORIZED, //TODO review if need it.
+  ): Promise<CtPaymentSchemaDTO> {
     const ctCart = await this.ctCartService.getCart({
       id: opts.cart?.id || '',
     });
@@ -484,7 +506,7 @@ export class StripePaymentService extends AbstractPaymentService {
         type: transactionType,
         amount: ctPayment.amountPlanned,
         interactionId: opts.paymentIntent?.id,
-        state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
+        state: this.convertPaymentResultCode(paymentOutcome as PaymentOutcome),
       },
     });
 

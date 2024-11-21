@@ -71,12 +71,6 @@ export class DropinComponents implements DropinComponent {
         console.error("Error during payment submission:", error);
       });
     });
-    this.dropinOptions.onPayButtonClick = async () => {
-      console.log("Pay button clicked");
-      this.submit().catch((error) => {
-        console.error("Error during payment submission:", error);
-      });
-    };
 
     // Append the button to the parent element of the payment element
     const paymentElementParent = document.querySelector(selector);
@@ -93,10 +87,13 @@ export class DropinComponents implements DropinComponent {
       this.paymentElement.mount(selector);
 
       this.addSubmitButton(selector);
-      this.dropinOptions
-        .onDropinReady()
-        .then(() => {})
-        .catch((error) => console.error(error));
+      /**if(this.dropinOptions.onDropinReady){
+        this.dropinOptions
+          .onDropinReady()
+          .then(() => {})
+          .catch((error) => console.error(error));
+      }**/
+
 
     } else {
       console.error("Payment Element not initialized");
@@ -150,7 +147,7 @@ export class DropinComponents implements DropinComponent {
         return;
       }
       console.log('<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< Payment intent id')
-      console.log(`<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ${JSON.stringify(paymentIntent,null,2)}`)
+      console.log(`<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ${JSON.stringify(paymentReference,null,2)}`)
       //TODO e.g. if (data.resultCode === "Authorised" || data.resultCode === "Pending") {
       //               component.setStatus("success");
       //               options.onComplete && options.onComplete({ isSuccess: true, paymentReference });
