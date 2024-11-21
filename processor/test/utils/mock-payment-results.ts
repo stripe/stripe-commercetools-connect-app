@@ -54,7 +54,7 @@ const commonPaymentResult = {
   metadata: {},
   next_action: null,
   on_behalf_of: null,
-  payment_method: null,
+  payment_method: 'mock_payment_method',
   payment_method_options: commonMethodOptions,
   payment_method_types: ['card', 'link'],
   processing: null,
