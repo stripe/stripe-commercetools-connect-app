@@ -23,7 +23,6 @@ export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
     console.log('Dropin Options---dropin-embedded START');
     console.log(JSON.stringify(config, null, 2));
     console.log('Dropin Options---dropin-embedded START');
-    config.showPayButton = true; // dropinHasSubmit
     const dropin = new DropinComponents({
       baseOptions: this.baseOptions,
       dropinOptions: config,
@@ -37,7 +36,7 @@ export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
 
 export class DropinComponents implements DropinComponent {
   private baseOptions: BaseOptions;
-  private dropinOptions: DropinOptions;
+  //private dropinOptions: DropinOptions;
   private paymentElement : StripePaymentElement;
 
 
@@ -47,13 +46,12 @@ export class DropinComponents implements DropinComponent {
   }) {
     console.log(`+++++++${JSON.stringify(opts, null, 2)}`)
     this.baseOptions = opts.baseOptions;
-    this.dropinOptions = opts.dropinOptions;
+    //this.dropinOptions = opts.dropinOptions;
   }
 
   init(): void {
     this.paymentElement = this.baseOptions.paymentElement;
     //this.overrideOnSubmit();
-    this.dropinOptions.showPayButton = true;
 
   }
 
@@ -87,7 +85,7 @@ export class DropinComponents implements DropinComponent {
       this.paymentElement.mount(selector);
 
       this.addSubmitButton(selector);
-      this.dropinOptions.showPayButton = true;
+
       /**if(this.dropinOptions.onDropinReady){
         this.dropinOptions
           .onDropinReady()

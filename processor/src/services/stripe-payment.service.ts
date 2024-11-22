@@ -1,9 +1,9 @@
 import Stripe from 'stripe';
 import {
-  statusHandler,
   healthCheckCommercetoolsPermissions,
-  TransactionType,
+  statusHandler,
   TransactionState,
+  TransactionType,
 } from '@commercetools/connect-payments-sdk';
 import {
   CancelPaymentRequest,
@@ -269,7 +269,11 @@ export class StripePaymentService extends AbstractPaymentService {
     };
 
     //TODO when to create the initial and authorized stage of the payment so checkout can move cart and order
-    const { ctPaymentReference } = await this.createPaymentCt(createPaymentRequest, PaymentTransactions.AUTHORIZATION);
+    const { ctPaymentReference } = await this.createPaymentCt(
+      createPaymentRequest,
+      PaymentTransactions.AUTHORIZATION,
+      PaymentOutcome.INITIAL,
+    );
 
     return {
       sClientSecret: paymentIntent.client_secret ?? '',
@@ -458,9 +462,14 @@ export class StripePaymentService extends AbstractPaymentService {
    * Create a new payment in ct, add the new payment to the cart and update the payment_intent metadata.
    * @param {PaymentRequestSchemaDTO} opts - Information about the payment in Stripe
    * @param {string} transactionType - Transaction type to add to the payment in ct once is created
+   * @param {string} paymentOutcome - //TODO testing to have the initial creation of the procces
    * @returns {CtPaymentSchemaDTO} - Commercetools payment reference
    */
-  private async createPaymentCt(opts: PaymentRequestSchemaDTO, transactionType: string): Promise<CtPaymentSchemaDTO> {
+  private async createPaymentCt(
+    opts: PaymentRequestSchemaDTO,
+    transactionType: string,
+    paymentOutcome: PaymentOutcome = PaymentOutcome.AUTHORIZED,
+  ): Promise<CtPaymentSchemaDTO> {
     const ctCart = await this.ctCartService.getCart({
       id: opts.cart?.id || '',
     });
@@ -499,7 +508,7 @@ export class StripePaymentService extends AbstractPaymentService {
         type: transactionType,
         amount: ctPayment.amountPlanned,
         interactionId: opts.paymentIntent?.id,
-        state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
+        state: this.convertPaymentResultCode(paymentOutcome as PaymentOutcome),
       },
     });
 
