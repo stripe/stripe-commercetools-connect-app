@@ -9,6 +9,7 @@ import { StripePaymentElement} from "@stripe/stripe-js";
 
 export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
   public dropinHasSubmit = true;
+  public componentHasSubmit = true;
 
 
   private baseOptions: BaseOptions;
@@ -21,10 +22,6 @@ export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
   build(config: DropinOptions): DropinComponent {
     console.log('DropinOptions----dropin-embedded START');
     console.log(JSON.stringify(config, null, 2));
-    console.log('Dropin Options---dropin-embedded START');
-    config.showPayButton = false;
-    console.log(JSON.stringify(config, null, 2));
-    console.log('Dropin Options---dropin-embedded START');
 
     const dropin = new DropinComponents({
       baseOptions: this.baseOptions,
