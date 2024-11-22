@@ -379,6 +379,38 @@ export class StripePaymentService extends AbstractPaymentService {
   }
 
   /**
+   * Testing an authorized payment in commercetools after receiving a message from a webhook.
+   *
+   * @remarks MVP: The amount to cancel is the order's total
+   * @param {Stripe.Event} event - Event sent by Stripe webhooks.
+   */
+  async testAuthorizationInCt(event: Stripe.Event) {
+    const paymentIntent = event.data.object as Stripe.PaymentIntent;
+
+    try {
+      const ctPaymentId = this.getCtPaymentId(paymentIntent);
+
+      await this.ctPaymentService.updatePayment({
+        id: ctPaymentId,
+        transaction: {
+          type: PaymentTransactions.AUTHORIZATION,
+          amount: {
+            centAmount: paymentIntent.amount, // MVP cancel the total amount
+            currencyCode: paymentIntent.currency.toUpperCase(),
+          },
+          interactionId: paymentIntent.id,
+          state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
+        },
+      });
+    } catch (error) {
+      log.error(
+        `Error processing cancel of authorized payment_intent[${paymentIntent.id}] received from webhook.`,
+        error,
+      );
+    }
+  }
+
+  /**
    * Charge an authorized payment in commercetools after receiving a message from a webhook.
    * If the payment_intent has 'capture_method'='manual' this function will add a 'Charge' transaction to the payment in ct.
    * If the payment_intent is not manual, this function will create the payment in ct and update the payment_intent metadata.
