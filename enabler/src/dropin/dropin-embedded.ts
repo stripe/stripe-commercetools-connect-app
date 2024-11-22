@@ -8,8 +8,8 @@ import { BaseOptions } from "../payment-enabler/payment-enabler-mock";
 import { StripePaymentElement} from "@stripe/stripe-js";
 
 export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
-  public dropinHasSubmit = true;
-  public componentHasSubmit = true;
+  public dropinHasSubmit = false;
+  public componentHasSubmit = false;
 
 
   private baseOptions: BaseOptions;
