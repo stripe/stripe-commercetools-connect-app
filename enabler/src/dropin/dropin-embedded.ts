@@ -23,6 +23,7 @@ export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
     console.log('Dropin Options---dropin-embedded START');
     console.log(JSON.stringify(config, null, 2));
     console.log('Dropin Options---dropin-embedded START');
+    config.showPayButton = false;
     const dropin = new DropinComponents({
       baseOptions: this.baseOptions,
       dropinOptions: config,
