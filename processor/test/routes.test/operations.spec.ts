@@ -118,7 +118,6 @@ describe('/operations APIs', () => {
       //Then
       expect(responseGetConfig.statusCode).toEqual(200);
       expect(responseGetConfig.json()).toEqual({
-        clientKey: 'stripeSecretKey',
         environment: 'TEST',
         publishableKey: '',
       });

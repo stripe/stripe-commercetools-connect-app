@@ -44,7 +44,7 @@ export class MockPaymentService extends AbstractPaymentService {
   public async config(): Promise<ConfigResponse> {
     const config = getConfig();
     return {
-      clientKey: config.mockClientKey,
+      publishableKey: config.stripePublishableKey,
       environment: config.mockEnvironment,
     };
   }

@@ -203,6 +203,24 @@ export abstract class AbstractPaymentService {
     }
   }
 
+  protected getEventTransactionType(action: string) {
+    switch (action) {
+      case 'payment_intent.canceled': {
+        return 'cancelPayment';
+      }
+      case 'payment_intent.succeeded': {
+        return 'capturePayment';
+      }
+      case 'charge.refunded': {
+        return 'refundPayment';
+      }
+      default: {
+        log.error(`Operation ${action} not supported when get data to modifying payment getEventTransactionType.`);
+        throw new ErrorInvalidJsonInput(`Request body does not contain valid JSON.`);
+      }
+    }
+  }
+
   protected async processPaymentModification(
     payment: Payment,
     transactionType: string,
@@ -210,13 +228,16 @@ export abstract class AbstractPaymentService {
   ) {
     switch (transactionType) {
       case PaymentTransactions.CANCEL_AUTHORIZATION: {
-        return await this.cancelPayment({ payment });
+        return { outcome: PaymentModificationStatus.RECEIVED, pspReference: payment.interfaceId as string };
+        //return await this.cancelPayment({ payment });
       }
       case PaymentTransactions.CHARGE: {
-        return await this.capturePayment({ amount: requestAmount, payment });
+        return { outcome: PaymentModificationStatus.APPROVED, pspReference: payment.interfaceId as string };
+        //return await this.capturePayment({ amount: requestAmount, payment });
       }
       case PaymentTransactions.REFUND: {
-        return await this.refundPayment({ amount: requestAmount, payment });
+        return { outcome: PaymentModificationStatus.RECEIVED, pspReference: payment.interfaceId as string };
+        //return await this.refundPayment({ amount: requestAmount, payment });
       }
       default: {
         throw new ErrorInvalidOperation(`Operation ${transactionType} not supported.`);

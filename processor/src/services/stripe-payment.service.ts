@@ -9,6 +9,7 @@ import {
   CancelPaymentRequest,
   CapturePaymentRequest,
   ConfigResponse,
+  ModifyPayment,
   PaymentProviderModificationResponse,
   RefundPaymentRequest,
   StatusResponse,
@@ -54,7 +55,6 @@ export class StripePaymentService extends AbstractPaymentService {
   public async config(): Promise<ConfigResponse> {
     const config = getConfig();
     return {
-      clientKey: config.stripeSecretKey,
       environment: config.mockEnvironment,
       publishableKey: config.stripePublishableKey,
     };
@@ -70,8 +70,8 @@ export class StripePaymentService extends AbstractPaymentService {
    */
   public async status(): Promise<StatusResponse> {
     const handler = await statusHandler({
-      log: appLogger,
       timeout: getConfig().healthCheckTimeout,
+      log: appLogger,
       checks: [
         healthCheckCommercetoolsPermissions({
           requiredPermissions: [
@@ -81,6 +81,7 @@ export class StripePaymentService extends AbstractPaymentService {
             'manage_orders',
             'introspect_oauth_tokens',
             'manage_checkout_payment_intents',
+            'manage_types',
           ],
           ctAuthorizationService: paymentSDK.ctAuthorizationService,
           projectKey: getConfig().projectKey,
@@ -101,6 +102,7 @@ export class StripePaymentService extends AbstractPaymentService {
             return {
               name: 'Stripe Status check',
               status: 'DOWN',
+              message: 'The mock paymentAPI is down for some reason. Please check the logs for more details.',
               details: {
                 error: e,
               },
@@ -134,14 +136,7 @@ export class StripePaymentService extends AbstractPaymentService {
           type: 'embedded',
         },
       ],
-      components: [
-        {
-          type: PaymentComponentsSupported.PAYMENT_ELEMENT.toString(),
-        },
-        {
-          type: PaymentComponentsSupported.EXPRESS_CHECKOUT.toString(),
-        },
-      ],
+      components: [],
     };
   }
 
@@ -157,6 +152,7 @@ export class StripePaymentService extends AbstractPaymentService {
   public async capturePayment(request: CapturePaymentRequest): Promise<PaymentProviderModificationResponse> {
     try {
       const idempotencyKey = crypto.randomUUID();
+      console.log(`capturePayment ${JSON.stringify(request, null, 2)}`);
       await stripeApi().paymentIntents.capture(request.payment.interfaceId as string, {
         idempotencyKey,
       });
@@ -170,17 +166,20 @@ export class StripePaymentService extends AbstractPaymentService {
   /**
    * Cancel payment in Stripe.
    *
-   * @param {CancelPaymentRequest} request - Information about the ct payment.
+   * @param {CancelPaymentRequest} request - contains amount and {@link https://docs.commercetools.com/api/projects/payments | Payment } defined in composable commerce
    * @returns Promise with mocking data containing operation status and PSP reference
    */
   public async cancelPayment(request: CancelPaymentRequest): Promise<PaymentProviderModificationResponse> {
     try {
       const idempotencyKey = crypto.randomUUID();
-      await stripeApi().paymentIntents.cancel(request.payment.interfaceId as string, {
+      const resp = await stripeApi().paymentIntents.cancel(request.payment.interfaceId as string, {
         idempotencyKey,
       });
 
-      return { outcome: PaymentModificationStatus.RECEIVED, pspReference: request.payment.interfaceId as string };
+      console.log('cancelPayment-------------------');
+      console.log(JSON.stringify(resp, null, 2));
+
+      return { outcome: PaymentModificationStatus.RECEIVED, pspReference: resp.id as string };
     } catch (e) {
       throw wrapStripeError(e);
     }
@@ -192,7 +191,7 @@ export class StripePaymentService extends AbstractPaymentService {
    * @remarks
    * MVP: refund the total amount
    *
-   * @param {RefundPaymentRequest} request - Information about the ct payment and the amount.
+   * @param {RefundPaymentRequest} request - contains amount and {@link https://docs.commercetools.com/api/projects/payments | Payment } defined in composable commerce
    * @returns Promise with mocking data containing operation status and PSP reference
    */
   public async refundPayment(request: RefundPaymentRequest): Promise<PaymentProviderModificationResponse> {
@@ -220,11 +219,23 @@ export class StripePaymentService extends AbstractPaymentService {
    * @returns {Promise<PaymentIntentResponseSchemaDTO>} - The payment response.
    */
   public async createPaymentIntentStripe(): Promise<PaymentResponseSchemaDTO> {
+    console.log('Creating Stripe intent Stripe createPaymentIntentStripe');
     const ctCart = await this.ctCartService.getCart({
       id: getCartIdFromContext(),
     });
-
+    console.log(ctCart.id);
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
+    console.log('JSON.stringify(amountPlanned)');
+    console.log(JSON.stringify(amountPlanned));
+
+    /*const ctPayment = await this.ctPaymentService.getPayment({
+      id: ctCart.paymentInfo?.payments?.[ctCart.paymentInfo?.payments.length - 1].id || '',
+    });
+    console.log('JSON.stringify(ctPayment)');
+    console.log(JSON.stringify(ctPayment));*/
+
+    //if (ctPayment?.id === undefined) throw wrapStripeError('Cart do not have payment'); //TODO Do we need to create a payment?
+
     const captureMethodConfig = getConfig().stripeCaptureMethod;
     let paymentIntent!: Stripe.PaymentIntent;
     try {
@@ -267,17 +278,11 @@ export class StripePaymentService extends AbstractPaymentService {
         id: paymentIntent.id,
       },
     };
-
-    //TODO when to create the initial and authorized stage of the payment so checkout can move cart and order
-    const { ctPaymentReference } = await this.createPaymentCt(
-      createPaymentRequest,
-      PaymentTransactions.AUTHORIZATION,
-      PaymentOutcome.INITIAL,
-    );
-
+    const ctPayment = await this.createPaymentCt(createPaymentRequest, PaymentTransactions.AUTHORIZATION);
+    console.log('finished payment intent creation Initial');
     return {
       sClientSecret: paymentIntent.client_secret ?? '',
-      paymentReference: ctPaymentReference,
+      paymentReference: ctPayment.ctPaymentReference,
     };
   }
 
@@ -384,14 +389,15 @@ export class StripePaymentService extends AbstractPaymentService {
    * @remarks MVP: The amount to cancel is the order's total
    * @param {Stripe.Event} event - Event sent by Stripe webhooks.
    */
-  async testAuthorizationInCt(event: Stripe.Event) {
+  async authorizedPayment(event: Stripe.Event) {
     const paymentIntent = event.data.object as Stripe.PaymentIntent;
+    const ctPayment = await this.ctPaymentService.getPayment({
+      id: this.getCtPaymentId(paymentIntent),
+    });
 
     try {
-      const ctPaymentId = this.getCtPaymentId(paymentIntent);
-
       await this.ctPaymentService.updatePayment({
-        id: ctPaymentId,
+        id: ctPayment.id,
         transaction: {
           type: PaymentTransactions.AUTHORIZATION,
           amount: {
@@ -460,12 +466,40 @@ export class StripePaymentService extends AbstractPaymentService {
     }
   }
 
-  public async getConfigElement(opts: string): Promise<ConfigElementResponseSchemaDTO> {
+  //TODO This method is responsabile of creating the initial payment in the cart, and return the amount and currency that
+  // the cart has so Stripe can create the element with that information
+  public async initializeCartPayment(opts: string): Promise<ConfigElementResponseSchemaDTO> {
     const ctCart = await this.ctCartService.getCart({
       id: getCartIdFromContext(),
     });
 
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
+    /*/Create the initial payment
+    const ctPayment = await this.ctPaymentService.createPayment({
+      amountPlanned,
+      paymentMethodInfo: {
+        paymentInterface: getPaymentInterfaceFromContext() || 'stripe',
+      },
+      ...(ctCart.customerId && {
+        customer: {
+          typeId: 'customer',
+          id: ctCart.customerId,
+        },
+      }),
+      ...(!ctCart.customerId &&
+        ctCart.anonymousId && {
+          anonymousId: ctCart.anonymousId,
+        }), //TODO  Subscribe will use this to create the accountId for the user.
+    });
+
+    const updatedCart = await this.ctCartService.addPayment({
+      resource: {
+        id: ctCart.id,
+        version: ctCart.version,
+      },
+      paymentId: ctPayment.id,
+    });**/
+
     const appearance =
       opts.toUpperCase() === PaymentComponentsSupported.PAYMENT_ELEMENT.toString().toUpperCase()
         ? getConfig().stripePaymentElementAppearance
@@ -477,6 +511,9 @@ export class StripePaymentService extends AbstractPaymentService {
         amount: amountPlanned.centAmount,
         currency: amountPlanned.currencyCode,
       },
+      /*paymentInfo: {
+        id: ctPayment.id,
+      },*/
       stripeElementAppearance: appearance,
     });
 
@@ -570,8 +607,12 @@ export class StripePaymentService extends AbstractPaymentService {
     };
   }
 
-  private getCtPaymentId(paymentIntent: Stripe.PaymentIntent): string {
-    return paymentIntent.metadata.ct_payment_id || '';
+  private getCtPaymentId(event: Stripe.PaymentIntent | Stripe.Charge): string {
+    return event.metadata.ct_payment_id;
+  }
+
+  private getCtCartId(paymentIntent: Stripe.PaymentIntent): string {
+    return paymentIntent.metadata.cart_id || '';
   }
 
   private convertPaymentResultCode(resultCode: PaymentOutcome): string {
@@ -664,5 +705,31 @@ export class StripePaymentService extends AbstractPaymentService {
         },
       };
     }
+  }
+
+  getModifyData(event: Stripe.Event): ModifyPayment {
+    let data, centAmount;
+    if (event.type.startsWith('payment')) {
+      data = event.data.object as Stripe.PaymentIntent;
+      centAmount = data.amount_received;
+    } else {
+      data = event.data.object as Stripe.Charge;
+      centAmount = data.amount_refunded;
+    }
+
+    return {
+      paymentId: this.getCtPaymentId(data),
+      data: {
+        actions: [
+          {
+            action: this.getEventTransactionType(event.type),
+            amount: {
+              centAmount: centAmount,
+              currencyCode: data.currency.toUpperCase(),
+            },
+          },
+        ],
+      },
+    };
   }
 }

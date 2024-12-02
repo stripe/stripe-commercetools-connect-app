@@ -136,7 +136,7 @@ The processor exposes the following endpoints to execute various operations with
 This endpoint retrieves the payment information from the cart in session to use the prebuilt Stripe Payment Element UI component. This component simplifies the payment process for a variety of payment methods. The `paymentComponent` is requested in the query parameters to send the correct appearance from the environment variables configuration.
 
 #### Endpoint
-`GET /get-config-element/:paymentComponent`
+`GET /config-element/:paymentComponent`
 
 #### Query Parameters
 -**paymentComponent**: Used to retrieve the correct appearance of the selected payment method. The appearance can be modified in the environment variables `STRIPE_APPEARANCE_PAYMENT_ELEMENT` or `STRIPE_APPEARANCE_EXPRESS_CHECKOUT`and should be in the form of a JSON string with escaped double quotes (e.g. "{\"theme\":\"stripe\",\"variables\":{\"colorPrimary\":\"#0570DE\",\"colorBackground\":\"#FFFFFF\",\"colorText\":\"#30313D\",\"colorDanger\":\"#DF1B41\",\"fontFamily\":\"Ideal Sans,system-ui,sansserif\",\"spacingUnit\":\"2px\",\"borderRadius\":\"4px\"}}"). The correct values will be retrieved by the exposed call ´operations/payment-components´, e.g., 'payment' or 'expressCheckout'.

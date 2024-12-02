@@ -8,7 +8,7 @@ import { BaseOptions } from "../payment-enabler/payment-enabler-mock";
 import { StripePaymentElement} from "@stripe/stripe-js";
 
 export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
-  public dropinHasSubmit = false;
+  public dropinHasSubmit = true; // refering to if checkout is going to call the submit func
 
 
   private baseOptions: BaseOptions;
@@ -102,6 +102,7 @@ export class DropinComponents implements DropinComponent {
     console.log('<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< Dropin embedded submit')
     {
       console.log('<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< Payment element submit')
+      //TODO call the function from the options with this.
       const { error : submitError } = await this.baseOptions.elements.submit();
 
       if (submitError) {
@@ -110,6 +111,7 @@ export class DropinComponents implements DropinComponent {
 
         return;
       }
+      //TODO call the function from the options with this.
 
       //MVP if additional information needs to be included in the payment intent, this method should be supplied with the necessary data.
       let { errors : processorError, sClientSecret : client_secret, paymentReference: paymentReference} = await fetch(`${this.baseOptions.processorUrl}/payments`,{

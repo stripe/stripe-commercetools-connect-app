@@ -70,50 +70,18 @@ export class MockPaymentEnabler implements PaymentEnabler {
 
     //TODO: Dynamic value or all configurations for all elements
     const testingElementConfiguration = 'payment'//options.stripeElement.type.toLowerCase().toString()
-    const [configElementResponse, configEnvResponse] = await Promise.all([
-      fetch(options.processorUrl + `/get-config-element/${testingElementConfiguration}`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Session-Id": options.sessionId,
-        },
-      }),
-      fetch(options.processorUrl + "/operations/config", {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Session-Id": options.sessionId,
-        },
-      }),
-    ]);
-    //const [configElementJson, configEnvJson] = await Promise.all([configElementResponse.json(), configEnvResponse.json()]);
-    const [configElementJson, configEnvJson] = await Promise.all([configElementResponse.json(), configEnvResponse.json()]);
 
-    const stripeSDK = await MockPaymentEnabler.getStripeSDK(configEnvJson);
-
-    const configuration: BaseConfiguration = MockPaymentEnabler.getConfiguration(configEnvJson, options)
-
-    console.log(configElementJson)
+    const [cartInfoResponse, configEnvResponse] = await MockPaymentEnabler.fetchConfigData(testingElementConfiguration, options);
+    const stripeSDK = await MockPaymentEnabler.getStripeSDK(configEnvResponse);
+    const configuration: BaseConfiguration = MockPaymentEnabler.getConfiguration(configEnvResponse, options);
     const stripeElementParams: StripeElementParams = {
       stripeElement: MockPaymentEnabler.getStripeElementType(options),
-      elements: MockPaymentEnabler.getElements(stripeSDK, configElementJson),
+      elements: MockPaymentEnabler.getElements(stripeSDK, cartInfoResponse),
       stripeSDK,
       configuration
-    }
-
-    const elements= await MockPaymentEnabler.getElements(stripeSDK, configElementJson)
-
-    const elementsOptions = {
-      type: 'payment',
-      options: {},
-      onComplete: options.onComplete,
-      onError: options.onError,
-      //terms: {objet never}, //TODO review if need it
-      layout: {
-        type: 'tabs',
-        defaultCollapsed: false,
-      }
-    }
+    };
+    const elements= await MockPaymentEnabler.getElements(stripeSDK, cartInfoResponse);
+    const elementsOptions = MockPaymentEnabler.getElementsOptions(options);
 
 
     console.log(stripeElementParams)
@@ -175,6 +143,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
     console.log(JSON.stringify(setupData.baseOptions, null, 2));
     console.log('JSON.stringify(setupData.baseOptions, null, 2)');
     const test = new supportedMethods[type](setupData.baseOptions);
+    test.dropinHasSubmit = false;
     return test;
   }
 
@@ -226,18 +195,42 @@ export class MockPaymentEnabler implements PaymentEnabler {
     };
   }
 
-  /**private static async getStripeElement( stripeElementParams :StripeElementParams):
-    Promise<PaymentElement> {
-    const {stripeElement, elements, stripeSDK, configuration} = stripeElementParams
-      const element = elements.create('payment', stripeElement.options as StripePaymentElementOptions);
-      return new PaymentElement({
-        element,
-        stripeSDK,
-        paymentElement : elements,
-        onComplete : stripeElement.onComplete,
-        onError : stripeElement.onError,
-        ...configuration
-      });
+  private static async fetchConfigData(
+    testingElementConfiguration: string, options: EnablerOptions
+  ): Promise<[any, any]> {
+    const headers = MockPaymentEnabler.getFetchHeader(options);
 
-    }**/
+    const [configElementResponse, configEnvResponse] = await Promise.all([
+      fetch(`${options.processorUrl}/config-element/${testingElementConfiguration}`, headers), //MVP this is creating the initial payment authorization
+      fetch(`${options.processorUrl}/operations/config`, headers),
+    ]);
+
+    return Promise.all([configElementResponse.json(), configEnvResponse.json()]);
+  }
+
+  private static getFetchHeader(options: EnablerOptions): {method: string, headers: {[key: string]: string}} {
+    return {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Session-Id": options.sessionId,
+      },
+    }
+  }
+
+  private static getElementsOptions(options: EnablerOptions): object {
+    //TODO review the options from the Stripe element.
+    return {
+      type: 'payment',
+      options: {},
+      onComplete: options.onComplete,
+      onError: options.onError,
+      //terms: {objet never}, //TODO review if need it
+      layout: {
+        type: 'tabs',
+        defaultCollapsed: false
+      }
+    }
+  }
+
 }
