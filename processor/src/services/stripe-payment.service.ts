@@ -266,7 +266,18 @@ export class StripePaymentService extends AbstractPaymentService {
         id: paymentIntent.id,
       },
     };
-    const ctPayment = await this.createPaymentCt(createPaymentRequest, PaymentTransactions.AUTHORIZATION);
+    let paymentOutcome;
+
+    if (captureMethodConfig === 'manual') {
+      //TODO MVP if the is manual create Authorization as Initial, ask ct if checkout has a manual transaction option.
+      paymentOutcome = PaymentOutcome.INITIAL;
+    }
+
+    const ctPayment = await this.createPaymentCt(
+      createPaymentRequest,
+      PaymentTransactions.AUTHORIZATION,
+      paymentOutcome,
+    );
     console.log('finished payment intent creation Initial');
     return {
       sClientSecret: paymentIntent.client_secret ?? '',
