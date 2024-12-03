@@ -16,14 +16,14 @@ export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
   }
 
   build(config: DropinOptions): DropinComponent {
-
     const dropin = new DropinComponents({
       baseOptions: this.baseOptions,
       dropinOptions: config,
     });
 
     dropin.init();
-
+    console.log('dropin ------------')
+    console.log(JSON.stringify(dropin, null, 2))
     return dropin;
   }
 }
@@ -31,6 +31,7 @@ export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
 export class DropinComponents implements DropinComponent {
   private baseOptions: BaseOptions;
   private paymentElement : StripePaymentElement;
+  private dropinOptions: DropinOptions;
 
 
   constructor(opts: {
@@ -38,9 +39,11 @@ export class DropinComponents implements DropinComponent {
     dropinOptions: DropinOptions
   }) {
     this.baseOptions = opts.baseOptions;
+    this.dropinOptions = opts.dropinOptions;
   }
 
   init(): void {
+    this.dropinOptions.showPayButton = true;
     this.paymentElement = this.baseOptions.paymentElement;
 
   }
