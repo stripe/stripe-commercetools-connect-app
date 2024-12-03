@@ -73,40 +73,19 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
 
       switch (event.type) {
         case 'charge.succeeded':
-          log.info(`Handle2 ${event.type} event of ${event.data.object.id}`);
-          log.info(JSON.stringify(event.data.object, null, 2));
-          //opts.paymentService.authorizePaymentInCt(event);
+          log.info(`Handle ${event.type} event of ${event.data.object.id}`);
           if (!event.data.object.captured) {
-            console.log(`authorizedPayment ${event.data.object.captured}`);
             opts.paymentService.authorizedPayment(event);
           }
           break;
         case 'charge.refunded':
-          const modifyData2: ModifyPayment = opts.paymentService.getModifyData(event);
-          log.info(`Handle3 ${event.type} event of ${event.data.object.id}`);
-          log.info(JSON.stringify(event.data.object, null, 2));
-          log.info(`Handle3 ${event.type} event of ${event.data.object.id}`);
-          log.info(JSON.stringify(modifyData2, null, 2));
-          //opts.paymentService.refundPaymentInCt(event);
-          opts.paymentService.modifyPayment(modifyData2);
-          break;
         case 'payment_intent.succeeded':
-        // log.info(`Handle1 ${event.type} event of ${event.data.object.id}`);
-        // log.info(JSON.stringify(event.data.object, null, 2));
-        // opts.paymentService.modifyPayment(modifyData);
-        // break;
         case 'payment_intent.canceled':
           const modifyData: ModifyPayment = opts.paymentService.getModifyData(event);
-          log.info(`Handle1 ${event.type} event of ${event.data.object.id}`);
-          log.info(JSON.stringify(event.data.object, null, 2));
-          log.info(`Handle1 ${event.type} event of ${event.data.object.id}`);
-          log.info(JSON.stringify(modifyData, null, 2));
-
+          log.info(`Handle ${event.type} event of ${event.data.object.id}`);
           opts.paymentService.modifyPayment(modifyData);
           break;
         case 'payment_intent.payment_failed':
-          log.info(`Received: ${event.type} event of ${event.data.object.id}`);
-          break;
         case 'payment_intent.requires_action':
           log.info(`Received: ${event.type} event of ${event.data.object.id}`);
           break;

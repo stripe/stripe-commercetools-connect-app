@@ -219,22 +219,10 @@ export class StripePaymentService extends AbstractPaymentService {
    * @returns {Promise<PaymentIntentResponseSchemaDTO>} - The payment response.
    */
   public async createPaymentIntentStripe(): Promise<PaymentResponseSchemaDTO> {
-    console.log('Creating Stripe intent Stripe createPaymentIntentStripe');
     const ctCart = await this.ctCartService.getCart({
       id: getCartIdFromContext(),
     });
-    console.log(ctCart.id);
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
-    console.log('JSON.stringify(amountPlanned)');
-    console.log(JSON.stringify(amountPlanned));
-
-    /*const ctPayment = await this.ctPaymentService.getPayment({
-      id: ctCart.paymentInfo?.payments?.[ctCart.paymentInfo?.payments.length - 1].id || '',
-    });
-    console.log('JSON.stringify(ctPayment)');
-    console.log(JSON.stringify(ctPayment));*/
-
-    //if (ctPayment?.id === undefined) throw wrapStripeError('Cart do not have payment'); //TODO Do we need to create a payment?
 
     const captureMethodConfig = getConfig().stripeCaptureMethod;
     let paymentIntent!: Stripe.PaymentIntent;
@@ -474,31 +462,6 @@ export class StripePaymentService extends AbstractPaymentService {
     });
 
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
-    /*/Create the initial payment
-    const ctPayment = await this.ctPaymentService.createPayment({
-      amountPlanned,
-      paymentMethodInfo: {
-        paymentInterface: getPaymentInterfaceFromContext() || 'stripe',
-      },
-      ...(ctCart.customerId && {
-        customer: {
-          typeId: 'customer',
-          id: ctCart.customerId,
-        },
-      }),
-      ...(!ctCart.customerId &&
-        ctCart.anonymousId && {
-          anonymousId: ctCart.anonymousId,
-        }), //TODO  Subscribe will use this to create the accountId for the user.
-    });
-
-    const updatedCart = await this.ctCartService.addPayment({
-      resource: {
-        id: ctCart.id,
-        version: ctCart.version,
-      },
-      paymentId: ctPayment.id,
-    });**/
 
     const appearance =
       opts.toUpperCase() === PaymentComponentsSupported.PAYMENT_ELEMENT.toString().toUpperCase()
@@ -511,9 +474,6 @@ export class StripePaymentService extends AbstractPaymentService {
         amount: amountPlanned.centAmount,
         currency: amountPlanned.currencyCode,
       },
-      /*paymentInfo: {
-        id: ctPayment.id,
-      },*/
       stripeElementAppearance: appearance,
     });
 
