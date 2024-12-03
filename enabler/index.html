@@ -132,27 +132,17 @@
 
             let builder;
 
-            console.log('JSON.stringify(enabler,null,2)')
-            console.log(JSON.stringify(enabler,null,2))
-
             if(isDropin){
-              console.log('dropin' + selectedValue)
               builder = await enabler.createDropinBuilder(selectedValue);
             } else {
-              console.log('No dropin')
               builder = await enabler.createComponentBuilder(selectedValue);
             }
-            console.log('JSON.stringify(builder,null,2)');
-            console.log(JSON.stringify(builder,null,2));
-            console.log('JSON.stringify(builder,null,2)');
             const component = await builder.build({
               showPayButton: !builder.componentHasSubmit,
               ...(builder.componentHasSubmit
                 ? {}
                 : {
                   onPayButtonClick: async () => {
-
-                    console.log('<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<onPayButtonClick')
                     // to be used for validation
                     const termsChecked =
                             document.getElementById("termsCheckbox").checked;
@@ -167,9 +157,6 @@
                   },
                 }),
             });
-            console.log('builder.componentHasSubmit---------------------');
-            console.log(builder.componentHasSubmit)
-            console.log(JSON.stringify(builder,null,2));
             if (builder.componentHasSubmit) {
               if (selectedValue === 'card' || selectedValue === 'purchaseorder' ) {
                 component.mount("#container--external");

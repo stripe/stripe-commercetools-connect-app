@@ -9,13 +9,10 @@ import {
   loadStripe,
   Stripe,
   StripeElements,
-  StripeExpressCheckoutElementOptions,
   StripePaymentElementOptions
 } from "@stripe/stripe-js";
-import {
-  BaseConfiguration,
-} from "../components/base-configuration.ts";
 import {StripePaymentElement} from "@stripe/stripe-js/dist/stripe-js/elements/index";
+import {ConfigElementResponseSchemaDTO, ConfigResponseSchemaDTO} from "../dtos/mock-payment.dto.ts";
 
 
 declare global {
@@ -33,29 +30,11 @@ export type BaseOptions = {
   locale?: string;
   onComplete: (result: PaymentResult) => void;
   onError: (error?: any) => void;
-  paymentElement: StripePaymentElement;
-  elements: StripeElements;
+  paymentElement: StripePaymentElement; //TODO MVP https://docs.stripe.com/payments/payment-element
+  elements: StripeElements; //TODO MVP https://docs.stripe.com/js/elements_object
 };
 
 
-
-export type StripeElementType = {
-  type : string
-  options : StripeExpressCheckoutElementOptions | StripePaymentElementOptions,
-  onComplete : (result: PaymentResult) => void;
-  onError: (error: any) => void;
-}
-
-export enum StripeElementTypes {
-  payment = "payment",
-}
-
-type StripeElementParams = {
-  stripeElement: StripeElementType;
-  elements: StripeElements;
-  stripeSDK: Stripe;
-  configuration: BaseConfiguration;
-};
 
 export class MockPaymentEnabler implements PaymentEnabler {
   setupData: Promise<{ baseOptions: BaseOptions }>;
@@ -68,33 +47,25 @@ export class MockPaymentEnabler implements PaymentEnabler {
     options: EnablerOptions
   ): Promise<{ baseOptions: BaseOptions }> => {
 
-    //TODO: Dynamic value or all configurations for all elements
-    const testingElementConfiguration = 'payment'//options.stripeElement.type.toLowerCase().toString()
+    //TODO: MVP accept this value from the enabler, so we can render other options.
+    const paymentMethodType : string = 'payment'//options.paymentMethod.type.toLowerCase().toString()
 
-    const [cartInfoResponse, configEnvResponse] = await MockPaymentEnabler.fetchConfigData(testingElementConfiguration, options);
+    const [cartInfoResponse, configEnvResponse]: [ConfigElementResponseSchemaDTO, ConfigResponseSchemaDTO]
+      = await MockPaymentEnabler.fetchConfigData(paymentMethodType, options);
     const stripeSDK = await MockPaymentEnabler.getStripeSDK(configEnvResponse);
-    const configuration: BaseConfiguration = MockPaymentEnabler.getConfiguration(configEnvResponse, options);
-    const stripeElementParams: StripeElementParams = {
-      stripeElement: MockPaymentEnabler.getStripeElementType(options),
-      elements: MockPaymentEnabler.getElements(stripeSDK, cartInfoResponse),
-      stripeSDK,
-      configuration
-    };
-    const elements= await MockPaymentEnabler.getElements(stripeSDK, cartInfoResponse);
-    const elementsOptions = MockPaymentEnabler.getElementsOptions(options);
 
-
-    console.log(stripeElementParams)
+    const elements= MockPaymentEnabler.getElements(stripeSDK, cartInfoResponse);
+    const elementsOptions = MockPaymentEnabler.getElementsOptions(options, cartInfoResponse);
 
     return Promise.resolve({
       baseOptions: {
         sdk: stripeSDK,
-        environment: configuration.environment,
-        processorUrl: configuration.processorURL,
-        sessionId: configuration.sessionId,
+        environment: configEnvResponse.publishableKey.includes("_test_") ? "test" : configEnvResponse.environment, //TODO MVP do we get this from the env of processor? or we leave the responsability to the publishableKey from Stripe?
+        processorUrl: options.processorUrl,
+        sessionId: options.sessionId,
         onComplete: options.onComplete || (() => {}),
         onError: options.onError || (() => {}),
-        paymentElement: elements.create('payment', elementsOptions as StripePaymentElementOptions ),
+        paymentElement: elements.create('payment', elementsOptions as StripePaymentElementOptions ),//TODO MVP this could be expressCheckout or payment for subscritpion.
         elements: elements,
       },
     });
@@ -139,34 +110,29 @@ export class MockPaymentEnabler implements PaymentEnabler {
         ).join(", ")}`
       );
     }
-    console.log('JSON.stringify(setupData.baseOptions, null, 2)');
-    console.log(JSON.stringify(setupData.baseOptions, null, 2));
-    console.log('JSON.stringify(setupData.baseOptions, null, 2)');
-    const test = new supportedMethods[type](setupData.baseOptions);
-    test.dropinHasSubmit = false;
-    return test;
+    return new supportedMethods[type](setupData.baseOptions);
   }
 
-  private static async getStripeSDK(configEnvJson): Promise<Stripe | null> {
+  private static async getStripeSDK(configEnvResponse: ConfigResponseSchemaDTO): Promise<Stripe | null> {
     try {
-      const sdk = await loadStripe(configEnvJson.publishableKey);
+      const sdk = await loadStripe(configEnvResponse.publishableKey);
       if (!sdk) throw new Error("Failed to load Stripe SDK.");
       return sdk;
     } catch (error) {
       console.error("Error loading Stripe SDK:", error);
-      return null; // or handle based on your requirements
+      throw error; // or handle based on your requirements
     }
   }
 
-  private static getElements(stripeSDK: Stripe | null, configElementJson): StripeElements | null {
+  private static getElements(stripeSDK: Stripe | null, cartInfoResponse): StripeElements | null {
     if (!stripeSDK) return null;
     try {
       return stripeSDK.elements?.({
         mode: 'payment',
-        amount: configElementJson.cartInfo.amount,
-        currency: configElementJson.cartInfo.currency.toLowerCase(),
-        appearance: JSON.parse(configElementJson.appearance || "{}"),
-        capture_method: configElementJson.captureMethod,
+        amount: cartInfoResponse.cartInfo.amount,
+        currency: cartInfoResponse.cartInfo.currency.toLowerCase(),
+        appearance: JSON.parse(cartInfoResponse.appearance || "{}"),
+        capture_method: cartInfoResponse.captureMethod,
       });
     } catch (error) {
       console.error("Error initializing elements:", error);
@@ -174,34 +140,14 @@ export class MockPaymentEnabler implements PaymentEnabler {
     }
   }
 
-  private static getConfiguration(configEnvJson, options): BaseConfiguration {
-    const environment = configEnvJson.publishableKey.includes("_test_") ? "test" : configEnvJson.environment;
-    return {
-      environment,
-      processorURL: options.processorUrl,
-      returnURL: configEnvJson.returnURL,
-      sessionId: options.sessionId,
-      locale: configEnvJson.locale,
-      publishableKey: configEnvJson.publishableKey,
-    };
-  }
-
-  private static getStripeElementType(options: EnablerOptions): StripeElementType {
-    return {
-      type: 'payment',
-      options: {},
-      onComplete: options.onComplete,
-      onError: options.onError,
-    };
-  }
 
   private static async fetchConfigData(
-    testingElementConfiguration: string, options: EnablerOptions
-  ): Promise<[any, any]> {
+    paymentMethodType: string, options: EnablerOptions
+  ): Promise<[ConfigElementResponseSchemaDTO, ConfigResponseSchemaDTO]> {
     const headers = MockPaymentEnabler.getFetchHeader(options);
 
     const [configElementResponse, configEnvResponse] = await Promise.all([
-      fetch(`${options.processorUrl}/config-element/${testingElementConfiguration}`, headers), //MVP this is creating the initial payment authorization
+      fetch(`${options.processorUrl}/config-element/${paymentMethodType}`, headers), //TODO MVP this could be used by expressCheckout and Subscription
       fetch(`${options.processorUrl}/operations/config`, headers),
     ]);
 
@@ -218,8 +164,11 @@ export class MockPaymentEnabler implements PaymentEnabler {
     }
   }
 
-  private static getElementsOptions(options: EnablerOptions): object {
-    //TODO review the options from the Stripe element.
+  private static getElementsOptions(options: EnablerOptions, config: any): object {
+    //TODO MVP options from the Stripe element appareance can be here. https://docs.stripe.com/js/elements_object/create
+    let appOptions;
+    if(config.appearance !== undefined)
+      appOptions = config.appearance
     return {
       type: 'payment',
       options: {},
@@ -229,7 +178,8 @@ export class MockPaymentEnabler implements PaymentEnabler {
       layout: {
         type: 'tabs',
         defaultCollapsed: false
-      }
+      },
+      ...(appOptions!== undefined && {appearance : appOptions}),
     }
   }
 

@@ -16,4 +16,20 @@ export const PaymentRequestSchema = Type.Object({
   paymentOutcome: PaymentOutcomeSchema,
 });
 
+export const ConfigElementResponseSchema = Type.Object({
+  cartInfo: Type.Object({
+    amount: Type.Number(),
+    currency: Type.String(),
+  }),
+  appearance: Type.Optional(Type.String()),
+  captureMethod: Type.String(),
+});
+
+export const ConfigResponseSchema = Type.Object({
+  environment: Type.String(),
+  publishableKey: Type.String(),
+});
+
 export type PaymentRequestSchemaDTO = Static<typeof PaymentRequestSchema>;
+export type ConfigElementResponseSchemaDTO = Static<typeof ConfigElementResponseSchema>;
+export type ConfigResponseSchemaDTO = Static<typeof ConfigResponseSchema>;
