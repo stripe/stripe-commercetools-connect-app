@@ -74,7 +74,7 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
       switch (event.type) {
         case 'charge.succeeded':
           log.info(`Handle ${event.type} event of ${event.data.object.id}`);
-          if (!event.data.object.captured) {
+          if (event.data.object.captured) {
             opts.paymentService.authorizedPayment(event);
           }
           break;
