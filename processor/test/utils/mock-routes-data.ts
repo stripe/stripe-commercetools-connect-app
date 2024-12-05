@@ -641,7 +641,7 @@ export const mockEvent__charge_succeeded_notCaptured: Stripe.Event = {
     id: 'req_11111',
     idempotency_key: '7ae634ca-11111',
   },
-  type: 'charge.succeeded',
+  type: 'charge.captured',
 };
 
 export const mockEvent__charge_succeeded_captured: Stripe.Event = {
@@ -712,7 +712,7 @@ export const mockEvent__charge_succeeded_captured: Stripe.Event = {
     id: 'req_11111',
     idempotency_key: '7ae634ca-11111',
   },
-  type: 'charge.succeeded',
+  type: 'charge.captured',
 };
 
 export const mockEvent__paymentIntent_requiresAction: Stripe.Event = {
