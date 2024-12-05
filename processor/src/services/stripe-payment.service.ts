@@ -41,7 +41,7 @@ import { TransactionDraftDTO, TransactionResponseDTO } from '../dtos/operations/
 
 export class StripePaymentService extends AbstractPaymentService {
   constructor(opts: StripePaymentServiceOptions) {
-    super(opts.ctCartService, opts.ctPaymentService);
+    super(opts.ctCartService, opts.ctPaymentService, opts.ctOrderService);
   }
 
   /**
@@ -151,11 +151,11 @@ export class StripePaymentService extends AbstractPaymentService {
    */
   public async capturePayment(request: CapturePaymentRequest): Promise<PaymentProviderModificationResponse> {
     try {
-      const idempotencyKey = crypto.randomUUID();
-      console.log(`capturePayment ${JSON.stringify(request, null, 2)}`);
+      /*const idempotencyKey = crypto.randomUUID();
       await stripeApi().paymentIntents.capture(request.payment.interfaceId as string, {
         idempotencyKey,
-      });
+      });*/
+      //TODO MVP Review if we need to retrieve data from the webhook event to be added in commercetools
 
       return { outcome: PaymentModificationStatus.APPROVED, pspReference: request.payment.interfaceId as string };
     } catch (e) {
@@ -171,15 +171,13 @@ export class StripePaymentService extends AbstractPaymentService {
    */
   public async cancelPayment(request: CancelPaymentRequest): Promise<PaymentProviderModificationResponse> {
     try {
-      const idempotencyKey = crypto.randomUUID();
+      /*const idempotencyKey = crypto.randomUUID();
       const resp = await stripeApi().paymentIntents.cancel(request.payment.interfaceId as string, {
         idempotencyKey,
-      });
+      });*/
+      //TODO MVP Review if we need to retrieve data from the webhook event to be added in commercetools
 
-      console.log('cancelPayment-------------------');
-      console.log(JSON.stringify(resp, null, 2));
-
-      return { outcome: PaymentModificationStatus.RECEIVED, pspReference: resp.id as string };
+      return { outcome: PaymentModificationStatus.APPROVED, pspReference: request.payment.interfaceId as string };
     } catch (e) {
       throw wrapStripeError(e);
     }
@@ -196,13 +194,14 @@ export class StripePaymentService extends AbstractPaymentService {
    */
   public async refundPayment(request: RefundPaymentRequest): Promise<PaymentProviderModificationResponse> {
     try {
-      const idempotencyKey = crypto.randomUUID();
+      /**const idempotencyKey = crypto.randomUUID();
       await stripeApi().refunds.create(
         {
           payment_intent: request.payment.interfaceId,
         },
         { idempotencyKey },
-      );
+      );**/
+      //TODO MVP Review if we need to retrieve data from the webhook event to be added in commercetools
 
       return { outcome: PaymentModificationStatus.RECEIVED, pspReference: request.payment.interfaceId as string };
     } catch (e) {
@@ -269,7 +268,6 @@ export class StripePaymentService extends AbstractPaymentService {
     let paymentOutcome;
 
     if (captureMethodConfig === 'manual') {
-      //TODO MVP if the is manual create Authorization as Initial, ask ct if checkout has a manual transaction option.
       paymentOutcome = PaymentOutcome.INITIAL;
     }
 
@@ -286,109 +284,12 @@ export class StripePaymentService extends AbstractPaymentService {
   }
 
   /**
-   * If the capture mode is 'manual' create a payment in ct and update the payment_intent metadata in Stripe.
-   *
-   * @remarks MVP: The amount to authorize is the total of the order
-   * @param {Stripe.Event} event - Event sent by Stripe webhooks.
-   */
-  public async authorizePaymentInCt(event: Stripe.Event) {
-    const charge = event.data.object as Stripe.Charge;
-
-    if (!charge.captured) {
-      const createPaymentRequest: PaymentRequestSchemaDTO = {
-        paymentMethod: {
-          type: charge.payment_method as string,
-        },
-        cart: {
-          id: charge.metadata.cart_id,
-        },
-        paymentIntent: {
-          id: charge.payment_intent as string,
-        },
-      };
-
-      try {
-        await this.createPaymentCt(createPaymentRequest, PaymentTransactions.AUTHORIZATION);
-      } catch (error) {
-        log.error(`Error processing charge.succeeded[${charge.id}] received from webhook.`, error);
-      }
-    }
-  }
-
-  /**
-   * Refund a captured payment in commercetools after receiving a message from a webhook.
-   * The payment will be updated only for charges with the attribute captured=true
-   *
-   * @remarks MVP: The amount to refund is the total captured
-   * @param {Stripe.Event} event - Event sent by Stripe webhooks.
-   */
-  async refundPaymentInCt(event: Stripe.Event) {
-    const charge = event as Stripe.ChargeRefundedEvent;
-
-    try {
-      if (charge.data.object.captured) {
-        const stripePaymentIntentId = charge.data.object.payment_intent as string;
-
-        const stripePaymentIntent: Stripe.PaymentIntent =
-          await stripeApi().paymentIntents.retrieve(stripePaymentIntentId);
-
-        await this.ctPaymentService.updatePayment({
-          id: this.getCtPaymentId(stripePaymentIntent),
-          transaction: {
-            type: PaymentTransactions.REFUND,
-            amount: {
-              centAmount: charge.data.object.amount_captured, // MVP refund the total captured
-              currencyCode: charge.data.object.currency.toUpperCase(),
-            },
-            interactionId: stripePaymentIntentId,
-            state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
-          },
-        });
-      }
-    } catch (error) {
-      log.error(`Error processing refund of charge[${charge.id}] received from webhook.`, error);
-    }
-  }
-
-  /**
-   * Cancel an authorized payment in commercetools after receiving a message from a webhook.
-   *
-   * @remarks MVP: The amount to cancel is the order's total
-   * @param {Stripe.Event} event - Event sent by Stripe webhooks.
-   */
-  async cancelAuthorizationInCt(event: Stripe.Event) {
-    const paymentIntent = event.data.object as Stripe.PaymentIntent;
-
-    try {
-      const ctPaymentId = this.getCtPaymentId(paymentIntent);
-
-      await this.ctPaymentService.updatePayment({
-        id: ctPaymentId,
-        transaction: {
-          type: PaymentTransactions.CANCEL_AUTHORIZATION,
-          amount: {
-            centAmount: paymentIntent.amount, // MVP cancel the total amount
-            currencyCode: paymentIntent.currency.toUpperCase(),
-          },
-          interactionId: paymentIntent.id,
-          state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
-        },
-      });
-    } catch (error) {
-      log.error(
-        `Error processing cancel of authorized payment_intent[${paymentIntent.id}] received from webhook.`,
-        error,
-      );
-    }
-  }
-
-  /**
    * Testing an authorized payment in commercetools after receiving a message from a webhook.
    *
    * @remarks MVP: The amount to cancel is the order's total
    * @param {Stripe.Event} event - Event sent by Stripe webhooks.
    */
-  async authorizedPayment(event: Stripe.Event) {
+  public async authorizedPayment(event: Stripe.Event) {
     const paymentIntent = event.data.object as Stripe.PaymentIntent;
     const ctPayment = await this.ctPaymentService.getPayment({
       id: this.getCtPaymentId(paymentIntent),
@@ -412,56 +313,7 @@ export class StripePaymentService extends AbstractPaymentService {
         `Error processing cancel of authorized payment_intent[${paymentIntent.id}] received from webhook.`,
         error,
       );
-    }
-  }
-
-  /**
-   * Charge an authorized payment in commercetools after receiving a message from a webhook.
-   * If the payment_intent has 'capture_method'='manual' this function will add a 'Charge' transaction to the payment in ct.
-   * If the payment_intent is not manual, this function will create the payment in ct and update the payment_intent metadata.
-   *
-   * @remarks MVP: The charge amount is based on the amount received from Stripe. If the charge amount is less than the total amount, the difference will not register as a transaction in ct.
-   * @param {Stripe.Event} event - Event sent by Stripe webhooks.
-   */
-  async chargePaymentInCt(event: Stripe.Event) {
-    const paymentIntent = event.data.object as Stripe.PaymentIntent;
-
-    try {
-      const ctPaymentId = this.getCtPaymentId(paymentIntent);
-
-      if (paymentIntent.capture_method === 'manual') {
-        await this.ctPaymentService.updatePayment({
-          id: ctPaymentId,
-          transaction: {
-            type: PaymentTransactions.CHARGE,
-            amount: {
-              centAmount: paymentIntent.amount_received, // MVP capture the amount_received
-              currencyCode: paymentIntent.currency.toUpperCase(),
-            },
-            interactionId: paymentIntent.id,
-            state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
-          },
-        });
-      } else {
-        const createPaymentRequest: PaymentRequestSchemaDTO = {
-          paymentMethod: {
-            type: paymentIntent.payment_method as string,
-          },
-          cart: {
-            id: paymentIntent.metadata.cart_id,
-          },
-          paymentIntent: {
-            id: paymentIntent.id,
-          },
-        };
-
-        await this.createPaymentCt(createPaymentRequest, PaymentTransactions.CHARGE);
-      }
-    } catch (error) {
-      log.error(
-        `Error processing charge of authorized payment_intent[${paymentIntent.id}] received from webhook.`,
-        error,
-      );
+      throw error;
     }
   }
 
@@ -502,7 +354,7 @@ export class StripePaymentService extends AbstractPaymentService {
    * Create a new payment in ct, add the new payment to the cart and update the payment_intent metadata.
    * @param {PaymentRequestSchemaDTO} opts - Information about the payment in Stripe
    * @param {string} transactionType - Transaction type to add to the payment in ct once is created
-   * @param {string} paymentOutcome - //TODO testing to have the initial creation of the procces
+   * @param {string} paymentOutcome - Payment Outcome to be added in the creation of the payment
    * @returns {CtPaymentSchemaDTO} - Commercetools payment reference
    */
   private async createPaymentCt(
@@ -678,7 +530,7 @@ export class StripePaymentService extends AbstractPaymentService {
     }
   }
 
-  getModifyData(event: Stripe.Event): ModifyPayment {
+  public getModifyData(event: Stripe.Event): ModifyPayment {
     let data, centAmount;
     if (event.type.startsWith('payment')) {
       data = event.data.object as Stripe.PaymentIntent;

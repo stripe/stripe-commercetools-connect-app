@@ -13,7 +13,6 @@ async function postDeploy(_properties: Map<string, unknown>) {
   await createLaunchpadPurchaseOrderNumberCustomType();
 
   const applicationUrl = _properties.get(CONNECT_SERVICE_URL) as string;
-  //TODO review if this is working as expected
   const stripeWebhookId = (_properties.get(STRIPE_WEBHOOK_ID) as string) ?? '';
 
   if (_properties) {

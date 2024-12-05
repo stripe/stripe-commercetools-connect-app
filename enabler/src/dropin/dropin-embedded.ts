@@ -106,11 +106,11 @@ export class DropinComponents implements DropinComponent {
         return
       }
 
-      let { error, paymentIntent } = await this.baseOptions.sdk.confirmPayment({
+      let { error } = await this.baseOptions.sdk.confirmPayment({
         elements: this.baseOptions.elements,
         clientSecret: client_secret,
         confirmParams : {
-          return_url : 'https://www.google.com'//`${this.returnURL}`//TODO MVP review the retunr_url that need to be here.
+          return_url : 'https://example.com'
         },
         redirect : "if_required"
       });
@@ -119,27 +119,7 @@ export class DropinComponents implements DropinComponent {
         this.baseOptions.onError?.(error);
         return;
       }
-      //TODO e.g. if (data.resultCode === "Authorised" || data.resultCode === "Pending") {
-      //               component.setStatus("success");
-      //               options.onComplete && options.onComplete({ isSuccess: true, paymentReference });
-      //             } else {
-      //               options.onComplete && options.onComplete({ isSuccess: false });
-      //               component.setStatus("error");
-      //             }
-      //TODO review what is what we need to return if beacuse paymentIntent.status can be different
       this.baseOptions.onComplete?.({isSuccess:true, paymentReference: paymentReference});
-
-
-      //TODO MVP remove if, only testing the redirect of submit.
-      if(false){
-        const redirectUrl = new URL('https://www.google.com')//this.baseOptions.returnURL)
-
-        redirectUrl.searchParams.set("payment_intent", paymentIntent.id);
-        redirectUrl.searchParams.set("payment_intent_client_secret", paymentIntent.client_secret);
-        redirectUrl.searchParams.set("redirect_status", paymentIntent.status);
-
-        window.location.href = redirectUrl.href;
-      }
 
     }
 

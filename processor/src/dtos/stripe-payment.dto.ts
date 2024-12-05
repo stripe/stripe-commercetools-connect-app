@@ -1,6 +1,5 @@
 import { Static, Type } from '@sinclair/typebox';
 import { PaymentMethodType, PaymentOutcomeSchema } from './mock-payment.dto';
-import { CaptureMethod } from '../services/types/stripe-payment.type';
 
 export const CreatePaymentMethodSchema = Type.Object({
   type: Type.Union([Type.Enum(PaymentMethodType), Type.String()]),

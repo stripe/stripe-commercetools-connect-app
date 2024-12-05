@@ -1,5 +1,6 @@
 import {
   CommercetoolsCartService,
+  CommercetoolsOrderService,
   CommercetoolsPaymentService,
   ErrorInvalidJsonInput,
   ErrorInvalidOperation,
@@ -28,10 +29,16 @@ import { TransactionDraftDTO, TransactionResponseDTO } from '../dtos/operations/
 export abstract class AbstractPaymentService {
   protected ctCartService: CommercetoolsCartService;
   protected ctPaymentService: CommercetoolsPaymentService;
+  protected ctOrderService: CommercetoolsOrderService;
 
-  protected constructor(ctCartService: CommercetoolsCartService, ctPaymentService: CommercetoolsPaymentService) {
+  protected constructor(
+    ctCartService: CommercetoolsCartService,
+    ctPaymentService: CommercetoolsPaymentService,
+    ctOrderService: CommercetoolsOrderService,
+  ) {
     this.ctCartService = ctCartService;
     this.ctPaymentService = ctPaymentService;
+    this.ctOrderService = ctOrderService;
   }
 
   /**
@@ -228,16 +235,13 @@ export abstract class AbstractPaymentService {
   ) {
     switch (transactionType) {
       case PaymentTransactions.CANCEL_AUTHORIZATION: {
-        return { outcome: PaymentModificationStatus.RECEIVED, pspReference: payment.interfaceId as string };
-        //return await this.cancelPayment({ payment });
+        return this.cancelPayment({ payment });
       }
       case PaymentTransactions.CHARGE: {
-        return { outcome: PaymentModificationStatus.APPROVED, pspReference: payment.interfaceId as string };
-        //return await this.capturePayment({ amount: requestAmount, payment });
+        return await this.capturePayment({ amount: requestAmount, payment });
       }
       case PaymentTransactions.REFUND: {
-        return { outcome: PaymentModificationStatus.RECEIVED, pspReference: payment.interfaceId as string };
-        //return await this.refundPayment({ amount: requestAmount, payment });
+        return await this.refundPayment({ amount: requestAmount, payment });
       }
       default: {
         throw new ErrorInvalidOperation(`Operation ${transactionType} not supported.`);

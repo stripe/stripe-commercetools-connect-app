@@ -5,6 +5,7 @@ import {
   PaymentIntentResponseSchemaDTO,
   PaymentModificationStatus,
 } from '../../src/dtos/operations/payment-intents.dto';
+import { ModifyPayment } from '../../src/services/types/operation.type';
 
 const commonData = {
   object: {
@@ -727,4 +728,45 @@ export const mockEvent__paymentIntent_requiresAction: Stripe.Event = {
     idempotency_key: '11111',
   },
   type: 'payment_intent.requires_action',
+};
+
+export const mockModifyPayment__payment_intent_succeeded: ModifyPayment = {
+  paymentId: 'mockPaymentId',
+  data: {
+    actions: [
+      {
+        action: 'capturePayment',
+        amount: {
+          centAmount: 1500,
+          currencyCode: 'USD',
+        },
+      },
+    ],
+  },
+};
+
+export const mockModifyPayment__charge_refunded: ModifyPayment = {
+  paymentId: 'mockPaymentId',
+  data: {
+    actions: [
+      {
+        action: 'refundPayment',
+        amount: {
+          centAmount: 1500,
+          currencyCode: 'USD',
+        },
+      },
+    ],
+  },
+};
+
+export const mockModifyPayment__payment_intent_canceled: ModifyPayment = {
+  paymentId: 'mockPaymentId',
+  data: {
+    actions: [
+      {
+        action: 'cancelPayment',
+      },
+    ],
+  },
 };

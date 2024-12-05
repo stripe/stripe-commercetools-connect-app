@@ -42,7 +42,7 @@ deployAs:
           description: Stripe Appearance for Payment Element (example - "{\"theme\":\"stripe\",\"variables\":{\"colorPrimary\":\"#0570DE\",\"colorBackground\":\"#FFFFFF\",\"colorText\":\"#30313D\",\"colorDanger\":\"#DF1B41\",\"fontFamily\":\"Ideal Sans,system-ui,sansserif\",\"spacingUnit\":\"2px\",\"borderRadius\":\"4px\"}}").
         - key: STRIPE_APPEARANCE_EXPRESS_CHECKOUT
           description: Stripe Appearance for Express Checkout Element (example - "{\"theme\":\"stripe\",\"variables\":{\"colorPrimary\":\"#0570DE\",\"colorBackground\":\"#FFFFFF\",\"colorText\":\"#30313D\",\"colorDanger\":\"#DF1B41\",\"fontFamily\":\"Ideal Sans,system-ui,sansserif\",\"spacingUnit\":\"2px\",\"borderRadius\":\"4px\"}}").
-        - key: STRIPE_PUBLISHABLE_KEY #TODO review env variable
+        - key: STRIPE_PUBLISHABLE_KEY
           description: Stripe Publishable Key
       securedConfiguration:
         - key: CTP_CLIENT_SECRET

@@ -222,7 +222,7 @@ deployAs:
         - key: STRIPE_APPEARANCE_EXPRESS_CHECKOUT  
           description: Stripe Appearance for Express Checkout Element.  
         - key: STRIPE_PUBLISHABLE_KEY  
-          description: #TODO review infomartion  
+          description: Stripe Publishable Key  
           
       securedConfiguration:  
         - key: CTP_CLIENT_SECRET  

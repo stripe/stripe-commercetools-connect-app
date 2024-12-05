@@ -6,7 +6,6 @@ import {
 } from '../../dtos/operations/payment-intents.dto';
 import { StatusResponseSchemaDTO } from '../../dtos/operations/status.dto';
 import { Payment } from '@commercetools/connect-payments-sdk/dist/commercetools';
-import Stripe from 'stripe';
 
 export type CapturePaymentRequest = {
   amount: AmountSchemaDTO;

@@ -30,8 +30,8 @@ export type BaseOptions = {
   locale?: string;
   onComplete: (result: PaymentResult) => void;
   onError: (error?: any) => void;
-  paymentElement: StripePaymentElement; //TODO MVP https://docs.stripe.com/payments/payment-element
-  elements: StripeElements; //TODO MVP https://docs.stripe.com/js/elements_object
+  paymentElement: StripePaymentElement; // MVP https://docs.stripe.com/payments/payment-element
+  elements: StripeElements; // MVP https://docs.stripe.com/js/elements_object
 };
 
 
@@ -47,7 +47,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
     options: EnablerOptions
   ): Promise<{ baseOptions: BaseOptions }> => {
 
-    //TODO: MVP accept this value from the enabler, so we can render other options.
+    // MVP accept this value from the enabler, so we can render other options.
     const paymentMethodType : string = 'payment'//options.paymentMethod.type.toLowerCase().toString()
 
     const [cartInfoResponse, configEnvResponse]: [ConfigElementResponseSchemaDTO, ConfigResponseSchemaDTO]
@@ -60,12 +60,12 @@ export class MockPaymentEnabler implements PaymentEnabler {
     return Promise.resolve({
       baseOptions: {
         sdk: stripeSDK,
-        environment: configEnvResponse.publishableKey.includes("_test_") ? "test" : configEnvResponse.environment, //TODO MVP do we get this from the env of processor? or we leave the responsability to the publishableKey from Stripe?
+        environment: configEnvResponse.publishableKey.includes("_test_") ? "test" : configEnvResponse.environment, // MVP do we get this from the env of processor? or we leave the responsability to the publishableKey from Stripe?
         processorUrl: options.processorUrl,
         sessionId: options.sessionId,
         onComplete: options.onComplete || (() => {}),
         onError: options.onError || (() => {}),
-        paymentElement: elements.create('payment', elementsOptions as StripePaymentElementOptions ),//TODO MVP this could be expressCheckout or payment for subscritpion.
+        paymentElement: elements.create('payment', elementsOptions as StripePaymentElementOptions ),// MVP this could be expressCheckout or payment for subscritpion.
         elements: elements,
       },
     });
@@ -147,7 +147,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
     const headers = MockPaymentEnabler.getFetchHeader(options);
 
     const [configElementResponse, configEnvResponse] = await Promise.all([
-      fetch(`${options.processorUrl}/config-element/${paymentMethodType}`, headers), //TODO MVP this could be used by expressCheckout and Subscription
+      fetch(`${options.processorUrl}/config-element/${paymentMethodType}`, headers), // MVP this could be used by expressCheckout and Subscription
       fetch(`${options.processorUrl}/operations/config`, headers),
     ]);
 
@@ -165,7 +165,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
   }
 
   private static getElementsOptions(options: EnablerOptions, config: any): object {
-    //TODO MVP options from the Stripe element appareance can be here. https://docs.stripe.com/js/elements_object/create
+    // MVP options from the Stripe element appareance can be here. https://docs.stripe.com/js/elements_object/create
     let appOptions;
     if(config.appearance !== undefined)
       appOptions = config.appearance
@@ -174,7 +174,6 @@ export class MockPaymentEnabler implements PaymentEnabler {
       options: {},
       onComplete: options.onComplete,
       onError: options.onError,
-      //terms: {objet never}, //TODO review if need it
       layout: {
         type: 'tabs',
         defaultCollapsed: false

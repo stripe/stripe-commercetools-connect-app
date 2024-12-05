@@ -1,6 +1,8 @@
 import Stripe from 'stripe';
 import { Payment, Transaction } from '@commercetools/connect-payments-sdk';
 import { PaymentAmount } from '@commercetools/connect-payments-sdk/dist/commercetools/types/payment.type';
+import { PaymentProviderModificationResponse } from '../../src/services/types/operation.type';
+import { PaymentModificationStatus } from '../../src/dtos/operations/payment-intents.dto';
 
 const commonLastResponse = {
   headers: {},
@@ -390,4 +392,9 @@ export const mockStripeCapturePaymentResult: Stripe.Response<Stripe.PaymentInten
   status: 'succeeded',
   transfer_data: null,
   transfer_group: null,
+};
+
+export const mockCapturePaymentResult: PaymentProviderModificationResponse = {
+  outcome: PaymentModificationStatus.APPROVED,
+  pspReference: 'mockPspReference',
 };
