@@ -72,11 +72,9 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
       }
 
       switch (event.type) {
-        case 'charge.succeeded':
+        case 'charge.captured': //TODO review with Vishnu to change to charge.captured.
           log.info(`Handle ${event.type} event of ${event.data.object.id}`);
-          if (event.data.object.captured) {
-            await opts.paymentService.authorizedPayment(event);
-          }
+          await opts.paymentService.authorizedPayment(event);
           break;
         case 'charge.refunded':
         case 'payment_intent.succeeded':
