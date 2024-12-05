@@ -8,6 +8,7 @@ export default async function (server: FastifyInstance) {
   const stripePaymentService = new StripePaymentService({
     ctCartService: paymentSDK.ctCartService,
     ctPaymentService: paymentSDK.ctPaymentService,
+    ctOrderService: paymentSDK.ctOrderService,
   });
   await server.register(paymentRoutes, {
     paymentService: stripePaymentService,
