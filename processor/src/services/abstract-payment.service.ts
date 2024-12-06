@@ -105,17 +105,6 @@ export abstract class AbstractPaymentService {
   abstract refundPayment(request: RefundPaymentRequest): Promise<PaymentProviderModificationResponse>;
 
   /**
-   * Handle the payment transaction request. It will create a new Payment in CoCo and associate it with the provided cartId. If no amount is given it will use the full cart amount.
-   *
-   * @remarks
-   * Abstract method to handle payment transaction requests. The actual invocation to PSPs should be implemented in subclasses
-   *
-   * @param transactionDraft the incoming request payload
-   * @returns Promise with the created Payment and whether or not it was a success or not
-   */
-  abstract handleTransaction(transactionDraft: TransactionDraftDTO): Promise<TransactionResponseDTO>;
-
-  /**
    * Modify payment
    *
    * @remarks

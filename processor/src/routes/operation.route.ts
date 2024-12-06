@@ -112,25 +112,4 @@ export const operationsRoute = async (fastify: FastifyInstance, opts: FastifyPlu
       return reply.status(200).send(resp);
     },
   );
-
-  // Create transaction
-  fastify.post<{ Body: TransactionDraftDTO; Reply: TransactionResponseDTO }>(
-    '/transactions',
-    {
-      preHandler: [
-        opts.oauth2AuthHook.authenticate(),
-        opts.authorizationHook.authorize('manage_project', 'manage_checkout_transactions'),
-      ],
-      schema: {
-        body: TransactionDraft,
-        response: {
-          201: TransactionResponse,
-        },
-      },
-    },
-    async (request, reply) => {
-      const result = await opts.paymentService.handleTransaction(request.body);
-      return reply.status(201).send(result);
-    },
-  );
 };

@@ -37,7 +37,6 @@ import { getCartIdFromContext, getPaymentInterfaceFromContext } from '../libs/fa
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
 import crypto, { randomUUID } from 'crypto';
-import { TransactionDraftDTO, TransactionResponseDTO } from '../dtos/operations/transaction.dto';
 
 export class StripePaymentService extends AbstractPaymentService {
   constructor(opts: StripePaymentServiceOptions) {
@@ -150,17 +149,13 @@ export class StripePaymentService extends AbstractPaymentService {
    * @returns Promise with mocking data containing operation status and PSP reference
    */
   public async capturePayment(request: CapturePaymentRequest): Promise<PaymentProviderModificationResponse> {
-    try {
-      /*const idempotencyKey = crypto.randomUUID();
-      await stripeApi().paymentIntents.capture(request.payment.interfaceId as string, {
-        idempotencyKey,
-      });*/
-      //TODO MVP Review if we need to retrieve data from the webhook event to be added in commercetools
+    /*const idempotencyKey = crypto.randomUUID();
+    await stripeApi().paymentIntents.capture(request.payment.interfaceId as string, {
+      idempotencyKey,
+    });*/
+    //TODO MVP Review if we need to retrieve data from the webhook event to be added in commercetools
 
-      return { outcome: PaymentModificationStatus.APPROVED, pspReference: request.payment.interfaceId as string };
-    } catch (e) {
-      throw wrapStripeError(e);
-    }
+    return { outcome: PaymentModificationStatus.APPROVED, pspReference: request.payment.interfaceId as string };
   }
 
   /**
@@ -170,17 +165,13 @@ export class StripePaymentService extends AbstractPaymentService {
    * @returns Promise with mocking data containing operation status and PSP reference
    */
   public async cancelPayment(request: CancelPaymentRequest): Promise<PaymentProviderModificationResponse> {
-    try {
-      /*const idempotencyKey = crypto.randomUUID();
-      const resp = await stripeApi().paymentIntents.cancel(request.payment.interfaceId as string, {
-        idempotencyKey,
-      });*/
-      //TODO MVP Review if we need to retrieve data from the webhook event to be added in commercetools
+    /*const idempotencyKey = crypto.randomUUID();
+    const resp = await stripeApi().paymentIntents.cancel(request.payment.interfaceId as string, {
+      idempotencyKey,
+    });*/
+    //TODO MVP Review if we need to retrieve data from the webhook event to be added in commercetools
 
-      return { outcome: PaymentModificationStatus.APPROVED, pspReference: request.payment.interfaceId as string };
-    } catch (e) {
-      throw wrapStripeError(e);
-    }
+    return { outcome: PaymentModificationStatus.APPROVED, pspReference: request.payment.interfaceId as string };
   }
 
   /**
@@ -193,20 +184,16 @@ export class StripePaymentService extends AbstractPaymentService {
    * @returns Promise with mocking data containing operation status and PSP reference
    */
   public async refundPayment(request: RefundPaymentRequest): Promise<PaymentProviderModificationResponse> {
-    try {
-      /**const idempotencyKey = crypto.randomUUID();
+    /**const idempotencyKey = crypto.randomUUID();
       await stripeApi().refunds.create(
         {
           payment_intent: request.payment.interfaceId,
         },
         { idempotencyKey },
       );**/
-      //TODO MVP Review if we need to retrieve data from the webhook event to be added in commercetools
+    //TODO MVP Review if we need to retrieve data from the webhook event to be added in commercetools
 
-      return { outcome: PaymentModificationStatus.RECEIVED, pspReference: request.payment.interfaceId as string };
-    } catch (e) {
-      throw wrapStripeError(e);
-    }
+    return { outcome: PaymentModificationStatus.RECEIVED, pspReference: request.payment.interfaceId as string };
   }
 
   /**
@@ -434,10 +421,6 @@ export class StripePaymentService extends AbstractPaymentService {
     return event.metadata.ct_payment_id;
   }
 
-  private getCtCartId(paymentIntent: Stripe.PaymentIntent): string {
-    return paymentIntent.metadata.cart_id || '';
-  }
-
   private convertPaymentResultCode(resultCode: PaymentOutcome): string {
     switch (resultCode) {
       case PaymentOutcome.AUTHORIZED:
@@ -446,87 +429,6 @@ export class StripePaymentService extends AbstractPaymentService {
         return 'Failure';
       default:
         return 'Initial';
-    }
-  }
-
-  /**
-   * Handle the payment transaction request. It will create a new Payment in CoCo and associate it with the provided cartId. If no amount is given it will use the full cart amount.
-   *
-   * @remarks
-   * Abstract method to handle payment transaction requests. The actual invocation to PSPs should be implemented in subclasses
-   *
-   * @param transactionDraft the incoming request payload
-   * @returns Promise with the created Payment and whether or not it was a success or not
-   */
-  public async handleTransaction(transactionDraft: TransactionDraftDTO): Promise<TransactionResponseDTO> {
-    const TRANSACTION_AUTHORIZATION_TYPE: TransactionType = 'Authorization';
-    const TRANSACTION_STATE_SUCCESS: TransactionState = 'Success';
-    const TRANSACTION_STATE_FAILURE: TransactionState = 'Failure';
-
-    const maxCentAmountIfSuccess = 10000;
-
-    const ctCart = await this.ctCartService.getCart({ id: transactionDraft.cartId });
-
-    let amountPlanned = transactionDraft.amount;
-    if (!amountPlanned) {
-      amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
-    }
-
-    const isBelowSuccessStateThreshold = amountPlanned.centAmount < maxCentAmountIfSuccess;
-
-    const newlyCreatedPayment = await this.ctPaymentService.createPayment({
-      amountPlanned,
-      paymentMethodInfo: {
-        paymentInterface: transactionDraft.paymentInterface,
-      },
-    });
-
-    await this.ctCartService.addPayment({
-      resource: {
-        id: ctCart.id,
-        version: ctCart.version,
-      },
-      paymentId: newlyCreatedPayment.id,
-    });
-
-    const transactionState: TransactionState = isBelowSuccessStateThreshold
-      ? TRANSACTION_STATE_SUCCESS
-      : TRANSACTION_STATE_FAILURE;
-
-    const pspReference = randomUUID().toString();
-
-    await this.ctPaymentService.updatePayment({
-      id: newlyCreatedPayment.id,
-      pspReference: pspReference,
-      transaction: {
-        amount: amountPlanned,
-        type: TRANSACTION_AUTHORIZATION_TYPE,
-        state: transactionState,
-        interactionId: pspReference,
-      },
-    });
-
-    console.log(`isBelowSuccessStateThreshold = ${isBelowSuccessStateThreshold}`);
-
-    if (isBelowSuccessStateThreshold) {
-      return {
-        transactionStatus: {
-          errors: [],
-          state: 'Completed',
-        },
-      };
-    } else {
-      return {
-        transactionStatus: {
-          errors: [
-            {
-              code: 'PaymentRejected',
-              message: `Payment '${newlyCreatedPayment.id}' has been rejected.`,
-            },
-          ],
-          state: 'Failed',
-        },
-      };
     }
   }
 
