@@ -110,7 +110,7 @@ export const configElementRoutes = async (
           $id: 'paramsSchema',
           type: 'object',
           properties: {
-            paymentComponent: Type.String(),
+            paymentComponent: Type.Union([Type.Literal('payment'), Type.Literal('expressCheckout')]),
           },
           required: ['paymentComponent'],
         },

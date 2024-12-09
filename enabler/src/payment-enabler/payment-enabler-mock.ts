@@ -8,11 +8,12 @@ import { DropinEmbeddedBuilder } from "../dropin/dropin-embedded";
 import {
   loadStripe,
   Stripe,
-  StripeElements,
+  StripeElements, StripeExpressCheckoutElement, StripeExpressCheckoutElementOptions,
   StripePaymentElementOptions
 } from "@stripe/stripe-js";
 import {StripePaymentElement} from "@stripe/stripe-js/dist/stripe-js/elements/index";
 import {ConfigElementResponseSchemaDTO, ConfigResponseSchemaDTO} from "../dtos/mock-payment.dto.ts";
+import {DropinEmbeddedExpressBuilder} from "../dropin/dropin-embedded-express.ts";
 
 
 declare global {
@@ -30,7 +31,7 @@ export type BaseOptions = {
   locale?: string;
   onComplete: (result: PaymentResult) => void;
   onError: (error?: any) => void;
-  paymentElement: StripePaymentElement; // MVP https://docs.stripe.com/payments/payment-element
+  paymentElement: StripeExpressCheckoutElement | StripePaymentElement; // MVP https://docs.stripe.com/payments/payment-element
   elements: StripeElements; // MVP https://docs.stripe.com/js/elements_object
 };
 
@@ -44,11 +45,13 @@ export class MockPaymentEnabler implements PaymentEnabler {
   }
 
   private static _Setup = async (
-    options: EnablerOptions
+    options: EnablerOptions,
+
   ): Promise<{ baseOptions: BaseOptions }> => {
 
     // MVP accept this value from the enabler, so we can render other options.
-    const paymentMethodType : string = 'payment'//options.paymentMethod.type.toLowerCase().toString()
+    console.log('asdasdasdasdasdasdasdasdasdas'+options.paymentElementType.endsWith('Express'))
+    const paymentMethodType : string = options.paymentElementType.endsWith('Express') ?  'expressCheckout': 'payment';
 
     const [cartInfoResponse, configEnvResponse]: [ConfigElementResponseSchemaDTO, ConfigResponseSchemaDTO]
       = await MockPaymentEnabler.fetchConfigData(paymentMethodType, options);
@@ -65,7 +68,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
         sessionId: options.sessionId,
         onComplete: options.onComplete || (() => {}),
         onError: options.onError || (() => {}),
-        paymentElement: elements.create('payment', elementsOptions as StripePaymentElementOptions ),// MVP this could be expressCheckout or payment for subscritpion.
+        paymentElement: getPaymentElement(paymentMethodType, elementsOptions, elements),
         elements: elements,
       },
     });
@@ -74,6 +77,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
   async createComponentBuilder(
     type: string
   ): Promise<PaymentComponentBuilder | never> {
+
     const { baseOptions } = await this.setupData;
 
     const supportedMethods = {
@@ -98,8 +102,10 @@ export class MockPaymentEnabler implements PaymentEnabler {
     if (!setupData) {
       throw new Error("StripePaymentEnabler not initialized");
     }
+
     const supportedMethods = {
       embedded: DropinEmbeddedBuilder,
+      embeddedExpress: DropinEmbeddedExpressBuilder,
       // hpp: DropinHppBuilder,
     };
 
@@ -110,6 +116,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
         ).join(", ")}`
       );
     }
+    console.log('teeeeeeeeeeeeeeeeeeeest'+type.toString())
     return new supportedMethods[type](setupData.baseOptions);
   }
 
@@ -183,3 +190,15 @@ export class MockPaymentEnabler implements PaymentEnabler {
   }
 
 }
+function getPaymentElement(paymentMethodType: string, elementsOptions: object, elements: StripeElements): any {
+  let paymentElement;
+  if(paymentMethodType === 'payment') {
+    console.log('createing payment')
+    paymentElement = elements.create("payment", elementsOptions as StripePaymentElementOptions );// MVP this could be expressCheckout or payment for subscritpion.
+  }else {
+    console.log('createing expresscheckout')
+    paymentElement = elements.create("expressCheckout", elementsOptions as StripeExpressCheckoutElementOptions);
+  }
+  return paymentElement
+}
+

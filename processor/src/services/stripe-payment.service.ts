@@ -134,6 +134,9 @@ export class StripePaymentService extends AbstractPaymentService {
         {
           type: 'embedded',
         },
+        {
+          type: 'embeddedExpress',
+        },
       ],
       components: [],
     };

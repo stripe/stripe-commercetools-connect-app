@@ -16,7 +16,7 @@
     var __VITE_CTP_CLIENT_ID__ = !'%VITE_CTP_CLIENT_ID%'.startsWith('%') && '%VITE_CTP_CLIENT_ID%';
     var __VITE_CTP_CLIENT_SECRET__ = !'%VITE_CTP_CLIENT_SECRET%'.startsWith('%') && '%VITE_CTP_CLIENT_SECRET%';
     var __VITE_CTP_PROJECT_KEY__ = !'%VITE_CTP_PROJECT_KEY%'.startsWith('%') && '%VITE_CTP_PROJECT_KEY%';
-    var __VITE_PROCESSOR_URL__ = !'%VITE_PROCESSOR_URL%'.startsWith('%') && '%VITE_PROCESSOR_URL%';
+    var __VITE_PROCESSOR_URL__ = 'https://6c376a5d531a.ngrok.app';
   </script>
   <script src="../dev-utils/session.js"></script>
 </head>
@@ -65,7 +65,7 @@
         document.addEventListener("DOMContentLoaded", async () => {
           const paymentMethodSelect =
                   document.getElementById("paymentMethod");
-          const response = await fetch("http://localhost:9000/jwt/token", {
+          const response = await fetch("https://edc757b4e6a2.ngrok.app/jwt/token", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -128,6 +128,7 @@
               onError: (err) => {
                 console.error("onError", err);
               },
+              paymentElementType: selectedValue,
             });
 
             let builder;

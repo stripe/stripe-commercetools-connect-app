@@ -1,6 +1,6 @@
 import { ComponentOptions, PaymentComponent, PaymentMethod } from '../payment-enabler/payment-enabler';
 import { BaseOptions } from "../payment-enabler/payment-enabler-mock";
-import {Stripe, StripePaymentElement} from "@stripe/stripe-js";
+import {Stripe, StripeExpressCheckoutElement, StripePaymentElement} from "@stripe/stripe-js";
 
 
 /**
@@ -13,7 +13,7 @@ export abstract class BaseComponent implements PaymentComponent {
   protected sessionId: BaseOptions['sessionId'];
   protected environment: BaseOptions['environment'];
   protected sdk: Stripe;
-  protected stripePaymentElement: StripePaymentElement;
+  protected stripePaymentElement: StripePaymentElement | StripeExpressCheckoutElement;
 
   constructor(paymentMethod: PaymentMethod, baseOptions: BaseOptions, _componentOptions: ComponentOptions) {
     this.paymentMethod = paymentMethod;

@@ -147,6 +147,12 @@ export type EnablerOptions = {
    * @param error - The error that occurred.
    */
   onError?: (error: any) => void;
+
+  /**
+   * Represents the type of payment element to be created, could be 'payment|expressCheckout'.
+   * This variable should be a string value that defines the type of payment element being used in the application.
+   */
+  paymentElementType?: string;
 };
 
 /**
