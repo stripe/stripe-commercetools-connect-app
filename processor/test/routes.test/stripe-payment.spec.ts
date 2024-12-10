@@ -33,7 +33,9 @@ import {
 import * as Config from '../../src/config/config';
 import * as Logger from '../../src/libs/logger/index';
 import { StripeHeaderAuthHook } from '../../src/libs/fastify/hooks/stripe-header-auth.hook';
-import { appLogger } from '../../src/payment-sdk';
+import { appLogger, paymentSDK } from '../../src/payment-sdk';
+import { StripePaymentServiceOptions } from '../../src/services/types/stripe-payment.type';
+import { AbstractPaymentService } from '../../src/services/abstract-payment.service';
 
 jest.mock('stripe', () => ({
   __esModule: true,
@@ -173,30 +175,7 @@ describe('Stripe Payment APIs', () => {
       //Then
       expect(response.statusCode).toEqual(200);
       expect(spiedPaymentService.modifyPayment).toHaveBeenCalled();
-    });
-
-    test('it should handle a charge.captured event gracefully.', async () => {
-      setupMockConfig({
-        stripeSecretKey: 'stripeSecretKey',
-        authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
-      });
-
-      // Set mocked functions to Stripe and spyOn to set the result expected
-      Stripe.prototype.webhooks = { constructEvent: jest.fn() } as unknown as Stripe.Webhooks;
-      jest.spyOn(Stripe.prototype.webhooks, 'constructEvent').mockReturnValue(mockEvent__charge_succeeded_captured);
-
-      //When
-      const response = await fastifyApp.inject({
-        method: 'POST',
-        url: `/stripe/webhooks`,
-        headers: {
-          'stripe-signature': 't=123123123,v1=gk2j34gk2j34g2k3j4',
-        },
-      });
-
-      //Then
-      expect(response.statusCode).toEqual(200);
-      expect(spiedPaymentService.authorizedPayment).toHaveBeenCalled();
+      expect(spiedPaymentService.modifyPayment).toHaveBeenCalledWith(mockModifyPayment__payment_intent_succeeded);
     });
 
     test('it should handle a charge.refunded event gracefully.', async () => {
@@ -373,6 +352,27 @@ describe('Stripe Payment APIs', () => {
       expect(responseGetConfig.statusCode).toEqual(200);
       expect(responseGetConfig.json()).toEqual(mockRoute__payments_succeed);
       expect(spiedPaymentService.createPaymentIntentStripe).toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /payment/:id', () => {
+    test('should call /payment(:id and return valid information', async () => {
+      //Given
+      jest.spyOn(spiedPaymentService, 'createPaymentIntentStripe').mockResolvedValue(mockRoute__payments_succeed);
+
+      //When
+      const responseGetConfig = await fastifyApp.inject({
+        method: 'GET',
+        url: `/payments/id`,
+        headers: {
+          'x-session-id': sessionId,
+          'content-type': 'application/json',
+        },
+      });
+
+      //Then
+      expect(responseGetConfig.statusCode).toEqual(200);
+      expect(spiedPaymentService.updatePaymentIntentStripeSuccessful).toHaveBeenCalled();
     });
   });
 

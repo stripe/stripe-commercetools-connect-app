@@ -32,5 +32,6 @@ export type StatusResponse = StatusResponseSchemaDTO;
 
 export type ModifyPayment = {
   paymentId: string;
+  stripePaymentIntent?: string;
   data: PaymentIntentRequestSchemaDTO;
 };

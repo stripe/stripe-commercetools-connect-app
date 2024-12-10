@@ -15,7 +15,12 @@ import {
   mockUpdatePaymentResult,
   mockStripeCapturePaymentResult,
 } from '../utils/mock-payment-results';
-import { mockEvent__charge_succeeded_notCaptured } from '../utils/mock-routes-data';
+import {
+  mockEvent__charge_refund_captured,
+  mockEvent__charge_succeeded_notCaptured,
+  mockEvent__paymentIntent_canceled,
+  mockEvent__paymentIntent_succeeded_captureMethodManual,
+} from '../utils/mock-routes-data';
 import { mockGetCartResult } from '../utils/mock-cart-data';
 import * as Config from '../../src/config/config';
 import { StripePaymentServiceOptions } from '../../src/services/types/stripe-payment.type';
@@ -91,7 +96,7 @@ describe('stripe-payment.service', () => {
     jest.restoreAllMocks();
   });
 
-  describe('getConfig', () => {
+  describe('method getConfig', () => {
     test('should return the Stripe configuration successfully', async () => {
       // Setup mock config for a system using `clientKey`
       setupMockConfig({ stripePublishableKey: '', mockEnvironment: 'TEST' });
@@ -104,7 +109,7 @@ describe('stripe-payment.service', () => {
     });
   });
 
-  describe('getSupportedPaymentComponents', () => {
+  describe('method getSupportedPaymentComponents', () => {
     test('should return supported payment components successfully', async () => {
       const result: SupportedPaymentComponentsSchemaDTO = await paymentService.getSupportedPaymentComponents();
       expect(result?.dropins).toHaveLength(1);
@@ -112,12 +117,13 @@ describe('stripe-payment.service', () => {
     });
   });
 
-  describe('status', () => {
+  describe('method status', () => {
     test('should return Stripe status successfully', async () => {
       const mockHealthCheckFunction: () => Promise<HealthCheckResult> = async () => {
         const result: HealthCheckResult = {
           name: 'CoCo Permissions',
           status: 'DOWN',
+          message: 'CoCo Permissions are not available',
           details: {},
         };
         return result;
@@ -138,13 +144,15 @@ describe('stripe-payment.service', () => {
       expect(result?.checks[0]?.name).toStrictEqual('CoCo Permissions');
       expect(result?.checks[0]?.status).toStrictEqual('DOWN');
       expect(result?.checks[0]?.details).toStrictEqual({});
+      expect(result?.checks[0]?.message).toBeDefined();
       expect(result?.checks[1]?.name).toStrictEqual('Stripe Status check');
       expect(result?.checks[1]?.status).toStrictEqual('UP');
       expect(result?.checks[1]?.details).toBeDefined();
+      expect(result?.checks[1]?.message).toBeDefined();
     });
   });
 
-  describe('cancelPayment', () => {
+  describe('method modifyPayment', () => {
     test('should cancel a payment successfully', async () => {
       const modifyPaymentOpts: ModifyPayment = {
         paymentId: 'dummy-paymentId',
@@ -157,41 +165,19 @@ describe('stripe-payment.service', () => {
         },
       };
 
-      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
-      jest
+      const getPaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'getPayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
+      const updatePaymentMock = jest
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockUpdatePaymentResult));
 
       const result = await paymentService.modifyPayment(modifyPaymentOpts);
       expect(result?.outcome).toStrictEqual('approved');
+      expect(getPaymentMock).toHaveBeenCalled();
+      expect(updatePaymentMock).toHaveBeenCalledTimes(2);
     });
 
-    test('should throw an error when Stripe service throws an error', async () => {
-      const modifyPaymentOpts: ModifyPayment = {
-        paymentId: 'dummy-paymentId',
-        data: {
-          actions: [
-            {
-              action: 'cancelPayment',
-            },
-          ],
-        },
-      };
-
-      const error = new Error('error');
-
-      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
-      jest.spyOn(StripePaymentService.prototype, 'cancelPayment').mockImplementation(() => {
-        throw error;
-      });
-
-      expect(async () => {
-        await paymentService.modifyPayment(modifyPaymentOpts);
-      }).rejects.toThrow();
-    });
-  });
-
-  describe('capturePayment', () => {
     test('should capture a payment successfully', async () => {
       //Given
       const modifyPaymentOpts: ModifyPayment = {
@@ -209,46 +195,19 @@ describe('stripe-payment.service', () => {
         },
       };
 
-      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
-      jest
+      const getPaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'getPayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
+      const updatePaymentMock = jest
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
 
       const result = await paymentService.modifyPayment(modifyPaymentOpts);
       expect(result?.outcome).toStrictEqual('approved');
+      expect(getPaymentMock).toHaveBeenCalled();
+      expect(updatePaymentMock).toHaveBeenCalledTimes(2);
     });
 
-    test('should throw an error when modifyPayment service throws an error', async () => {
-      // Given
-      const modifyPaymentOpts: ModifyPayment = {
-        paymentId: 'dummy-paymentId',
-        data: {
-          actions: [
-            {
-              action: 'capturePayment',
-              amount: {
-                centAmount: 150000,
-                currencyCode: 'USD',
-              },
-            },
-          ],
-        },
-      };
-      const error = new Error('error');
-
-      // Act
-      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
-      jest.spyOn(StripePaymentService.prototype, 'capturePayment').mockImplementation(() => {
-        throw error;
-      });
-
-      expect(async () => {
-        await paymentService.modifyPayment(modifyPaymentOpts);
-      }).rejects.toThrow(error);
-    });
-  });
-
-  describe('refundPayment', () => {
     test('should refund a payment successfully', async () => {
       const modifyPaymentOpts: ModifyPayment = {
         paymentId: 'dummy-paymentId',
@@ -265,79 +224,47 @@ describe('stripe-payment.service', () => {
         },
       };
 
-      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
-      jest
-        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
-        .mockReturnValue(Promise.resolve(mockUpdatePaymentResult));
-
-      const result = await paymentService.modifyPayment(modifyPaymentOpts);
-      expect(result?.outcome).toStrictEqual('received');
-    });
-
-    test('should throw an error when Stripe service throws an error', async () => {
-      const modifyPaymentOpts: ModifyPayment = {
-        paymentId: 'dummy-paymentId',
-        data: {
-          actions: [
-            {
-              action: 'refundPayment',
-              amount: {
-                centAmount: 150000,
-                currencyCode: 'USD',
-              },
-            },
-          ],
-        },
-      };
-
-      const error = new Error('error');
-      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
-      jest.spyOn(StripePaymentService.prototype, 'refundPayment').mockImplementation(() => {
-        throw error;
-      });
-
-      expect(async () => {
-        await paymentService.modifyPayment(modifyPaymentOpts);
-      }).rejects.toThrow();
-    });
-  });
-
-  describe('authorizedPayment', () => {
-    test('should create a payment in ct and update the payment_intent metadata when the payment_intent has not been captured', async () => {
       const getPaymentMock = jest
         .spyOn(DefaultPaymentService.prototype, 'getPayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
       const updatePaymentMock = jest
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
-        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
+        .mockReturnValue(Promise.resolve(mockUpdatePaymentResult));
 
-      const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
-      await stripePaymentService.authorizedPayment(mockEvent__charge_succeeded_notCaptured);
-
+      const result = await paymentService.modifyPayment(modifyPaymentOpts);
+      expect(result?.outcome).toStrictEqual('received');
       expect(getPaymentMock).toHaveBeenCalled();
-      expect(updatePaymentMock).toHaveBeenCalled();
-    });
-
-    test('should throw an error', async () => {
-      const error = new Error('error');
-      const getPaymentMock = jest
-        .spyOn(DefaultPaymentService.prototype, 'getPayment')
-        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
-      jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockImplementation(() => {
-        throw new Error('error');
-      });
-
-      const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
-      await expect(async () => {
-        await stripePaymentService.authorizedPayment(mockEvent__charge_succeeded_notCaptured);
-      }).rejects.toThrow(error);
-
-      expect(getPaymentMock).toHaveBeenCalled();
-      //expect(updatePaymentMock).toThrowError();
+      expect(updatePaymentMock).toHaveBeenCalledTimes(2);
     });
   });
 
-  describe('createPaymentIntentStripe', () => {
+  describe('method updatePaymentIntentStripeSuccessful', () => {
+    test('should update the commercetools payment "Authorization" from "Initial" to "Success"', async () => {
+      const getCartMock = jest
+        .spyOn(DefaultCartService.prototype, 'getCart')
+        .mockReturnValue(Promise.resolve(mockGetCartResult()));
+      const getPaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'getPayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
+      const getPaymentAmountMock = jest
+        .spyOn(DefaultCartService.prototype, 'getPaymentAmount')
+        .mockResolvedValue(mockGetPaymentAmount);
+
+      const updatePaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
+
+      const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
+      await stripePaymentService.updatePaymentIntentStripeSuccessful('paymentId');
+
+      expect(getCartMock).toHaveBeenCalled();
+      expect(getPaymentMock).toHaveBeenCalled();
+      expect(getPaymentAmountMock).toHaveBeenCalled();
+      expect(updatePaymentMock).toHaveBeenCalled();
+    });
+  });
+
+  describe('method createPaymentIntentStripe', () => {
     test('should createPaymentIntent successful', async () => {
       // mocking all the function calls
       Stripe.prototype.paymentIntents = {
@@ -347,17 +274,16 @@ describe('stripe-payment.service', () => {
       const getCartMock = jest
         .spyOn(DefaultCartService.prototype, 'getCart')
         .mockReturnValue(Promise.resolve(mockGetCartResult()));
+      const getPaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'getPayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
       const getPaymentAmountMock = jest
         .spyOn(DefaultCartService.prototype, 'getPaymentAmount')
         .mockResolvedValue(mockGetPaymentAmount);
       const stripeApiMock = jest
         .spyOn(Stripe.prototype.paymentIntents, 'create')
         .mockReturnValue(Promise.resolve(mockStripeCreatePaymentResult));
-      const createPaymentMock = jest.spyOn(DefaultPaymentService.prototype, 'createPayment');
-      createPaymentMock.mockResolvedValue(mockGetPaymentResult);
-      const addPaymentMock = jest.spyOn(DefaultCartService.prototype, 'addPayment');
-      addPaymentMock.mockResolvedValue(mockGetCartResult());
-      jest
+      const updatePaymentMock = jest
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockUpdatePaymentResult));
 
@@ -369,8 +295,10 @@ describe('stripe-payment.service', () => {
 
       // Or check that the relevant mocks have been called
       expect(getCartMock).toHaveBeenCalled();
+      expect(getPaymentMock).toHaveBeenCalled();
       expect(getPaymentAmountMock).toHaveBeenCalled();
       expect(stripeApiMock).toHaveBeenCalled();
+      expect(updatePaymentMock).toHaveBeenCalled();
     });
 
     test('should fail to create the payment intent', async () => {
@@ -382,22 +310,18 @@ describe('stripe-payment.service', () => {
       const getCartMock = jest
         .spyOn(DefaultCartService.prototype, 'getCart')
         .mockReturnValue(Promise.resolve(mockGetCartResult()));
+      const getPaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'getPayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
       const getPaymentAmountMock = jest
         .spyOn(DefaultCartService.prototype, 'getPaymentAmount')
         .mockResolvedValue(mockGetPaymentAmount);
       const stripeApiMock = jest.spyOn(Stripe.prototype.paymentIntents, 'create').mockImplementation(() => {
         throw new Error('error');
       });
-      const createPaymentMock = jest.spyOn(DefaultPaymentService.prototype, 'createPayment');
-      createPaymentMock.mockResolvedValue(mockGetPaymentResult);
-      const addPaymentMock = jest.spyOn(DefaultCartService.prototype, 'addPayment');
-      addPaymentMock.mockResolvedValue(mockGetCartResult());
       const updatePaymentMock = jest
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
-      const stripeApiUpdateMock = jest
-        .spyOn(Stripe.prototype.paymentIntents, 'update')
-        .mockReturnValue(Promise.resolve(mockStripeUpdatePaymentResult));
       const wrapStripErrorMock = jest
         .spyOn(StripeClient, 'wrapStripeError')
         .mockReturnValue(new Error('Unexpected error calling Stripe API'));
@@ -419,21 +343,24 @@ describe('stripe-payment.service', () => {
       expect(getPaymentAmountMock).toHaveBeenCalled();
       expect(stripeApiMock).toHaveBeenCalled();
       expect(wrapStripErrorMock).toHaveBeenCalled();
-      expect(createPaymentMock).toHaveBeenCalledTimes(0);
-      expect(addPaymentMock).toHaveBeenCalledTimes(0);
-      expect(stripeApiUpdateMock).toHaveBeenCalledTimes(0);
+      expect(updatePaymentMock).toHaveBeenCalledTimes(0);
     });
   });
 
-  describe('getConfigElement', () => {
-    test('should return the configuration element successfuly', async () => {
-      // mocking all the function calls
+  describe('method initializeCartPayment', () => {
+    test('should return the configuration element and create in the cart a payment "Authorization" as "Initial"', async () => {
       const getCartMock = jest
         .spyOn(DefaultCartService.prototype, 'getCart')
         .mockReturnValue(Promise.resolve(mockGetCartResult()));
       const getPaymentAmountMock = jest
         .spyOn(DefaultCartService.prototype, 'getPaymentAmount')
         .mockResolvedValue(mockGetPaymentAmount);
+      const createPaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'createPayment')
+        .mockResolvedValue(mockGetPaymentResult);
+      const addPaymentMock = jest
+        .spyOn(DefaultCartService.prototype, 'addPayment')
+        .mockResolvedValue(mockGetCartResult());
 
       const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
       const result = await stripePaymentService.initializeCartPayment('payment');
@@ -445,7 +372,80 @@ describe('stripe-payment.service', () => {
       // Or check that the relevant mocks have been called
       expect(getCartMock).toHaveBeenCalled();
       expect(getPaymentAmountMock).toHaveBeenCalled();
+      expect(createPaymentMock).toHaveBeenCalled();
+      expect(addPaymentMock).toHaveBeenCalled();
       expect(Logger.log.info).toBeCalled();
+    });
+  });
+
+  describe('method getModifyData', () => {
+    test('should return correct ModifyPayment for a payment_intent succeeded manual event', () => {
+      const mockEvent: Stripe.Event = mockEvent__paymentIntent_succeeded_captureMethodManual;
+
+      const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
+      const result = stripePaymentService.getModifyData(mockEvent);
+
+      expect(result).toEqual({
+        paymentId: undefined,
+        stripePaymentIntent: 'pi_11111',
+        data: {
+          actions: [
+            {
+              action: 'capturePayment',
+              amount: {
+                centAmount: 13200,
+                currencyCode: 'MXN',
+              },
+            },
+          ],
+        },
+      });
+    });
+
+    test('should return correct ModifyPayment for a charge refunded', () => {
+      const mockEvent: Stripe.Event = mockEvent__charge_refund_captured;
+
+      const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
+      const result = stripePaymentService.getModifyData(mockEvent);
+
+      expect(result).toEqual({
+        paymentId: 'pi_11111',
+        stripePaymentIntent: undefined,
+        data: {
+          actions: [
+            {
+              action: 'refundPayment',
+              amount: {
+                centAmount: 34500,
+                currencyCode: 'MXN',
+              },
+            },
+          ],
+        },
+      });
+    });
+
+    test('should return correct ModifyPayment for a charge event', () => {
+      const mockEvent: Stripe.Event = mockEvent__paymentIntent_canceled;
+
+      const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
+      const result = stripePaymentService.getModifyData(mockEvent);
+
+      expect(result).toEqual({
+        paymentId: undefined,
+        stripePaymentIntent: 'pi_11111',
+        data: {
+          actions: [
+            {
+              action: 'cancelPayment',
+              amount: {
+                centAmount: 0,
+                currencyCode: 'MXN',
+              },
+            },
+          ],
+        },
+      });
     });
   });
 });

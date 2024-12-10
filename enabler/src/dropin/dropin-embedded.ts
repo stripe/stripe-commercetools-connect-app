@@ -22,8 +22,6 @@ export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
     });
 
     dropin.init();
-    console.log('dropin ------------')
-    console.log(JSON.stringify(dropin, null, 2))
     return dropin;
   }
 }
@@ -91,7 +89,6 @@ export class DropinComponents implements DropinComponent {
         return;
       }
 
-      //MVP if additional information needs to be included in the payment intent, this method should be supplied with the necessary data.
       let { errors : processorError, sClientSecret : client_secret, paymentReference: paymentReference} = await fetch(`${this.baseOptions.processorUrl}/payments`,{
         method : "GET",
         headers : {
@@ -106,7 +103,7 @@ export class DropinComponents implements DropinComponent {
         return
       }
 
-      let { error } = await this.baseOptions.sdk.confirmPayment({
+      let { error, paymentIntent } = await this.baseOptions.sdk.confirmPayment({
         elements: this.baseOptions.elements,
         clientSecret: client_secret,
         confirmParams : {
@@ -119,6 +116,15 @@ export class DropinComponents implements DropinComponent {
         this.baseOptions.onError?.(error);
         return;
       }
+
+      await fetch(`${this.baseOptions.processorUrl}/payments/${paymentIntent.id}`,{
+        method : "GET",
+        headers : {
+          "Content-Type": "application/json",
+          "x-session-id" : this.baseOptions.sessionId
+        }
+      }).then(res => res.json())
+
       this.baseOptions.onComplete?.({isSuccess:true, paymentReference: paymentReference});
 
     }
