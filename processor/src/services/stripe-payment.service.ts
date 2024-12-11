@@ -1,10 +1,5 @@
 import Stripe from 'stripe';
-import {
-  healthCheckCommercetoolsPermissions,
-  statusHandler,
-  TransactionState,
-  TransactionType,
-} from '@commercetools/connect-payments-sdk';
+import { healthCheckCommercetoolsPermissions, statusHandler } from '@commercetools/connect-payments-sdk';
 import {
   CancelPaymentRequest,
   CapturePaymentRequest,
@@ -26,17 +21,11 @@ import { AbstractPaymentService } from './abstract-payment.service';
 import { getConfig } from '../config/config';
 import { appLogger, paymentSDK } from '../payment-sdk';
 import { CaptureMethod, StripePaymentServiceOptions } from './types/stripe-payment.type';
-import {
-  ConfigElementResponseSchemaDTO,
-  CtPaymentSchemaDTO,
-  PaymentOutcome,
-  PaymentRequestSchemaDTO,
-  PaymentResponseSchemaDTO,
-} from '../dtos/stripe-payment.dto';
+import { ConfigElementResponseSchemaDTO, PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/stripe-payment.dto';
 import { getCartIdFromContext, getPaymentInterfaceFromContext } from '../libs/fastify/context/context';
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
-import crypto, { randomUUID } from 'crypto';
+import crypto from 'crypto';
 
 export class StripePaymentService extends AbstractPaymentService {
   constructor(opts: StripePaymentServiceOptions) {
@@ -170,7 +159,6 @@ export class StripePaymentService extends AbstractPaymentService {
    * @returns Promise with mocking data containing operation status and PSP reference
    */
   public async refundPayment(request: RefundPaymentRequest): Promise<PaymentProviderModificationResponse> {
-    console.log('refundPayment' + JSON.stringify(request));
     return { outcome: PaymentModificationStatus.RECEIVED, pspReference: request.payment.interfaceId as string };
   }
 
@@ -226,8 +214,6 @@ export class StripePaymentService extends AbstractPaymentService {
       paymentMethod: 'payment',
     });
 
-    console.log('finished payment intent creation Initial');
-
     return {
       sClientSecret: paymentIntent.client_secret ?? '',
       paymentReference: updatedPayment.id,
@@ -254,19 +240,17 @@ export class StripePaymentService extends AbstractPaymentService {
       stripePaymentIntentId: paymentId,
     });
 
-    const updatedPayment = await this.ctPaymentService.updatePayment({
+    await this.ctPaymentService.updatePayment({
       id: ctPayment.id,
       pspReference: paymentId,
       paymentMethod: 'payment',
       transaction: {
         type: PaymentTransactions.AUTHORIZATION,
-        amount: ctPayment.amountPlanned,
+        amount: amountPlanned,
         interactionId: paymentId,
         state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
       },
     });
-
-    console.log('payment intent update successful');
   }
 
   /**
@@ -305,7 +289,7 @@ export class StripePaymentService extends AbstractPaymentService {
       ],
     });
 
-    const updatedCart = await this.ctCartService.addPayment({
+    await this.ctCartService.addPayment({
       resource: {
         id: ctCart.id,
         version: ctCart.version,

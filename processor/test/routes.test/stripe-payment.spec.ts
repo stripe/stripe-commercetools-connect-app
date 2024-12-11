@@ -26,16 +26,13 @@ import {
   mockEvent__charge_succeeded_notCaptured,
   mockEvent__paymentIntent_requiresAction,
   mockModifyPayment__payment_intent_succeeded,
-  mockEvent__charge_succeeded_captured,
   mockModifyPayment__charge_refunded,
   mockModifyPayment__payment_intent_canceled,
 } from '../utils/mock-routes-data';
 import * as Config from '../../src/config/config';
 import * as Logger from '../../src/libs/logger/index';
 import { StripeHeaderAuthHook } from '../../src/libs/fastify/hooks/stripe-header-auth.hook';
-import { appLogger, paymentSDK } from '../../src/payment-sdk';
-import { StripePaymentServiceOptions } from '../../src/services/types/stripe-payment.type';
-import { AbstractPaymentService } from '../../src/services/abstract-payment.service';
+import { appLogger } from '../../src/payment-sdk';
 
 jest.mock('stripe', () => ({
   __esModule: true,

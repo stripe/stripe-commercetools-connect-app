@@ -6,8 +6,6 @@ import { mock_Stripe_retrieveWebhookEnpoints_response } from '../utils/mock-acti
 jest.mock('../../src/connectors/actions');
 
 describe('runPostDeployScripts', () => {
-  const originalEnv = process.env;
-
   beforeEach(() => {
     jest.setTimeout(10000);
     jest.resetAllMocks();
@@ -15,7 +13,6 @@ describe('runPostDeployScripts', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
-    process.env = originalEnv;
   });
 
   test('should update the webhook endpoint URL when the URLs are different', async () => {
@@ -48,6 +45,15 @@ describe('runPostDeployScripts', () => {
 
   test('should throw an error when a call to Stripe throws an error', async () => {
     process.env = { CONNECT_SERVICE_URL: 'https://yourApp.com/', STRIPE_WEBHOOK_ID: 'we_11111' };
+    process.exitCode = '0';
+
+    const exitCodeMock = jest.fn();
+
+    Object.defineProperty(process, 'exitCode', {
+      configurable: true,
+      get: () => undefined,
+      set: exitCodeMock,
+    });
 
     const mockError = new Error('No such webhook endpoint');
     const mockErrorMessage = `Post-deploy failed: ${mockError.message}\n`;
@@ -58,6 +64,10 @@ describe('runPostDeployScripts', () => {
 
     expect(mockRetrieveWe).toHaveBeenCalled();
     expect(writeSpy).toHaveBeenCalledWith(mockErrorMessage);
+    expect(exitCodeMock).toHaveBeenCalledWith(1);
+    Object.defineProperty(process, 'exitCode', {
+      value: '0',
+    });
   });
 
   test('should throw an error when the STRIPE_WEBHOOK_ID var is not assigned', async () => {

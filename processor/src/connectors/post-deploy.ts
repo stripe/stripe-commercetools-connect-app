@@ -1,8 +1,11 @@
 import * as dotenv from 'dotenv';
 dotenv.config();
 
-import { createLaunchpadPurchaseOrderNumberCustomType } from './actions';
-import { retrieveWebhookEndpoint, updateWebhookEndpoint } from './actions';
+import {
+  createLaunchpadPurchaseOrderNumberCustomType,
+  retrieveWebhookEndpoint,
+  updateWebhookEndpoint,
+} from './actions';
 
 const STRIPE_WEBHOOKS_ROUTE = 'stripe/webhooks';
 const CONNECT_SERVICE_URL = 'CONNECT_SERVICE_URL';
@@ -22,7 +25,7 @@ async function postDeploy(_properties: Map<string, unknown>) {
       const we = await retrieveWebhookEndpoint(stripeWebhookId);
       const weAppUrl = `${applicationUrl}${STRIPE_WEBHOOKS_ROUTE}`;
       if (we.url !== weAppUrl) {
-        updateWebhookEndpoint(stripeWebhookId, weAppUrl);
+        await updateWebhookEndpoint(stripeWebhookId, weAppUrl);
       }
     }
   }

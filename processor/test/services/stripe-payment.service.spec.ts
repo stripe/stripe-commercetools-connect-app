@@ -17,7 +17,6 @@ import {
 } from '../utils/mock-payment-results';
 import {
   mockEvent__charge_refund_captured,
-  mockEvent__charge_succeeded_notCaptured,
   mockEvent__paymentIntent_canceled,
   mockEvent__paymentIntent_succeeded_captureMethodManual,
 } from '../utils/mock-routes-data';
@@ -307,6 +306,7 @@ describe('stripe-payment.service', () => {
         create: jest.fn(),
         update: jest.fn(),
       } as unknown as Stripe.PaymentIntentsResource;
+      const error = new Error('Unexpected error calling Stripe API');
       const getCartMock = jest
         .spyOn(DefaultCartService.prototype, 'getCart')
         .mockReturnValue(Promise.resolve(mockGetCartResult()));
@@ -317,32 +317,26 @@ describe('stripe-payment.service', () => {
         .spyOn(DefaultCartService.prototype, 'getPaymentAmount')
         .mockResolvedValue(mockGetPaymentAmount);
       const stripeApiMock = jest.spyOn(Stripe.prototype.paymentIntents, 'create').mockImplementation(() => {
-        throw new Error('error');
+        throw error;
       });
       const updatePaymentMock = jest
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
-      const wrapStripErrorMock = jest
-        .spyOn(StripeClient, 'wrapStripeError')
-        .mockReturnValue(new Error('Unexpected error calling Stripe API'));
-      const wrapStripeError = jest
-        .spyOn(StripeClient, 'wrapStripeError')
-        .mockReturnValue(new Error('Unexpected error calling Stripe API'));
+      const wrapStripeError = jest.spyOn(StripeClient, 'wrapStripeError').mockReturnValue(error);
 
       const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
       try {
         await stripePaymentService.createPaymentIntentStripe();
       } catch (e) {
-        console.log(e);
-        expect(wrapStripeError).toHaveBeenCalledWith(new Error('error'));
+        expect(wrapStripeError).toHaveBeenCalledWith(e);
       }
 
       // Or check that the relevant mocks have been called
       expect(getCartMock).toHaveBeenCalled();
       expect(updatePaymentMock).toHaveBeenCalledTimes(0);
       expect(getPaymentAmountMock).toHaveBeenCalled();
+      expect(getPaymentMock).toHaveBeenCalled();
       expect(stripeApiMock).toHaveBeenCalled();
-      expect(wrapStripErrorMock).toHaveBeenCalled();
       expect(updatePaymentMock).toHaveBeenCalledTimes(0);
     });
   });

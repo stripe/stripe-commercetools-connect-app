@@ -97,37 +97,17 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
       }
 
       switch (event.type) {
-        case 'charge.captured': //TODO review with Vishnu to change to charge.captured.
-        /*
-        order_status = confirmed
-        payment_status = Paid
-        * */
         case 'charge.refunded':
-        /*
-          order_status = cancelled
-          payment_status = pending
-          * */
         case 'payment_intent.succeeded':
-        /*
-          order_status = open
-          payment_status = Pending
-          * */
         case 'payment_intent.canceled':
           const modifyData: ModifyPayment = opts.paymentService.getModifyData(event);
           log.info(`Handle ${event.type} event of ${event.data.object.id}`);
           await opts.paymentService.modifyPayment(modifyData);
           break;
+        case 'charge.captured':
         case 'payment_intent.payment_failed':
-        /*
-          order_status = open
-          payment_status = failed
-          * */
         case 'payment_intent.requires_action':
           log.info(`Received: ${event.type} event of ${event.data.object.id}`);
-          /*
-          order_status= open
-          payment_status = pending
-          * */
           break;
         default:
           log.info(`--->>> This Stripe event is not supported: ${event.type}`);

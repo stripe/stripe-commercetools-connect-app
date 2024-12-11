@@ -24,7 +24,6 @@ import {
 import { log } from '../libs/logger';
 
 import { SupportedPaymentComponentsSchemaDTO } from '../dtos/operations/payment-componets.dto';
-import { TransactionDraftDTO, TransactionResponseDTO } from '../dtos/operations/transaction.dto';
 
 export abstract class AbstractPaymentService {
   protected ctCartService: CommercetoolsCartService;

@@ -1,6 +1,6 @@
-# connect-payment-integration-template [**Early Access**]
+# connect-payment-integration-template
 
-This repository provides a [connect](https://docs.commercetools.com/connect)  to integrate commercetools with the Stripe payment service provider (PSP). It features payment integration from Stripe to commercetools, including a listener for various webhooks responses from Stripe. These webhooks calls are converted into different payment status changes within commercetools.
+This repository provides a [connect](https://docs.commercetools.com/connect)  to integrate [commercetools checkout](https://docs.commercetools.com/checkout/overview) with the Stripe payment service provider (PSP). It features payment integration from Stripe to commercetools, including a listener for various webhooks responses from Stripe. These webhooks calls are converted into different payment status changes within commercetools.
 
 
 ## Features
@@ -11,16 +11,31 @@ This repository provides a [connect](https://docs.commercetools.com/connect)  to
 - Includes local development utilities in npm commands to build, start, test, lint & prettify code.
 - Integration of a webhooks listener that handles various scenarios triggered by Stripe events.
 
-## Overview
+## Prerequisite
 
-The `connect-payment-integration-stripe` project presents a Stripe integration connector, encompassing two main modules.
+#### 1. commercetools composable commerce API client
 
-- **Enabler**: This acts as a wrapper implementation where Stripe’s front-end components are embedded. The two main components of web elements that are embedded are the payment element and the express checkout component. The connector library can be loaded directly on the frontend.
-- **Processor**: This functions as a backend service and middleware for integration with the Stripe platform. It interacts with Stripe for transactions and updates the payment entity within Composable Commerce. Additionally, it supports a listener for triggers related to Stripe webhook events to update the payment entity based on webhook events.
+Users are expected to create API client responsible for payment management in composable commerce project. Details of the API client are taken as input as environment variables/ configuration for connect such as `CTP_PROJECT_KEY` , `CTP_CLIENT_ID`, `CTP_CLIENT_SECRET`. For details, please read [Deployment Configuration](./README.md#deployment-configuration).
+In addition, please make sure the API client should have enough scope to be able to manage payment. For details, please refer to [Running Application](./processor/README.md#running-application)
 
+#### 2. various URLs from commercetools composable commerce
 
-![overview.png](docs%2Foverview.png)
-### Components
+Various URLs from commercetools platform are required to be configured so that the connect application can handle session and authentication process for endpoints.
+Their values are taken as input as environment variables/ configuration for connect with variable names `CTP_API_URL`, `CTP_AUTH_URL` and `CTP_SESSION_URL`.
+
+## Getting started
+
+The `connect-payment-integration-stripe` contains two modules:
+
+- **Enabler**: This acts as a wrapper implementation where Stripe’s front-end [Payment Element](https://docs.stripe.com/payments/payment-element) components are embedded. It gives control to checkout product on when and how to load the connector frontend based on business configuration. In cases connector is used directly and not through Checkout product, the connector library can be loaded directly on frontend than the PSP one. 
+- **Processor**: This functions as a backend service and middleware for integration with the Stripe platform. It interacts with Stripe for transactions and updates the payment entity within Composable Commerce. Additionally, it supports a listener for triggers related to Stripe webhook events to update with `connect-payment-sdk` the payment entity based on webhook events.
+  
+Regarding the development of processor module, please refer to the following documentations:
+
+- [Development of Processor](./processor/README.md)
+
+![overview.png](docs%2Foverview.png) //TODO update this image
+### Components //TODO review with the image 
 
 1. **commercetools Infrastructure**
    Represents the e-commerce platform infrastructure provided by commercetools.
@@ -39,7 +54,7 @@ The `connect-payment-integration-stripe` project presents a Stripe integration c
 6. **Integration Showcase for Connector**
    - A sample site that demonstrates the integration and implementation of the Stripe connector components.
 
-### Flow of Interactions
+### Flow of Interactions //TODO review with the image
 
 1. **Payment Transaction Initiation**
    - The payment transaction starts when the Integration Showcase for Connector renders the payment support components provided by the Enabler, and is then sent to the Processor within the Stripe Connector.
@@ -54,6 +69,7 @@ The `connect-payment-integration-stripe` project presents a Stripe integration c
    - The Processor sends a payment intent creation request to Stripe and awaits a valid response.
    - Stripe processes the request and may trigger various webhooks for events such as:
       - `charge.succeeded`
+      - `charge.captured`
       - `payment_intent.succeeded`
       - `charge.refunded`
       - `payment_intent.canceled`
@@ -66,13 +82,14 @@ The `connect-payment-integration-stripe` project presents a Stripe integration c
 5. **Stripe Sample Site**
    - The Integration Showcase for Connector site is used to show how the Stripe connector can be implemented and work in a real-world scenario.
 
-# Webhooks
+# Webhooks //TODO here, create a workflow to show to Vishnu about the checkout connector
 
 The following webhooks are supported:
 - **charge.succeeded**: Creates a payment if the `paymentIntent.capture_method` is manual and creates a payment with transaction Authorization: Success.
 - **payment_intent.succeeded**: Creates a payment if the `paymentIntent.capture_method` is not manual and creates a payment with transaction Charge: Success. If the `paymentIntent.capture_method` is manual, it creates the payment transaction Charge: Success.
 - **charge.refunded**: Creates transaction Refund: Success if the `paymentIntent.captured` value is true.
 - **payment_intent.canceled**: Creates transaction CancelAuthorization: Success if the `paymentIntent.captured` value is true.
+- **charge.captured**: Logs the information in the connector app inside the Processor logs.
 - **payment_intent.payment_failed**: Logs the information in the connector app inside the Processor logs.
 - **payment_intent.requires_action**: Logs the information in the connector app inside the Processor logs.
 
