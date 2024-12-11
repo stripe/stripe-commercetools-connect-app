@@ -352,23 +352,48 @@ describe('Stripe Payment APIs', () => {
     });
   });
 
-  describe('GET /payment/:id', () => {
-    test('should call /payment(:id and return valid information', async () => {
+  describe('POST /confirmPayments/:id', () => {
+    test('should call /confirmPayments/:id and return valid information', async () => {
       //Given
-      jest.spyOn(spiedPaymentService, 'createPaymentIntentStripe').mockResolvedValue(mockRoute__payments_succeed);
+      jest.spyOn(spiedPaymentService, 'updatePaymentIntentStripeSuccessful').mockResolvedValue();
 
       //When
       const responseGetConfig = await fastifyApp.inject({
-        method: 'GET',
-        url: `/payments/id`,
+        method: 'POST',
+        url: `/confirmPayments/id`,
         headers: {
           'x-session-id': sessionId,
           'content-type': 'application/json',
         },
+        body: JSON.stringify({ paymentIntent: 'paymentId' }),
       });
 
       //Then
       expect(responseGetConfig.statusCode).toEqual(200);
+      expect(responseGetConfig.body).toEqual(JSON.stringify({ outcome: 'approved' }));
+      expect(spiedPaymentService.updatePaymentIntentStripeSuccessful).toHaveBeenCalled();
+    });
+
+    test('should call /confirmPayments/:id and return error information', async () => {
+      //Given
+      jest.spyOn(spiedPaymentService, 'updatePaymentIntentStripeSuccessful').mockImplementation(() => {
+        throw new Error('error');
+      });
+
+      //When
+      const responseGetConfig = await fastifyApp.inject({
+        method: 'POST',
+        url: `/confirmPayments/id`,
+        headers: {
+          'x-session-id': sessionId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ paymentIntent: 'paymentId' }),
+      });
+
+      //Then
+      expect(responseGetConfig.statusCode).toEqual(400);
+      expect(responseGetConfig.body).toEqual(JSON.stringify({ outcome: 'rejected' }));
       expect(spiedPaymentService.updatePaymentIntentStripeSuccessful).toHaveBeenCalled();
     });
   });

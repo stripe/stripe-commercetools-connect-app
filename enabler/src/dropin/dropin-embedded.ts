@@ -91,16 +91,16 @@ export class DropinComponents implements DropinComponent {
         return;
       }
 
-      await fetch(`${this.baseOptions.processorUrl}/payments/${paymentIntent.id}`,{
-        method : "GET",
+      await fetch(`${this.baseOptions.processorUrl}/confirmPayments/${paymentReference}`,{
+        method : "POST",
         headers : {
           "Content-Type": "application/json",
           "x-session-id" : this.baseOptions.sessionId
-        }
-      }).then(res => res.json())
-
-      this.baseOptions.onComplete?.({isSuccess:true, paymentReference: paymentReference});
-
+        }, body : JSON.stringify({paymentIntent:paymentIntent.id})
+      }).then( () =>
+        this.baseOptions.onComplete?.({isSuccess:true, paymentReference: paymentReference}))
+        .catch(()=>
+          this.baseOptions.onComplete?.({isSuccess:false}))
     }
 
   }

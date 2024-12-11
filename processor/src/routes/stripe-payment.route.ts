@@ -14,6 +14,13 @@ import { StripeHeaderAuthHook } from '../libs/fastify/hooks/stripe-header-auth.h
 import { Type } from '@sinclair/typebox';
 import { getConfig } from '../config/config';
 import { ModifyPayment } from '../services/types/operation.type';
+import {
+  PaymentIntenConfirmRequestSchemaDTO,
+  PaymentIntentConfirmRequestSchema,
+  PaymentIntentResponseSchema,
+  PaymentIntentResponseSchemaDTO,
+  PaymentModificationStatus,
+} from '../dtos/operations/payment-intents.dto';
 
 type PaymentRoutesOptions = {
   paymentService: StripePaymentService;
@@ -46,8 +53,12 @@ export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPlugi
       return reply.status(200).send(resp);
     },
   );
-  fastify.get<{ Reply: PaymentResponseSchemaDTO; Params: { id: string } }>(
-    '/payments/:id',
+  fastify.post<{
+    Body: PaymentIntenConfirmRequestSchemaDTO;
+    Reply: PaymentIntentResponseSchemaDTO;
+    Params: { id: string };
+  }>(
+    '/confirmPayments/:id',
     {
       preHandler: [opts.sessionHeaderAuthHook.authenticate()],
       schema: {
@@ -59,16 +70,21 @@ export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPlugi
           },
           required: ['id'],
         },
+        body: PaymentIntentConfirmRequestSchema,
         response: {
-          200: PaymentResponseSchema,
+          200: PaymentIntentResponseSchema,
         },
       },
     },
     async (request, reply) => {
-      const { id } = request.params;
-      await opts.paymentService.updatePaymentIntentStripeSuccessful(id);
+      const { id } = request.params; // paymentReference
+      try {
+        await opts.paymentService.updatePaymentIntentStripeSuccessful(id);
 
-      return reply.status(200).send();
+        return reply.status(200).send({ outcome: PaymentModificationStatus.APPROVED });
+      } catch (error) {
+        return reply.status(400).send({ outcome: PaymentModificationStatus.REJECTED });
+      }
     },
   );
 };
