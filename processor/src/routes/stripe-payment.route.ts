@@ -13,7 +13,6 @@ import { StripePaymentService } from '../services/stripe-payment.service';
 import { StripeHeaderAuthHook } from '../libs/fastify/hooks/stripe-header-auth.hook';
 import { Type } from '@sinclair/typebox';
 import { getConfig } from '../config/config';
-import { ModifyPayment } from '../services/types/operation.type';
 import {
   PaymentIntenConfirmRequestSchemaDTO,
   PaymentIntentConfirmRequestSchema,
@@ -83,6 +82,7 @@ export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPlugi
 
         return reply.status(200).send({ outcome: PaymentModificationStatus.APPROVED });
       } catch (error) {
+        log.error('Confirming payment error: ' + error);
         return reply.status(400).send({ outcome: PaymentModificationStatus.REJECTED });
       }
     },
@@ -113,13 +113,6 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
       }
 
       switch (event.type) {
-        case 'charge.refunded':
-        case 'payment_intent.succeeded':
-        case 'payment_intent.canceled':
-          const modifyData: ModifyPayment = opts.paymentService.getModifyData(event);
-          log.info(`Handle ${event.type} event of ${event.data.object.id}`);
-          await opts.paymentService.modifyPayment(modifyData);
-          break;
         case 'charge.captured':
         case 'payment_intent.payment_failed':
         case 'payment_intent.requires_action':
@@ -129,6 +122,8 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
           log.info(`--->>> This Stripe event is not supported: ${event.type}`);
           break;
       }
+
+      await opts.paymentService.processStripeEvent(event);
 
       return reply.status(200).send();
     },

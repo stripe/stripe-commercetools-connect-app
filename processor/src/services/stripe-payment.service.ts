@@ -4,7 +4,6 @@ import {
   CancelPaymentRequest,
   CapturePaymentRequest,
   ConfigResponse,
-  ModifyPayment,
   PaymentProviderModificationResponse,
   RefundPaymentRequest,
   StatusResponse,
@@ -26,10 +25,14 @@ import { getCartIdFromContext, getPaymentInterfaceFromContext } from '../libs/fa
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
 import crypto from 'crypto';
+import { StripeEventConverter } from './converters/stripeEventConverter';
 
 export class StripePaymentService extends AbstractPaymentService {
+  private stripeEventConverter: StripeEventConverter;
+
   constructor(opts: StripePaymentServiceOptions) {
     super(opts.ctCartService, opts.ctPaymentService, opts.ctOrderService);
+    this.stripeEventConverter = new StripeEventConverter();
   }
 
   /**
@@ -230,8 +233,9 @@ export class StripePaymentService extends AbstractPaymentService {
     const ctCart = await this.ctCartService.getCart({
       id: getCartIdFromContext(),
     });
+
     const ctPayment = await this.ctPaymentService.getPayment({
-      id: ctCart.paymentInfo?.payments[ctCart.paymentInfo?.payments.length - 1].id || '',
+      id: paymentId,
     });
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
 
@@ -325,18 +329,6 @@ export class StripePaymentService extends AbstractPaymentService {
     };
   }
 
-  /**
-   * Retrieves the CT Payment ID from the given event.
-   *
-   * @param event - The event object containing metadata.
-   * @return The CT Payment ID extracted from the event metadata.
-   *
-   * @private
-   */
-  private getCtPaymentId(event: Stripe.PaymentIntent | Stripe.Charge): string {
-    return event.metadata.ct_payment_id;
-  }
-
   private convertPaymentResultCode(resultCode: PaymentOutcome): string {
     switch (resultCode) {
       case PaymentOutcome.AUTHORIZED:
@@ -354,32 +346,29 @@ export class StripePaymentService extends AbstractPaymentService {
    * @param {Stripe.Event} event - The Stripe event object to extract data from.
    * @return {ModifyPayment} - An object containing modified payment data.
    */
-  public getModifyData(event: Stripe.Event): ModifyPayment {
-    let data, centAmount, paymentIntentId;
-    if (event.type.startsWith('payment')) {
-      data = event.data.object as Stripe.PaymentIntent;
-      centAmount = data.amount_received;
-      paymentIntentId = data.id;
-    } else {
-      data = event.data.object as Stripe.Charge;
-      centAmount = data.amount_refunded;
-      paymentIntentId = (data.payment_intent as Stripe.PaymentIntent).id;
-    }
+  public async processStripeEvent(event: Stripe.Event): Promise<void> {
+    log.info('Processing notification', { event: JSON.stringify(event.id) });
+    try {
+      const updateData = await this.stripeEventConverter.convert(event);
 
-    return {
-      paymentId: this.getCtPaymentId(data),
-      stripePaymentIntent: paymentIntentId,
-      data: {
-        actions: [
-          {
-            action: this.getEventTransactionType(event.type),
-            amount: {
-              centAmount: centAmount,
-              currencyCode: data.currency.toUpperCase(),
-            },
-          },
-        ],
-      },
-    };
+      for (const tx of updateData.transactions) {
+        const updatedPayment = await this.ctPaymentService.updatePayment({
+          id: updateData.id,
+          pspReference: updateData.pspReference,
+          transaction: tx,
+        });
+
+        log.info('Payment updated after processing the notification', {
+          paymentId: updatedPayment.id,
+          version: updatedPayment.version,
+          pspReference: updateData.pspReference,
+          paymentMethod: updateData.paymentMethod,
+          transaction: JSON.stringify(tx),
+        });
+      }
+    } catch (e) {
+      log.error('Error processing notification', { error: e });
+      return;
+    }
   }
 }

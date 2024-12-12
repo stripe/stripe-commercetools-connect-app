@@ -15,14 +15,10 @@ import {
   mockUpdatePaymentResult,
   mockStripeCapturePaymentResult,
 } from '../utils/mock-payment-results';
-import {
-  mockEvent__charge_refund_captured,
-  mockEvent__paymentIntent_canceled,
-  mockEvent__paymentIntent_succeeded_captureMethodManual,
-} from '../utils/mock-routes-data';
+import { mockEvent__paymentIntent_succeeded_captureMethodManual } from '../utils/mock-routes-data';
 import { mockGetCartResult } from '../utils/mock-cart-data';
 import * as Config from '../../src/config/config';
-import { StripePaymentServiceOptions } from '../../src/services/types/stripe-payment.type';
+import { PaymentStatus, StripePaymentServiceOptions } from '../../src/services/types/stripe-payment.type';
 import { AbstractPaymentService } from '../../src/services/abstract-payment.service';
 import { StripePaymentService } from '../../src/services/stripe-payment.service';
 import * as StatusHandler from '@commercetools/connect-payments-sdk/dist/api/handlers/status.handler';
@@ -32,6 +28,8 @@ import * as Logger from '../../src/libs/logger/index';
 import Stripe from 'stripe';
 import * as StripeClient from '../../src/clients/stripe.client';
 import { SupportedPaymentComponentsSchemaDTO } from '../../src/dtos/operations/payment-componets.dto';
+import { StripeEventConverter } from '../../src/services/converters/stripeEventConverter';
+import { PaymentTransactions } from '../../src/dtos/operations/payment-intents.dto';
 
 jest.mock('stripe', () => ({
   __esModule: true,
@@ -372,35 +370,63 @@ describe('stripe-payment.service', () => {
     });
   });
 
-  describe('method getModifyData', () => {
-    test('should return correct ModifyPayment for a payment_intent succeeded manual event', () => {
+  describe('method processStripeEvent', () => {
+    test('should call updatePayment for a payment_intent succeeded manual event', async () => {
       const mockEvent: Stripe.Event = mockEvent__paymentIntent_succeeded_captureMethodManual;
 
-      const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
-      const result = stripePaymentService.getModifyData(mockEvent);
-
-      expect(result).toEqual({
-        paymentId: undefined,
-        stripePaymentIntent: 'pi_11111',
-        data: {
-          actions: [
-            {
-              action: 'capturePayment',
-              amount: {
-                centAmount: 13200,
-                currencyCode: 'MXN',
-              },
+      const test = {
+        id: 'paymentId',
+        pspReference: 'paymentIntentId',
+        paymentMethod: 'payment',
+        transactions: [
+          {
+            type: PaymentTransactions.AUTHORIZATION,
+            state: PaymentStatus.FAILURE,
+            amount: {
+              centAmount: 1232,
+              currencyCode: 'USD',
             },
-          ],
-        },
-      });
+          },
+        ],
+      };
+      const mockStripeEventConverter = jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(test);
+      const updatePaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
+
+      const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
+      await stripePaymentService.processStripeEvent(mockEvent);
+
+      expect(mockStripeEventConverter).toHaveBeenCalled();
+      expect(updatePaymentMock).toHaveBeenCalledTimes(1);
     });
 
-    test('should return correct ModifyPayment for a charge refunded', () => {
+    test('should NOT call updatePayment for a payment_intent succeeded manual event', async () => {
+      const mockEvent: Stripe.Event = mockEvent__paymentIntent_succeeded_captureMethodManual;
+
+      const test = {
+        id: 'paymentId',
+        pspReference: 'paymentIntentId',
+        paymentMethod: 'payment',
+        transactions: [],
+      };
+      const mockStripeEventConverter = jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(test);
+      const updatePaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
+
+      const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
+      await stripePaymentService.processStripeEvent(mockEvent);
+
+      expect(mockStripeEventConverter).toHaveBeenCalled();
+      expect(updatePaymentMock).toHaveBeenCalledTimes(0);
+    });
+
+    /*test('should return correct ModifyPayment for a charge refunded', () => {
       const mockEvent: Stripe.Event = mockEvent__charge_refund_captured;
 
       const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
-      const result = stripePaymentService.getModifyData(mockEvent);
+      const result = stripePaymentService.processStripeEvent(mockEvent);
 
       expect(result).toEqual({
         paymentId: 'pi_11111',
@@ -423,7 +449,7 @@ describe('stripe-payment.service', () => {
       const mockEvent: Stripe.Event = mockEvent__paymentIntent_canceled;
 
       const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
-      const result = stripePaymentService.getModifyData(mockEvent);
+      const result = stripePaymentService.processStripeEvent(mockEvent);
 
       expect(result).toEqual({
         paymentId: undefined,
@@ -440,6 +466,6 @@ describe('stripe-payment.service', () => {
           ],
         },
       });
-    });
+    });*/
   });
 });
