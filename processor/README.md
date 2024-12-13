@@ -3,7 +3,7 @@ This module provides an application based on [commercetools Connect](https://doc
 
 The corresponding payment, cart or order details would be fetched from composable commerce platform, and then be sent to Stripe for various payment operations such as create/capture/cancel/refund payment.
 
-The module also provides template scripts for ==post-deployment== and pre-undeployment action. After deployment or before undeployment via connect service completed, customized actions can be performed based on users' needs.
+The module also provides template scripts for post-deployment and pre-undeployment action. After deployment or before undeployment via connect service completed, customized actions can be performed based on users' needs.
 
 ## Getting Started
 
@@ -58,6 +58,9 @@ Make sure commercetools client credential have at least the following permission
 * `manage_checkout_payment_intents`
 * `view_sessions`
 * `introspect_oauth_tokens`
+* 'view_api_clients'
+* 'manage_orders'
+* 'manage_types'
 
 ```
 npm run dev
@@ -147,21 +150,48 @@ The response will provide the necessary information to populate the payment elem
     - `amount`: Amount in cents for the cart in session.
     - `currency`: Currency selected for the cart in session.
 - **appearance**: Optional. Used to customize or theme the payment element rendered by Stripe's prebuilt UI component. It must be a valid [Element Appearance](https://docs.stripe.com/elements/appearance-api).
+- **captureMethod**: The current capture method configured in the payment connector.
+- **paymentReference**: The payment reference for the current payment method displayed.
 
 ### Create Payment Intent from Stripe
 This endpoint creates a new [payment intent](https://docs.stripe.com/api/payment_intents) in Stripe. It is called after the user fills out all the payment information and submits the payment. This is an example of a Website rendering the payment component selected from the enabler and when is the payment intent created on Stripe.
-![sequence_diagram.png](..%2Fdocs%2Fsequence_diagram.png)
-#### Endpoint
-`POST /payments`
+![sequence_diagram.png](..%2Fdocs%2Fsequence_diagram.png) //TODO update diagram
 
-#### Request Parameters
-There are no request parameters for this endpoint.
+#### Endpoint
+`POST /payments/:paymentReference`
+
+#### Query Parameters
+- **paymentReference**: The payment reference of the current process.
 
 #### Response Parameters
-- **clientSecret**: The client secret can be used to complete the payment from your frontend. This value is essential for handling the payment on the client side, especially for confirming the payment intent and managing any required authentication steps.
+- **sClientSecret**: The client secret is used to complete the payment from your frontend. 
+- **paymentReference**: The payment reference of the current process.
+
+### Confirm the Payment Intent to commercetools
+This endpoint update the initial payment transaction in commercetools. It is called after the Stripe confirm the payment submit was successful.
+
+#### Endpoint
+`POST /confirmPayments/:id`
+
+#### Query Parameters
+- **id**: The payment reference of the current process.
+
+#### Response Parameters
+- **outcome:"approved|rejected"**: The response of the updated confirmation in commercetools payment transaction.
 
 ### Webhook Listener
-The webhook listener receives events from your Stripe account as they occur, allowing your integration to automatically execute actions accordingly. By registering webhook endpoints in your Stripe account, you enable Stripe to send [Event objects](https://docs.stripe.com/api/events) as part of POST requests to the registered webhook endpoint hosted by your application. More details about this configuration can be found in the configuration section.
+The webhook listener receives events from your Stripe account as they occur, allowing your integration to automatically execute actions accordingly. By registering webhook endpoints in your Stripe account, you enable Stripe to send [Event objects](https://docs.stripe.com/api/events) as part of POST requests to the registered webhook endpoint hosted by your application. 
+The available webhooks are configured on the `post-deploy.ts` file, and more webhook event can be added in the method `updateWebhookEndpoint`.
+The conversion of the webhook event to a transaction is converted in hte `/src/services/converters/stripeEventConverter.ts` file.
+
+The following webhooks currently supported and transformed to different payment transactions in commercetools are:
+- **payment_intent.canceled**: Modified the payment transaction Authorization to Failure and create a payment transaction CancelAuthorization: Success //TODO review with Vishnus if the `paymentIntent.captured` value is true.
+- **payment_intent.succeeded**: Creates a payment transaction Charge: Success. //TODO review with Vishnus If the `paymentIntent.capture_method` is manual, it creates the payment transaction Charge: Success.
+- **payment_intent.requires_action**: Modify the payment transaction Authorization to Pending.
+- **payment_intent.payment_failed**: Modify the payment transaction Authorization to Failure.
+- **charge.refunded**: Create a payment transaction Refund to Pending. //TODO review with Vishnus
+- **charge.succeeded**: //TODO review with Vishnu Creates a payment if the `paymentIntent.capture_method` is manual and creates a payment with transaction Authorization: Success.
+- **charge.captured**: Logs the information in the connector app inside the Processor logs.
 
 #### Endpoint
 `POST /stripe/webhooks`
@@ -172,9 +202,9 @@ The [Event object](https://docs.stripe.com/api/events) sent to your webhook endp
 #### Response Parameters
 The endpoint returns a 200 response to indicate the successful processing of the webhook event.
 
-
 ### Get supported payment components
 Private endpoint protected by JSON Web Token that exposes the payment methods supported by the connector so that checkout application can retrieve the available payment components.
+
 #### Endpoint
 `GET /operations/payment-components`
 
@@ -182,22 +212,22 @@ Private endpoint protected by JSON Web Token that exposes the payment methods su
 N/A
 
 #### Response Parameters
-Now the connector supports payment methods such as [Payment element](https://docs.stripe.com/payments/payment-element) and [Express Checkout Element](https://docs.stripe.com/elements/express-checkout-element)
+The connector supports payment methods such as [Payment element](https://docs.stripe.com/payments/payment-element) embedded as a drop-in 
+
 ```
 {
-    components: [
+    dropins: [
         {
-          type: 'payment',
-        },
-        {
-          type: 'expressCheckout',
+          type: 'embedded',
         },
     ],
+    components: [],
 }
 ```
 
 ### Get config
-Exposes configuration to the frontend such as `clientKey` and `environment`.
+Exposes configuration to the frontend such as `publishableKey` and `environment`.
+
 #### Endpoint
 `GET /operations/config`
 
@@ -205,17 +235,17 @@ Exposes configuration to the frontend such as `clientKey` and `environment`.
 N/A
 
 #### Response Parameters
-It returns an object with `clientKey` and `environment` as key-value pair as below:
+It returns an object with `publishableKey` and `environment` as key-value pair as below:
 ```
 {
-  clientKey: <clientKey>,
   environment: <environment>,
+  publishableKey: <publishableKey>,
 }
 ```
 
-
 ### Get status
 It provides health check feature for checkout front-end so that the correctness of configurations can be verified.
+
 #### Endpoint
 `GET /operations/status`
 
@@ -225,72 +255,25 @@ N/A
 #### Response Parameters
 It returns following attributes in response:
 - status: It indicates the health check status. It can be `OK`, `Partially Available` or `Unavailable`
+- message: Indicates the message.
 - timestamp: The timestamp of the status request
 - version: Current version of the payment connector.
 - checks: List of health check result details. It contains health check result with various external system including commercetools composable commerce and Stripe payment services provider.
 ```
     [ 
         {
-            name: <name of external system>
-            status: <status with indicator UP or DOWN>
-            details: <additional information for connection checking>
+            name: <name of external system>,
+            status: <status with indicator UP or DOWN>,
+            message: <message>,
+            details: <additional information for connection checking>,
         }
     ]
 ```
 - metadata: It lists a collection of metadata including the name/description of the connector and the version of SDKs used to connect to external system.
+
 ### Modify payment
 Private endpoint called by Checkout frontend to support various payment update requests such as cancel/refund/capture payment. It is protected by `manage_checkout_payment_intents` access right of composable commerce OAuth2 token.
+
 #### Endpoint
 `POST /operations/payment-intents/{paymentsId}`
 
-#### Request Parameters
-The request payload is different based on different update operations:
-- Cancel Payment
-
-```
-{
-    actions: [{
-        action: "cancelPayment",
-    }]
-}
-```
-
-- Capture Payment
-    - centAmount: Amount in the smallest indivisible unit of a currency. For example, 5 EUR is specified as 500 while 5 JPY is specified as 5.
-    - currencyCode: Currency code compliant to [ISO 4217](https://en.wikipedia.org/wiki/ISO_4217)
-
-    ```
-    {
-        actions: [{
-            action: "capturePayment",
-            amount: {
-                centAmount: <amount>,
-                currencyCode: <currecy code>
-            }
-        }]
-    } 
-    ```
-
-- Refund Payment
-    - centAmount: Amount in the smallest indivisible unit of a currency. For example, 5 EUR is specified as 500 while 5 JPY is specified as 5.
-    - currencyCode: Currency code compliant to [ISO 4217](https://en.wikipedia.org/wiki/ISO_4217)
-
-    ```
-    {
-        actions: [{
-            action: "refundPayment",
-            amount: {
-                centAmount: <amount>,
-                currencyCode: <currecy code>
-            }
-        }]
-    } 
-    ```
-
-#### Response Parameters
-```
-{
-    outcome: "approved|rejected|received"
-}
-
-```

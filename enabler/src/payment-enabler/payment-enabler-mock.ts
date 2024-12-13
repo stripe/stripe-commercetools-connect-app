@@ -32,6 +32,7 @@ export type BaseOptions = {
   onError: (error?: any) => void;
   paymentElement: StripePaymentElement; // MVP https://docs.stripe.com/payments/payment-element
   elements: StripeElements; // MVP https://docs.stripe.com/js/elements_object
+  paymentReference: string;
 };
 
 
@@ -67,6 +68,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
         onError: options.onError || (() => {}),
         paymentElement: elements.create('payment', elementsOptions as StripePaymentElementOptions ),// MVP this could be expressCheckout or payment for subscritpion.
         elements: elements,
+        paymentReference: cartInfoResponse.paymentReference
       },
     });
   };

@@ -16,6 +16,7 @@ import { getConfig } from '../config/config';
 import {
   PaymentIntenConfirmRequestSchemaDTO,
   PaymentIntentConfirmRequestSchema,
+  PaymentIntentConfirmResponseSchemaDTO,
   PaymentIntentResponseSchema,
   PaymentIntentResponseSchemaDTO,
   PaymentModificationStatus,
@@ -36,25 +37,34 @@ type StripeRoutesOptions = {
  *
  */
 export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPluginOptions & PaymentRoutesOptions) => {
-  fastify.get<{ Reply: PaymentResponseSchemaDTO }>(
-    '/payments',
+  fastify.get<{ Reply: PaymentResponseSchemaDTO; Params: { id: string } }>(
+    '/payments/:id',
     {
       preHandler: [opts.sessionHeaderAuthHook.authenticate()],
       schema: {
+        params: {
+          $id: 'paramsSchema',
+          type: 'object',
+          properties: {
+            id: Type.String(),
+          },
+          required: ['id'],
+        },
         response: {
           200: PaymentResponseSchema,
         },
       },
     },
     async (request, reply) => {
-      const resp = await opts.paymentService.createPaymentIntentStripe();
+      const { id } = request.params; // paymentReference
+      const resp = await opts.paymentService.createPaymentIntentStripe(id);
 
       return reply.status(200).send(resp);
     },
   );
   fastify.post<{
     Body: PaymentIntenConfirmRequestSchemaDTO;
-    Reply: PaymentIntentResponseSchemaDTO;
+    Reply: PaymentIntentConfirmResponseSchemaDTO;
     Params: { id: string };
   }>(
     '/confirmPayments/:id',
@@ -115,7 +125,6 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
       switch (event.type) {
         case 'charge.captured':
         case 'payment_intent.payment_failed':
-        case 'payment_intent.requires_action':
           log.info(`Received: ${event.type} event of ${event.data.object.id}`);
           break;
         default:

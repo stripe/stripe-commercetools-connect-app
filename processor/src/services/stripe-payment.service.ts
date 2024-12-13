@@ -170,12 +170,12 @@ export class StripePaymentService extends AbstractPaymentService {
    *
    * @return Promise<PaymentResponseSchemaDTO> A Promise that resolves to a PaymentResponseSchemaDTO object containing the client secret and payment reference.
    */
-  public async createPaymentIntentStripe(): Promise<PaymentResponseSchemaDTO> {
+  public async createPaymentIntentStripe(paymentReference: string): Promise<PaymentResponseSchemaDTO> {
     const ctCart = await this.ctCartService.getCart({
       id: getCartIdFromContext(),
     });
     const ctPayment = await this.ctPaymentService.getPayment({
-      id: ctCart.paymentInfo?.payments[ctCart.paymentInfo?.payments.length - 1].id || '',
+      id: paymentReference,
     });
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
 
@@ -326,6 +326,7 @@ export class StripePaymentService extends AbstractPaymentService {
       },
       appearance: appearance,
       captureMethod: getConfig().stripeCaptureMethod,
+      paymentReference: ctPayment.id,
     };
   }
 

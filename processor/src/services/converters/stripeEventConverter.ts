@@ -26,7 +26,7 @@ export class StripeEventConverter {
 
   private populateTransactions(event: Stripe.Event, paymentIntentId: string): TransactionData[] {
     switch (event.type) {
-      case StripeEvent.PAYMENT_INTENT__CANCELED:
+      case StripeEvent.PAYMENT_INTENT__CANCELED: //TODO paymentIntent.captured = true create cancelauthorization success
         return [
           {
             type: PaymentTransactions.AUTHORIZATION,

@@ -8,7 +8,7 @@ import { BaseOptions } from "../payment-enabler/payment-enabler-mock";
 import { StripePaymentElement} from "@stripe/stripe-js";
 
 export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
-  public dropinHasSubmit = true; // refering to if checkout is going to call the submit func
+  public dropinHasSubmit = true;
   private baseOptions: BaseOptions;
 
   constructor(baseOptions: BaseOptions) {
@@ -49,6 +49,13 @@ export class DropinComponents implements DropinComponent {
   async mount(selector: string) {
     if (this.baseOptions.paymentElement) {
       this.paymentElement.mount(selector);
+
+      this.paymentElement.on('ready', () => {
+        this.dropinOptions
+          .onDropinReady()
+          .then(() => {})
+          .catch((error) => console.error(error));
+      })
     } else {
       console.error("Payment Element not initialized");
     }
@@ -63,7 +70,7 @@ export class DropinComponents implements DropinComponent {
         return;
       }
 
-      let { errors : processorError, sClientSecret : client_secret, paymentReference: paymentReference} = await fetch(`${this.baseOptions.processorUrl}/payments`,{
+      let { errors : processorError, sClientSecret : client_secret, paymentReference: paymentReference} = await fetch(`${this.baseOptions.processorUrl}/payments/${this.baseOptions.paymentReference}`,{
         method : "GET",
         headers : {
           "Content-Type": "application/json",

@@ -571,6 +571,7 @@ export const mockRoute__get_config_element_succeed: ConfigElementResponseSchemaD
   },
   appearance: '',
   captureMethod: 'captureMethod',
+  paymentReference: 'paymentId',
 };
 
 export const mockEvent__charge_succeeded_notCaptured: Stripe.Event = {

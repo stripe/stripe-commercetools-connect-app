@@ -285,7 +285,7 @@ describe('stripe-payment.service', () => {
         .mockReturnValue(Promise.resolve(mockUpdatePaymentResult));
 
       const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
-      const result = await stripePaymentService.createPaymentIntentStripe();
+      const result = await stripePaymentService.createPaymentIntentStripe('id');
 
       expect(result.sClientSecret).toStrictEqual(mockStripeCreatePaymentResult.client_secret);
       expect(result).toBeDefined();
@@ -324,7 +324,7 @@ describe('stripe-payment.service', () => {
 
       const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
       try {
-        await stripePaymentService.createPaymentIntentStripe();
+        await stripePaymentService.createPaymentIntentStripe('id');
       } catch (e) {
         expect(wrapStripeError).toHaveBeenCalledWith(e);
       }
