@@ -13,7 +13,14 @@ import { StripePaymentService } from '../services/stripe-payment.service';
 import { StripeHeaderAuthHook } from '../libs/fastify/hooks/stripe-header-auth.hook';
 import { Type } from '@sinclair/typebox';
 import { getConfig } from '../config/config';
-import { ModifyPayment } from '../services/types/operation.type';
+import {
+  PaymentIntenConfirmRequestSchemaDTO,
+  PaymentIntentConfirmRequestSchema,
+  PaymentIntentConfirmResponseSchemaDTO,
+  PaymentIntentResponseSchema,
+  PaymentIntentResponseSchemaDTO,
+  PaymentModificationStatus,
+} from '../dtos/operations/payment-intents.dto';
 
 type PaymentRoutesOptions = {
   paymentService: StripePaymentService;
@@ -30,20 +37,64 @@ type StripeRoutesOptions = {
  *
  */
 export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPluginOptions & PaymentRoutesOptions) => {
-  fastify.get<{ Reply: PaymentResponseSchemaDTO }>(
-    '/payments',
+  fastify.get<{ Reply: PaymentResponseSchemaDTO; Params: { id: string } }>(
+    '/payments/:id',
     {
       preHandler: [opts.sessionHeaderAuthHook.authenticate()],
       schema: {
+        params: {
+          $id: 'paramsSchema',
+          type: 'object',
+          properties: {
+            id: Type.String(),
+          },
+          required: ['id'],
+        },
         response: {
           200: PaymentResponseSchema,
         },
       },
     },
     async (request, reply) => {
-      const resp = await opts.paymentService.createPaymentIntentStripe();
+      const { id } = request.params; // paymentReference
+      const resp = await opts.paymentService.createPaymentIntentStripe(id);
 
       return reply.status(200).send(resp);
+    },
+  );
+  fastify.post<{
+    Body: PaymentIntenConfirmRequestSchemaDTO;
+    Reply: PaymentIntentConfirmResponseSchemaDTO;
+    Params: { id: string };
+  }>(
+    '/confirmPayments/:id',
+    {
+      preHandler: [opts.sessionHeaderAuthHook.authenticate()],
+      schema: {
+        params: {
+          $id: 'paramsSchema',
+          type: 'object',
+          properties: {
+            id: Type.String(),
+          },
+          required: ['id'],
+        },
+        body: PaymentIntentConfirmRequestSchema,
+        response: {
+          200: PaymentIntentResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params; // paymentReference
+      try {
+        await opts.paymentService.updatePaymentIntentStripeSuccessful(id);
+
+        return reply.status(200).send({ outcome: PaymentModificationStatus.APPROVED });
+      } catch (error) {
+        log.error('Confirming payment error: ' + error);
+        return reply.status(400).send({ outcome: PaymentModificationStatus.REJECTED });
+      }
     },
   );
 };
@@ -72,25 +123,16 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
       }
 
       switch (event.type) {
-        case 'charge.captured': //TODO review with Vishnu to change to charge.captured.
-          log.info(`Handle ${event.type} event of ${event.data.object.id}`);
-          await opts.paymentService.authorizedPayment(event);
-          break;
-        case 'charge.refunded':
-        case 'payment_intent.succeeded':
-        case 'payment_intent.canceled':
-          const modifyData: ModifyPayment = opts.paymentService.getModifyData(event);
-          log.info(`Handle ${event.type} event of ${event.data.object.id}`);
-          await opts.paymentService.modifyPayment(modifyData);
-          break;
+        case 'charge.captured':
         case 'payment_intent.payment_failed':
-        case 'payment_intent.requires_action':
           log.info(`Received: ${event.type} event of ${event.data.object.id}`);
           break;
         default:
           log.info(`--->>> This Stripe event is not supported: ${event.type}`);
           break;
       }
+
+      await opts.paymentService.processStripeEvent(event);
 
       return reply.status(200).send();
     },

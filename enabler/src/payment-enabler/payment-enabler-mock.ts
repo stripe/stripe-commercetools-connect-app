@@ -33,6 +33,7 @@ export type BaseOptions = {
   onError: (error?: any) => void;
   paymentElement: StripeExpressCheckoutElement | StripePaymentElement; // MVP https://docs.stripe.com/payments/payment-element
   elements: StripeElements; // MVP https://docs.stripe.com/js/elements_object
+  paymentReference: string;
 };
 
 
@@ -70,6 +71,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
         onError: options.onError || (() => {}),
         paymentElement: getPaymentElement(paymentMethodType, elementsOptions, elements),
         elements: elements,
+        paymentReference: cartInfoResponse.paymentReference
       },
     });
   };

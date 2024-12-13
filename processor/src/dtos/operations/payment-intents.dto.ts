@@ -50,6 +50,11 @@ export const PaymentIntentRequestSchema = Type.Object({
   }),
 });
 
+export const PaymentIntentConfirmRequestSchema = Type.Object({
+  paymentIntent: Type.String(),
+  confirmationToken: Type.Optional(Type.String()),
+});
+
 export enum PaymentModificationStatus {
   APPROVED = 'approved',
   REJECTED = 'rejected',
@@ -71,3 +76,5 @@ export enum PaymentTransactions {
 export type PaymentIntentRequestSchemaDTO = Static<typeof PaymentIntentRequestSchema>;
 export type PaymentIntentResponseSchemaDTO = Static<typeof PaymentIntentResponseSchema>;
 export type AmountSchemaDTO = Static<typeof AmountSchema>;
+export type PaymentIntenConfirmRequestSchemaDTO = Static<typeof PaymentIntentConfirmRequestSchema>;
+export type PaymentIntentConfirmResponseSchemaDTO = Static<typeof PaymentIntentResponseSchema>;

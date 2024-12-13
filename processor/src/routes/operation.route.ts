@@ -15,12 +15,6 @@ import {
   PaymentIntentResponseSchemaDTO,
 } from '../dtos/operations/payment-intents.dto';
 import { StatusResponseSchema, StatusResponseSchemaDTO } from '../dtos/operations/status.dto';
-import {
-  TransactionDraft,
-  TransactionDraftDTO,
-  TransactionResponse,
-  TransactionResponseDTO,
-} from '../dtos/operations/transaction.dto';
 import { StripePaymentService } from '../services/stripe-payment.service';
 
 type OperationRouteOptions = {

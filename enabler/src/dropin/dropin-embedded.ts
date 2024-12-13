@@ -8,7 +8,7 @@ import { BaseOptions } from "../payment-enabler/payment-enabler-mock";
 import {StripeExpressCheckoutElement, StripePaymentElement} from "@stripe/stripe-js";
 
 export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
-  public dropinHasSubmit = true; // refering to if checkout is going to call the submit func
+  public dropinHasSubmit = true;
   private baseOptions: BaseOptions;
 
   constructor(baseOptions: BaseOptions) {
@@ -22,8 +22,6 @@ export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
     });
 
     dropin.init();
-    console.log('dropin ------------')
-    console.log(JSON.stringify(dropin, null, 2))
     return dropin;
   }
 }
@@ -48,35 +46,16 @@ export class DropinComponents implements DropinComponent {
 
   }
 
-  addSubmitButton(selector): void {
-    // Create the submit button
-    const button = document.createElement("button");
-    button.id = "card-element-paymentButton";
-    button.textContent = "Submit Payment";
-    button.style.cssText = "padding: 10px 20px; font-size: 16px; background-color: #0070f3; color: white; border: none; cursor: pointer;";
-
-    // Attach an event listener to trigger the submit function
-    button.addEventListener("click", () => {
-      console.log("Submit button clicked");
-      this.submit().catch((error) => {
-        console.error("Error during payment submission:", error);
-      });
-    });
-
-    // Append the button to the parent element of the payment element
-    const paymentElementParent = document.querySelector(selector);
-    if (paymentElementParent) {
-      paymentElementParent.appendChild(button);
-    } else {
-      console.error("Payment element parent not found. Ensure the selector is correct.");
-    }
-
-  }
-
   async mount(selector: string) {
     if (this.baseOptions.paymentElement) {
       this.paymentElement.mount(selector);
-      this.addSubmitButton(selector);
+
+      this.paymentElement.on('ready', () => {
+        this.dropinOptions
+          .onDropinReady()
+          .then(() => {})
+          .catch((error) => console.error(error));
+      })
     } else {
       console.error("Payment Element not initialized");
     }
@@ -91,8 +70,7 @@ export class DropinComponents implements DropinComponent {
         return;
       }
 
-      //MVP if additional information needs to be included in the payment intent, this method should be supplied with the necessary data.
-      let { errors : processorError, sClientSecret : client_secret, paymentReference: paymentReference} = await fetch(`${this.baseOptions.processorUrl}/payments`,{
+      let { errors : processorError, sClientSecret : client_secret, paymentReference: paymentReference} = await fetch(`${this.baseOptions.processorUrl}/payments/${this.baseOptions.paymentReference}`,{
         method : "GET",
         headers : {
           "Content-Type": "application/json",
@@ -106,7 +84,7 @@ export class DropinComponents implements DropinComponent {
         return
       }
 
-      let { error } = await this.baseOptions.sdk.confirmPayment({
+      let { error, paymentIntent } = await this.baseOptions.sdk.confirmPayment({
         elements: this.baseOptions.elements,
         clientSecret: client_secret,
         confirmParams : {
@@ -119,8 +97,17 @@ export class DropinComponents implements DropinComponent {
         this.baseOptions.onError?.(error);
         return;
       }
-      this.baseOptions.onComplete?.({isSuccess:true, paymentReference: paymentReference});
 
+      await fetch(`${this.baseOptions.processorUrl}/confirmPayments/${paymentReference}`,{
+        method : "POST",
+        headers : {
+          "Content-Type": "application/json",
+          "x-session-id" : this.baseOptions.sessionId
+        }, body : JSON.stringify({paymentIntent:paymentIntent.id})
+      }).then( () =>
+        this.baseOptions.onComplete?.({isSuccess:true, paymentReference: paymentReference}))
+        .catch(()=>
+          this.baseOptions.onComplete?.({isSuccess:false}))
     }
 
   }

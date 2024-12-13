@@ -6,12 +6,13 @@
   "scripts": {
     "start": "node dist/main.js",
     "start:dev": "node_modules/.bin/nodemon -q dist/main.js",
-    "lint": "prettier --check \"**/**/*.{ts,js,json}\" && eslint --ext .ts src test",
-    "lint:fix": "prettier --write \"**/**/*.{ts,js,json}\" && eslint --fix --ext .ts src test",
+    "lint": "prettier --check \"**/**/*.{ts,js,json}\" && eslint src test",
+    "lint:fix": "prettier --write \"**/**/*.{ts,js,json}\" && eslint --fix src test",
     "build": "rm -rf /dist && tsc",
     "dev": "ts-node src/main.ts",
-    "test": "jest --detectOpenHandles  --collect-coverage",
     "watch": "nodemon --watch \"src/**\" --ext \"ts,json\" --ignore \"src/**/*.spec.ts\" --exec \"ts-node src/main.ts\"",
+    "test": "jest --detectOpenHandles --collect-coverage",
+    "test:watch": "jest --watch --detectOpenHandles",
     "connector:post-deploy": "node dist/connectors/post-deploy.js",
     "connector:pre-undeploy": "node dist/connectors/pre-undeploy.js"
   },

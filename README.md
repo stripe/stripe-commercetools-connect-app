@@ -1,6 +1,6 @@
-# connect-payment-integration-template [**Early Access**]
+# connect-payment-integration-template
 
-This repository provides a [connect](https://docs.commercetools.com/connect)  to integrate commercetools with the Stripe payment service provider (PSP). It features payment integration from Stripe to commercetools, including a listener for various webhooks responses from Stripe. These webhooks calls are converted into different payment status changes within commercetools.
+This repository provides a [connect](https://docs.commercetools.com/connect)  to integrate [commercetools checkout](https://docs.commercetools.com/checkout/overview) with the Stripe payment service provider (PSP). It features payment integration from Stripe to commercetools, including a listener for various webhooks responses from Stripe. These webhooks calls are converted into different payment status changes within commercetools.
 
 
 ## Features
@@ -10,71 +10,6 @@ This repository provides a [connect](https://docs.commercetools.com/connect)  to
 - Uses [connect payment SDK](https://github.com/commercetools/connect-payments-sdk) to manage request context, sessions and JWT authentication.
 - Includes local development utilities in npm commands to build, start, test, lint & prettify code.
 - Integration of a webhooks listener that handles various scenarios triggered by Stripe events.
-
-## Overview
-
-The `connect-payment-integration-stripe` project presents a Stripe integration connector, encompassing two main modules.
-
-- **Enabler**: This acts as a wrapper implementation where Stripe’s front-end components are embedded. The two main components of web elements that are embedded are the payment element and the express checkout component. The connector library can be loaded directly on the frontend.
-- **Processor**: This functions as a backend service and middleware for integration with the Stripe platform. It interacts with Stripe for transactions and updates the payment entity within Composable Commerce. Additionally, it supports a listener for triggers related to Stripe webhook events to update the payment entity based on webhook events.
-
-
-![overview.png](docs%2Foverview.png)
-### Components
-
-1. **commercetools Infrastructure**
-   Represents the e-commerce platform infrastructure provided by commercetools.
-2. **Stripe Connector**
-   - A connect integration within the infrastructure that facilitates communication between commercetools and Stripe.
-3. **Processor**
-   - Manages payment transactions and interacts with Stripe to:
-      - Create payment intents.
-      - Handle manual API payment transactions.
-      - Listening to webhooks events triggered by Stripe and processing all related payment operations.
-4. **Enabler**
-   - Assists in the creation of payment intents and handling of payment element and express checkout components.
-   - Connects to any sample site that wants to integrate the connector, providing the available payment components for seamless integration.
-5. **Stripe**
-   - The external payment service provider that handles various payment operations, sends webhooks for events such as authorization, capture, refund, and cancel.
-6. **Integration Showcase for Connector**
-   - A sample site that demonstrates the integration and implementation of the Stripe connector components.
-
-### Flow of Interactions
-
-1. **Payment Transaction Initiation**
-   - The payment transaction starts when the Integration Showcase for Connector renders the payment support components provided by the Enabler, and is then sent to the Processor within the Stripe Connector.
-
-2. **Processor Actions**
-   - The Processor within the Stripe Connector is responsible for:
-      - Creating payment intents.
-      - Handling manual API payment transactions.
-      - Listen to webhooks events triggered by Stripe and process all related payment operations.
-
-3. **Communication with Stripe**
-   - The Processor sends a payment intent creation request to Stripe and awaits a valid response.
-   - Stripe processes the request and may trigger various webhooks for events such as:
-      - `charge.succeeded`
-      - `payment_intent.succeeded`
-      - `charge.refunded`
-      - `payment_intent.canceled`
-      - `payment_intent.payment_failed`
-      - `payment_intent.requires_action`
-
-4. **Enabler Role**
-   - The Enabler within the Stripe Connector assists in managing the payment intents and express checkout components.
-
-5. **Stripe Sample Site**
-   - The Integration Showcase for Connector site is used to show how the Stripe connector can be implemented and work in a real-world scenario.
-
-# Webhooks
-
-The following webhooks are supported:
-- **charge.succeeded**: Creates a payment if the `paymentIntent.capture_method` is manual and creates a payment with transaction Authorization: Success.
-- **payment_intent.succeeded**: Creates a payment if the `paymentIntent.capture_method` is not manual and creates a payment with transaction Charge: Success. If the `paymentIntent.capture_method` is manual, it creates the payment transaction Charge: Success.
-- **charge.refunded**: Creates transaction Refund: Success if the `paymentIntent.captured` value is true.
-- **payment_intent.canceled**: Creates transaction CancelAuthorization: Success if the `paymentIntent.captured` value is true.
-- **payment_intent.payment_failed**: Logs the information in the connector app inside the Processor logs.
-- **payment_intent.requires_action**: Logs the information in the connector app inside the Processor logs.
 
 ## Prerequisite
 
@@ -88,7 +23,58 @@ In addition, please make sure the API client should have enough scope to be able
 Various URLs from commercetools platform are required to be configured so that the connect application can handle session and authentication process for endpoints.
 Their values are taken as input as environment variables/ configuration for connect with variable names `CTP_API_URL`, `CTP_AUTH_URL` and `CTP_SESSION_URL`.
 
-#### 3. Stripe account credentials and configurations
+## Getting started
+
+The `connect-payment-integration-stripe` contains two modules:
+
+- **Enabler**: This acts as a wrapper implementation where Stripe’s front-end [Payment Element](https://docs.stripe.com/payments/payment-element) components are embedded. It gives control to checkout product on when and how to load the connector frontend based on business configuration. In cases connector is used directly and not through Checkout product, the connector library can be loaded directly on frontend than the PSP one. 
+- **Processor**: This functions as a backend service and middleware for integration with the Stripe platform. It interacts with Stripe for transactions and updates the payment entity within Composable Commerce. Additionally, it supports a listener for triggers related to Stripe webhook events to update with `connect-payment-sdk` the payment entity based on webhook events.
+  
+Regarding the development of processor module, please refer to the following documentations:
+
+- [Development of Processor](./processor/README.md)
+
+![overview.png](docs%2Foverview.png) 
+### Components 
+
+1. **commercetools Checkout**
+   Represents the [Checkout](https://docs.commercetools.com/checkout/) platform infrastructure provided by commercetools.
+2. **Payment Connector**
+   - A [Payment connector integration](https://docs.commercetools.com/checkout/payment-connectors-applications) within the infrastructure of commercetools that facilitates communication between commercetools and Stripe.
+3. **Processor**
+   - Manages payment transactions and interacts with Stripe to:
+      - Create payment intents.
+      - Handle manual API payment transactions.
+      - Listening to webhooks events triggered by Stripe and processing all related payment operations.
+4. **Enabler**
+   - Assists in the creation of the [Stripe Payment Element](https://docs.stripe.com/payments/payment-element) component used as a payment method in the commercetools Checkout.
+   - Connects to any sample site that wants to integrate the connector, providing the available payment components for seamless integration.
+5. **Stripe**
+   - The external payment service provider that handles various payment operations, sends webhooks for events such as authorization, capture, refund, and cancel.
+
+# Webhooks
+
+The following webhooks are currently supported and the payment transactions in commercetools are:
+- **payment_intent.canceled**: Modified the payment transaction Authorization to Failure and create a payment transaction CancelAuthorization: Success //TODO review with Vishnus if the `paymentIntent.captured` value is true.
+- **payment_intent.succeeded**: Creates a payment transaction Charge: Success. //TODO review with Vishnus If the `paymentIntent.capture_method` is manual, it creates the payment transaction Charge: Success.
+- **payment_intent.requires_action**: Modify the payment transaction Authorization to Pending.
+- **payment_intent.payment_failed**: Modify the payment transaction Authorization to Failure.
+- **charge.refunded**: Create a payment transaction Refund to Pending. //TODO review with Vishnus
+- **charge.succeeded**: //TODO review with Vishnu Creates a payment if the `paymentIntent.capture_method` is manual and creates a payment with transaction Authorization: Success.
+- **charge.captured**: Logs the information in the connector app inside the Processor logs.
+
+## Prerequisite
+
+#### 1. commercetools
+
+We will need to create the connector found on the commercetools connect marketplace, enable the checkout feature in the merchant center and select the payment connector as drop-in payment method in the checkout configuration page.Users are expected to create API client responsible for payment management in composable commerce project. Details of the API client are taken as input as environment variables/ configuration for connect such as `CTP_PROJECT_KEY` , `CTP_CLIENT_ID`, `CTP_CLIENT_SECRET`.
+
+1. **API client**:Various URLs from commercetools platform are required to be configured so that the connect application can handle session and authentication process for endpoints. Their values are taken as input as environment variables/ configuration for connect with variable names `CTP_API_URL`, `CTP_AUTH_URL` and `CTP_SESSION_URL`.
+2. **payment connector**: Install the payment connector from the commercetools connector marketplace.
+3. **commercetools checkout**: Enable checkout connector in the merchant center to be able to install the current connector as a drop-in payment method in the checkout dashboard configuration page. 
+   
+
+#### 2. Stripe account credentials and configurations
 
 The following Stripe account credentials and configurations are required:
 
@@ -115,49 +101,10 @@ The following Stripe account credentials and configurations are required:
 
 2. **STRIPE_WEBHOOK_SIGNING_SECRET**: Signing secret of a Webhook Endpoint in Stripe.
 
-### Considerations about Apple Pay
-
-To enable the Apple Pay button in the payment element component, your website must have the correct domain association file hosted. This file is crucial for Apple to verify that you control the domain where Apple Pay will be used.
-
-1. **Domain Association File**: Stripe generates a domain association file named `apple-developer-merchantid-domain-association`. You need to host this file at the following URL on your website:
-   - `https://yourwebsite.com/.well-known/apple-developer-merchantid-domain-association`
-   - Replace `https://yourwebsite.com` with your actual domain.
-
-2. **Verification Process**: Once the file is correctly hosted, Stripe will automatically attempt to verify your domain with Apple. This verification is necessary for Apple Pay to function correctly on your site.
-
-3. **Updating the File**: Keep in mind that this file has an expiration date. If you receive an error about an outdated file, you'll need to download the latest version from Stripe and replace the old file on your server.
-
-These steps ensure that the Apple Pay button is displayed and functional when using the payment element on your site.
-
 #### Considerations about the Webhook Endpoint
 Before installing the connector, it is necessary to create a Webhook Endpoint in Stripe (using a dummy URL). Once created, the ID and Signing Secret can be retrieved from the Stripe Console. This Webhook Endpoint will be updated during the post-deploy script after the connector has been deployed. It's important to set the correct values in the variables so the events are sent to the connector and can be accepted.
 
 ## Development Guide
-
-## Getting started
-
-The template contains two modules :
-
-- Enabler: Acts as a wrapper implementation in which frontend components from PSPs embedded. It gives control to checkout product on when and how to load the connector frontend based on business configuration. In cases connector is used directly and not through Checkout product, the connector library can be loaded directly on frontend than the PSP one.
-- Processor : Acts as backend services which is middleware to 3rd party PSPs to be responsible for managing transactions with PSPs and updating payment entity in composable commerce. `connect-payment-sdk` will be offered to be used in connector to manage request context, sessions and other tools necessary to transact.
-
-Regarding the development of processor module, please refer to the following documentations:
-
-Regarding the development of enabler module, please refer to the following documentations:
-- [Development of Enabler](enabler%2FREADME.md#payment-integration-enabler)
-
-Regarding the development of processor module, please refer to the following documentations:
-- [Development of Processor](processor%2FREADME.md#payment-integration-processor)
-
-#### 1. Develop your specific needs
-
-To proceed payment operations via external PSPs, users need to extend this connector with the following task
-
-- API communication: Implementation to communicate between this connector application and the external system using libraries provided by PSPs. Please remember that the payment requests might not be sent to PSPs successfully in a single attempt. It should have needed retry and recovery mechanism.
-
-#### 2. Register as connector in commercetools Connect
-
-Follow guidelines [here](https://docs.commercetools.com/connect/getting-started) to register the connector for public/private use.
 
 ## Deployment Configuration
 
@@ -253,12 +200,14 @@ Here you can see the details about various variables in configuration
 - `CTP_CLIENT_SECRET`: The client secret of commercetools composable commerce user account. It is used in commercetools client to communicate with commercetools composable commerce via SDK.
 - `CTP_CLIENT_ID`: The client ID of your commercetools composable commerce user account. It is used in commercetools client to communicate with commercetools composable commerce via SDK. Expected scopes are: `manage_payments` `manage_orders` `view_sessions` `view_api_clients` `manage_checkout_payment_intents` `introspect_oauth_tokens` `manage_types` `view_types`.
 - `STRIPE_SECRET_KEY`: Stripe authenticates your API requests using your account’s API keys
+- `STRIPE_PUBLISHABLE_KEY`: Stripe authenticates your front end requests using your account’s Publishable keys
 - `STRIPE_WEBHOOK_ID`: Stripe unique identifier for the [Webhook Endpoints](https://docs.stripe.com/api/webhook_endpoints)
 - `STRIPE_WEBHOOK_SIGNING_SECRET`: Stripe Secret key to verify webhook signatures using the official libraries. This key is created in the [Stripe dashboard Webhook](https://docs.stripe.com/webhooks).
 
 ## Development
 
 In order to get started developing this connector certain configuration are necessary, most of which involve updating environment variables in both services (enabler, processor).
+It is necessary to create a Webhook Endpoint in Stripe (using a dummy URL). Once created, the ID and Signing Secret can be retrieved from the Stripe Console. This Webhook Endpoint will be updated during the post-deploy script after the connector has been deployed. It's important to set the correct values in the variables so the events are sent to the connector and can be accepted.
 
 #### Configuration steps
 

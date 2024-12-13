@@ -24,7 +24,6 @@ import {
 import { log } from '../libs/logger';
 
 import { SupportedPaymentComponentsSchemaDTO } from '../dtos/operations/payment-componets.dto';
-import { TransactionDraftDTO, TransactionResponseDTO } from '../dtos/operations/transaction.dto';
 
 export abstract class AbstractPaymentService {
   protected ctCartService: CommercetoolsCartService;
@@ -126,14 +125,12 @@ export abstract class AbstractPaymentService {
     } else {
       requestAmount = ctPayment.amountPlanned;
     }
-    // MVP capture/refund the total of the order
-    // To perform a partial capture or refund, retrieve the specific amount from 'request.amount'.
-    // requestAmount = request.amount;
 
     const transactionType = this.getPaymentTransactionType(request.action);
 
     const updatedPayment = await this.ctPaymentService.updatePayment({
       id: ctPayment.id,
+      pspReference: opts.stripePaymentIntent || '',
       transaction: {
         type: transactionType,
         amount: requestAmount,
@@ -149,7 +146,7 @@ export abstract class AbstractPaymentService {
     const res = await this.processPaymentModification(updatedPayment, transactionType, requestAmount);
 
     await this.ctPaymentService.updatePayment({
-      id: ctPayment.id,
+      id: updatedPayment.id,
       transaction: {
         type: transactionType,
         amount: requestAmount,
