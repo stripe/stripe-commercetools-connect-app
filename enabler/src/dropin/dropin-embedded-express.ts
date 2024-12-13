@@ -71,7 +71,7 @@ export class DropinComponents implements DropinComponent {
   async submit(): Promise<void> {
     {
       //MVP if additional information needs to be included in the payment intent, this method should be supplied with the necessary data.
-      let { errors : processorError, sClientSecret : client_secret, paymentReference: paymentReference} = await fetch(`${this.baseOptions.processorUrl}/payments`,{
+      let { errors : processorError, sClientSecret : client_secret, paymentReference: paymentReference} = await fetch(`${this.baseOptions.processorUrl}/payments/${this.baseOptions.paymentReference}`,{
         method : "GET",
         headers : {
           "Content-Type": "application/json",
@@ -85,7 +85,7 @@ export class DropinComponents implements DropinComponent {
         return
       }
 
-      let { error } = await this.baseOptions.sdk.confirmPayment({
+      let { error, paymentIntent } = await this.baseOptions.sdk.confirmPayment({
         elements: this.baseOptions.elements,
         clientSecret: client_secret,
         confirmParams : {
@@ -98,6 +98,18 @@ export class DropinComponents implements DropinComponent {
         this.baseOptions.onError?.(error);
         return;
       }
+
+      await fetch(`${this.baseOptions.processorUrl}/confirmPayments/${paymentReference}`,{
+        method : "POST",
+        headers : {
+          "Content-Type": "application/json",
+          "x-session-id" : this.baseOptions.sessionId
+        }, body : JSON.stringify({paymentIntent:paymentIntent.id})
+      }).then( () =>
+        this.baseOptions.onComplete?.({isSuccess:true, paymentReference: paymentReference}))
+        .catch(()=>
+          this.baseOptions.onComplete?.({isSuccess:false}))
+
       this.baseOptions.onComplete?.({isSuccess:true, paymentReference: paymentReference});
 
     }
