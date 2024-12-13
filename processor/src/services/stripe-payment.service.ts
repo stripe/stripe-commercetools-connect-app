@@ -211,7 +211,7 @@ export class StripePaymentService extends AbstractPaymentService {
       stripePaymentIntentId: paymentIntent.id,
     });
 
-    const updatedPayment = await this.ctPaymentService.updatePayment({
+    await this.ctPaymentService.updatePayment({
       id: ctPayment.id,
       pspReference: paymentIntent.id,
       paymentMethod: 'payment',
@@ -219,7 +219,7 @@ export class StripePaymentService extends AbstractPaymentService {
 
     return {
       sClientSecret: paymentIntent.client_secret ?? '',
-      paymentReference: updatedPayment.id,
+      paymentReference: paymentReference,
     };
   }
 
@@ -241,13 +241,11 @@ export class StripePaymentService extends AbstractPaymentService {
 
     log.info(`PaymentIntent confirmed.`, {
       ctCartId: ctCart.id,
-      stripePaymentIntentId: paymentId,
+      stripePaymentIntentId: ctPayment.interfaceId,
     });
 
     await this.ctPaymentService.updatePayment({
       id: ctPayment.id,
-      pspReference: paymentId,
-      paymentMethod: 'payment',
       transaction: {
         type: PaymentTransactions.AUTHORIZATION,
         amount: amountPlanned,

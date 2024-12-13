@@ -70,7 +70,7 @@ export class DropinComponents implements DropinComponent {
         return;
       }
 
-      let { errors : processorError, sClientSecret : client_secret, paymentReference: paymentReference} = await fetch(`${this.baseOptions.processorUrl}/payments/${this.baseOptions.paymentReference}`,{
+      let { errors : processorError, sClientSecret : client_secret } = await fetch(`${this.baseOptions.processorUrl}/payments/${this.baseOptions.paymentReference}`,{
         method : "GET",
         headers : {
           "Content-Type": "application/json",
@@ -98,14 +98,14 @@ export class DropinComponents implements DropinComponent {
         return;
       }
 
-      await fetch(`${this.baseOptions.processorUrl}/confirmPayments/${paymentReference}`,{
+      await fetch(`${this.baseOptions.processorUrl}/confirmPayments/${this.baseOptions.paymentReference}`,{
         method : "POST",
         headers : {
           "Content-Type": "application/json",
           "x-session-id" : this.baseOptions.sessionId
         }, body : JSON.stringify({paymentIntent:paymentIntent.id})
       }).then( () =>
-        this.baseOptions.onComplete?.({isSuccess:true, paymentReference: paymentReference}))
+        this.baseOptions.onComplete?.({isSuccess:true, paymentReference: this.baseOptions.paymentReference}))
         .catch(()=>
           this.baseOptions.onComplete?.({isSuccess:false}))
     }
