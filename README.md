@@ -55,13 +55,14 @@ Regarding the development of processor module, please refer to the following doc
 # Webhooks
 
 The following webhooks are currently supported and the payment transactions in commercetools are:
-- **payment_intent.canceled**: Modified the payment transaction Authorization to Failure and create a payment transaction CancelAuthorization: Success //TODO review with Vishnus if the `paymentIntent.captured` value is true.
-- **payment_intent.succeeded**: Creates a payment transaction Charge: Success. //TODO review with Vishnus If the `paymentIntent.capture_method` is manual, it creates the payment transaction Charge: Success.
+- **payment_intent.canceled**: Modified the payment transaction Authorization to Failure and create a payment transaction CancelAuthorization: Success
+- **payment_intent.succeeded**: Creates a payment transaction Charge: Success.
 - **payment_intent.requires_action**: Modify the payment transaction Authorization to Pending.
 - **payment_intent.payment_failed**: Modify the payment transaction Authorization to Failure.
-- **charge.refunded**: Create a payment transaction Refund to Pending. //TODO review with Vishnus
-- **charge.succeeded**: //TODO review with Vishnu Creates a payment if the `paymentIntent.capture_method` is manual and creates a payment with transaction Authorization: Success.
+- **charge.refunded**: Create a payment transaction Refund to Success, and a Chargeback to Success.
+- **charge.succeeded**: Logs the information in the connector app inside the Processor logs.
 - **charge.captured**: Logs the information in the connector app inside the Processor logs.
+
 
 ## Prerequisite
 
@@ -165,9 +166,7 @@ deployAs:
           description: Stripe Webhook ID  
           required: true  
         - key: STRIPE_APPEARANCE_PAYMENT_ELEMENT  
-          description: Stripe Appearance for Payment Element.  
-        - key: STRIPE_APPEARANCE_EXPRESS_CHECKOUT  
-          description: Stripe Appearance for Express Checkout Element.  
+          description: Stripe Appearance for Payment Element.    
         - key: STRIPE_PUBLISHABLE_KEY  
           description: Stripe Publishable Key  
           
@@ -196,7 +195,6 @@ Here you can see the details about various variables in configuration
 - `CTP_JWT_ISSUER`: The issuer inside JSON Web Token which is required in JWT validation process. Default value is `https://mc-api.europe-west1.gcp.commercetools.com`
 - `STRIPE_CAPTURE_METHOD`: Stripe capture method (manual or automatic), default value: automatic.
 - `STRIPE_APPEARANCE_PAYMENT_ELEMENT`: Stripe Elements supports visual customization, which allows you to match the design of your site with the `appearance` option. This value has the specific appearance of the Payment Element component.
-- `STRIPE_APPEARANCE_EXPRESS_CHECKOUT`: Stripe Elements supports visual customization, which allows you to match the design of your site with the `appearance` option. This value has the specific appearance of the Express Checkout Element component.
 - `CTP_CLIENT_SECRET`: The client secret of commercetools composable commerce user account. It is used in commercetools client to communicate with commercetools composable commerce via SDK.
 - `CTP_CLIENT_ID`: The client ID of your commercetools composable commerce user account. It is used in commercetools client to communicate with commercetools composable commerce via SDK. Expected scopes are: `manage_payments` `manage_orders` `view_sessions` `view_api_clients` `manage_checkout_payment_intents` `introspect_oauth_tokens` `manage_types` `view_types`.
 - `STRIPE_SECRET_KEY`: Stripe authenticates your API requests using your account’s API keys

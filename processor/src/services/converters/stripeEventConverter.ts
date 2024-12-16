@@ -26,7 +26,7 @@ export class StripeEventConverter {
 
   private populateTransactions(event: Stripe.Event, paymentIntentId: string): TransactionData[] {
     switch (event.type) {
-      case StripeEvent.PAYMENT_INTENT__CANCELED: //TODO paymentIntent.captured = true create cancelauthorization success
+      case StripeEvent.PAYMENT_INTENT__CANCELED:
         return [
           {
             type: PaymentTransactions.AUTHORIZATION,
@@ -72,7 +72,13 @@ export class StripeEventConverter {
         return [
           {
             type: PaymentTransactions.REFUND,
-            state: PaymentStatus.PENDING,
+            state: PaymentStatus.SUCCESS,
+            amount: this.populateAmount(event),
+            interactionId: paymentIntentId,
+          },
+          {
+            type: PaymentTransactions.CHARGE_BACK,
+            state: PaymentStatus.SUCCESS,
             amount: this.populateAmount(event),
             interactionId: paymentIntentId,
           },

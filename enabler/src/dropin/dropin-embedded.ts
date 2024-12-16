@@ -70,7 +70,7 @@ export class DropinComponents implements DropinComponent {
         return;
       }
 
-      let { errors : processorError, sClientSecret : client_secret } = await fetch(`${this.baseOptions.processorUrl}/payments/${this.baseOptions.paymentReference}`,{
+      let { errors : processorError, sClientSecret : client_secret, paymentReference: paymentReference } = await fetch(`${this.baseOptions.processorUrl}/payments`,{
         method : "GET",
         headers : {
           "Content-Type": "application/json",
@@ -98,16 +98,26 @@ export class DropinComponents implements DropinComponent {
         return;
       }
 
-      await fetch(`${this.baseOptions.processorUrl}/confirmPayments/${this.baseOptions.paymentReference}`,{
+      await fetch(`${this.baseOptions.processorUrl}/confirmPayments/${paymentReference}`,{
         method : "POST",
         headers : {
           "Content-Type": "application/json",
           "x-session-id" : this.baseOptions.sessionId
         }, body : JSON.stringify({paymentIntent:paymentIntent.id})
-      }).then( () =>
-        this.baseOptions.onComplete?.({isSuccess:true, paymentReference: this.baseOptions.paymentReference}))
-        .catch(()=>
-          this.baseOptions.onComplete?.({isSuccess:false}))
+      }).then( (response) => {
+        if(response.status === 200){
+          this.baseOptions.onComplete?.({isSuccess:true, paymentReference: paymentReference})
+        }else {
+          this.baseOptions.onError?.("Error on /confirmPayments");
+
+        }
+      })
+        .catch((error)=> {
+          this.baseOptions.onError?.(error);
+        });
+
+
+
     }
 
   }

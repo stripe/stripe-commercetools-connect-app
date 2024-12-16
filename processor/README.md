@@ -142,7 +142,7 @@ This endpoint retrieves the payment information from the cart in session to use 
 `GET /config-element/:paymentComponent`
 
 #### Query Parameters
--**paymentComponent**: Used to retrieve the correct appearance of the selected payment method. The appearance can be modified in the environment variables `STRIPE_APPEARANCE_PAYMENT_ELEMENT` or `STRIPE_APPEARANCE_EXPRESS_CHECKOUT`and should be in the form of a JSON string with escaped double quotes (e.g. "{\"theme\":\"stripe\",\"variables\":{\"colorPrimary\":\"#0570DE\",\"colorBackground\":\"#FFFFFF\",\"colorText\":\"#30313D\",\"colorDanger\":\"#DF1B41\",\"fontFamily\":\"Ideal Sans,system-ui,sansserif\",\"spacingUnit\":\"2px\",\"borderRadius\":\"4px\"}}"). The correct values will be retrieved by the exposed call ´operations/payment-components´, e.g., 'payment' or 'expressCheckout'.
+-**paymentComponent**: Used to retrieve the correct appearance of the selected payment method. The appearance can be modified in the environment variables `STRIPE_APPEARANCE_PAYMENT_ELEMENT` and should be in the form of a JSON string with escaped double quotes (e.g. "{\"theme\":\"stripe\",\"variables\":{\"colorPrimary\":\"#0570DE\",\"colorBackground\":\"#FFFFFF\",\"colorText\":\"#30313D\",\"colorDanger\":\"#DF1B41\",\"fontFamily\":\"Ideal Sans,system-ui,sansserif\",\"spacingUnit\":\"2px\",\"borderRadius\":\"4px\"}}"). The correct values will be retrieved by the exposed call ´operations/payment-components´, e.g., 'payment'.
 
 #### Response Parameters
 The response will provide the necessary information to populate the payment element:
@@ -151,17 +151,14 @@ The response will provide the necessary information to populate the payment elem
     - `currency`: Currency selected for the cart in session.
 - **appearance**: Optional. Used to customize or theme the payment element rendered by Stripe's prebuilt UI component. It must be a valid [Element Appearance](https://docs.stripe.com/elements/appearance-api).
 - **captureMethod**: The current capture method configured in the payment connector.
-- **paymentReference**: The payment reference for the current payment method displayed.
 
 ### Create Payment Intent from Stripe
-This endpoint creates a new [payment intent](https://docs.stripe.com/api/payment_intents) in Stripe. It is called after the user fills out all the payment information and submits the payment. This is an example of a Website rendering the payment component selected from the enabler and when is the payment intent created on Stripe.
-![sequence_diagram.png](..%2Fdocs%2Fsequence_diagram.png) //TODO update diagram
-
+This endpoint creates a new [payment intent](https://docs.stripe.com/api/payment_intents) in Stripe. It is called after the user fills out all the payment information and submits the payment. 
 #### Endpoint
-`POST /payments/:paymentReference`
+`POST /payments`
 
 #### Query Parameters
-- **paymentReference**: The payment reference of the current process.
+N/A
 
 #### Response Parameters
 - **sClientSecret**: The client secret is used to complete the payment from your frontend. 
@@ -185,12 +182,12 @@ The available webhooks are configured on the `post-deploy.ts` file, and more web
 The conversion of the webhook event to a transaction is converted in hte `/src/services/converters/stripeEventConverter.ts` file.
 
 The following webhooks currently supported and transformed to different payment transactions in commercetools are:
-- **payment_intent.canceled**: Modified the payment transaction Authorization to Failure and create a payment transaction CancelAuthorization: Success //TODO review with Vishnus if the `paymentIntent.captured` value is true.
-- **payment_intent.succeeded**: Creates a payment transaction Charge: Success. //TODO review with Vishnus If the `paymentIntent.capture_method` is manual, it creates the payment transaction Charge: Success.
+- **payment_intent.canceled**: Modified the payment transaction Authorization to Failure and create a payment transaction CancelAuthorization: Success 
+- **payment_intent.succeeded**: Creates a payment transaction Charge: Success. 
 - **payment_intent.requires_action**: Modify the payment transaction Authorization to Pending.
 - **payment_intent.payment_failed**: Modify the payment transaction Authorization to Failure.
-- **charge.refunded**: Create a payment transaction Refund to Pending. //TODO review with Vishnus
-- **charge.succeeded**: //TODO review with Vishnu Creates a payment if the `paymentIntent.capture_method` is manual and creates a payment with transaction Authorization: Success.
+- **charge.refunded**: Create a payment transaction Refund to Success, and a Chargeback to Success.
+- **charge.succeeded**: Logs the information in the connector app inside the Processor logs.
 - **charge.captured**: Logs the information in the connector app inside the Processor logs.
 
 #### Endpoint

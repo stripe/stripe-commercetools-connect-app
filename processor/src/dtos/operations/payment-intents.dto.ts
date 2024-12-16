@@ -64,12 +64,14 @@ const PaymentModificationSchema = Type.Enum(PaymentModificationStatus);
 
 export const PaymentIntentResponseSchema = Type.Object({
   outcome: PaymentModificationSchema,
+  error: Type.Optional(Type.String()),
 });
 
 export enum PaymentTransactions {
   AUTHORIZATION = 'Authorization',
   CANCEL_AUTHORIZATION = 'CancelAuthorization',
   CHARGE = 'Charge',
+  CHARGE_BACK = 'Chargeback',
   REFUND = 'Refund',
 }
 

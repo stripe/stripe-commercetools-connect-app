@@ -112,8 +112,16 @@ describe('stripeEvent.converter', () => {
             centAmount: 34500,
             currencyCode: 'MXN',
           },
-          state: 'Pending',
+          state: 'Success',
           type: 'Refund',
+        },
+        {
+          amount: {
+            centAmount: 34500,
+            currencyCode: 'MXN',
+          },
+          state: 'Success',
+          type: 'Chargeback',
         },
       ],
     });

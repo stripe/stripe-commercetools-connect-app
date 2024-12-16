@@ -11,7 +11,7 @@ import {
   StripeElements,
   StripePaymentElementOptions
 } from "@stripe/stripe-js";
-import {StripePaymentElement} from "@stripe/stripe-js/dist/stripe-js/elements/index";
+import {StripePaymentElement} from "@stripe/stripe-js";
 import {ConfigElementResponseSchemaDTO, ConfigResponseSchemaDTO} from "../dtos/mock-payment.dto.ts";
 
 
@@ -32,7 +32,6 @@ export type BaseOptions = {
   onError: (error?: any) => void;
   paymentElement: StripePaymentElement; // MVP https://docs.stripe.com/payments/payment-element
   elements: StripeElements; // MVP https://docs.stripe.com/js/elements_object
-  paymentReference: string;
 };
 
 
@@ -67,8 +66,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
         onComplete: options.onComplete || (() => {}),
         onError: options.onError || (() => {}),
         paymentElement: elements.create('payment', elementsOptions as StripePaymentElementOptions ),// MVP this could be expressCheckout or payment for subscritpion.
-        elements: elements,
-        paymentReference: cartInfoResponse.paymentReference
+        elements: elements
       },
     });
   };

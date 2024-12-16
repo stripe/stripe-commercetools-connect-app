@@ -9,10 +9,7 @@ import {
   StatusResponse,
 } from './types/operation.type';
 
-import {
-  PaymentComponentsSupported,
-  SupportedPaymentComponentsSchemaDTO,
-} from '../dtos/operations/payment-componets.dto';
+import { SupportedPaymentComponentsSchemaDTO } from '../dtos/operations/payment-componets.dto';
 import { PaymentModificationStatus, PaymentTransactions } from '../dtos/operations/payment-intents.dto';
 import packageJSON from '../../package.json';
 
@@ -166,21 +163,19 @@ export class StripePaymentService extends AbstractPaymentService {
   }
 
   /**
-   * Creates a payment intent using the Stripe API and update commercetools payment with respective Stripe.paymentIntent.id
+   * Creates a payment intent using the Stripe API and create commercetools payment with Initial transaction.
    *
    * @return Promise<PaymentResponseSchemaDTO> A Promise that resolves to a PaymentResponseSchemaDTO object containing the client secret and payment reference.
    */
-  public async createPaymentIntentStripe(paymentReference: string): Promise<PaymentResponseSchemaDTO> {
+  public async createPaymentIntentStripe(): Promise<PaymentResponseSchemaDTO> {
     const ctCart = await this.ctCartService.getCart({
       id: getCartIdFromContext(),
     });
-    const ctPayment = await this.ctPaymentService.getPayment({
-      id: paymentReference,
-    });
-    const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
 
+    const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
     const captureMethodConfig = getConfig().stripeCaptureMethod;
     let paymentIntent!: Stripe.PaymentIntent;
+
     try {
       const idempotencyKey = crypto.randomUUID();
       // MVP Add customer address to the payment Intent creation
@@ -195,7 +190,6 @@ export class StripePaymentService extends AbstractPaymentService {
           metadata: {
             cart_id: ctCart.id,
             ct_project_key: getConfig().projectKey,
-            ct_payment_id: ctPayment.id,
           },
         },
         {
@@ -206,71 +200,16 @@ export class StripePaymentService extends AbstractPaymentService {
       throw wrapStripeError(e);
     }
 
-    log.info(`PaymentIntent created.`, {
+    log.info(`Stripe PaymentIntent created.`, {
       ctCartId: ctCart.id,
       stripePaymentIntentId: paymentIntent.id,
     });
 
-    await this.ctPaymentService.updatePayment({
-      id: ctPayment.id,
-      pspReference: paymentIntent.id,
-      paymentMethod: 'payment',
-    });
-
-    return {
-      sClientSecret: paymentIntent.client_secret ?? '',
-      paymentReference: paymentReference,
-    };
-  }
-
-  /**
-   * Update the PaymentIntent in Stripe to mark the Authorization in commercetools as successful.
-   *
-   * @param {string} paymentId - The identifier of the payment associated with the PaymentIntent in Stripe.
-   * @return {Promise<void>} - A Promise that resolves when the PaymentIntent is successfully updated.
-   */
-  public async updatePaymentIntentStripeSuccessful(paymentId: string): Promise<void> {
-    const ctCart = await this.ctCartService.getCart({
-      id: getCartIdFromContext(),
-    });
-
-    const ctPayment = await this.ctPaymentService.getPayment({
-      id: paymentId,
-    });
-    const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
-
-    log.info(`PaymentIntent confirmed.`, {
-      ctCartId: ctCart.id,
-      stripePaymentIntentId: ctPayment.interfaceId,
-    });
-
-    await this.ctPaymentService.updatePayment({
-      id: ctPayment.id,
-      transaction: {
-        type: PaymentTransactions.AUTHORIZATION,
-        amount: amountPlanned,
-        interactionId: paymentId,
-        state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
-      },
-    });
-  }
-
-  /**
-   * Initializes the cart payment with the provided options, and create the initial authorization when entry the checkout
-   *
-   * @param {string} opts - Options for initializing the cart payment.
-   * @return {Promise<ConfigElementResponseSchemaDTO>} Returns a promise that resolves with the cart information, appearance, and capture method.
-   */
-  public async initializeCartPayment(opts: string): Promise<ConfigElementResponseSchemaDTO> {
-    const ctCart = await this.ctCartService.getCart({
-      id: getCartIdFromContext(),
-    });
-
-    const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
     const ctPayment = await this.ctPaymentService.createPayment({
       amountPlanned,
       paymentMethodInfo: {
         paymentInterface: getPaymentInterfaceFromContext() || 'stripe',
+        method: 'payment',
       },
       ...(ctCart.customerId && {
         customer: {
@@ -287,6 +226,7 @@ export class StripePaymentService extends AbstractPaymentService {
           type: PaymentTransactions.AUTHORIZATION,
           amount: amountPlanned,
           state: this.convertPaymentResultCode(PaymentOutcome.INITIAL as PaymentOutcome),
+          interactionId: paymentIntent.id,
         },
       ],
     });
@@ -299,22 +239,92 @@ export class StripePaymentService extends AbstractPaymentService {
       paymentId: ctPayment.id,
     });
 
-    const appearance =
-      opts.toUpperCase() === PaymentComponentsSupported.PAYMENT_ELEMENT.toString().toUpperCase()
-        ? getConfig().stripePaymentElementAppearance
-        : getConfig().stripeExpressCheckoutAppearance;
+    log.info(`commercetools Payment and initial transaction created.`, {
+      ctCartId: ctCart.id,
+      ctPayment: ctPayment.id,
+      stripePaymentIntentId: paymentIntent.id,
+    });
 
-    log.info(`Cart and Stripe.Element config retrieved.`, {
+    try {
+      const idempotencyKey = crypto.randomUUID();
+      await stripeApi().paymentIntents.update(
+        paymentIntent.id,
+        {
+          metadata: {
+            ct_payment_id: ctPayment.id,
+          },
+        },
+        { idempotencyKey },
+      );
+    } catch (e) {
+      throw wrapStripeError(e);
+    }
+
+    log.info(`Stripe update Payment id metadata.`);
+
+    return {
+      sClientSecret: paymentIntent.client_secret ?? '',
+      paymentReference: ctPayment.id,
+    };
+  }
+
+  /**
+   * Update the PaymentIntent in Stripe to mark the Authorization in commercetools as successful.
+   *
+   * @param {string} paymentIntentId - The Intent id created in Stripe.
+   * @param {string} paymentReference - The identifier of the payment associated with the PaymentIntent in Stripe.
+   * @return {Promise<void>} - A Promise that resolves when the PaymentIntent is successfully updated.
+   */
+  public async updatePaymentIntentStripeSuccessful(paymentIntentId: string, paymentReference: string): Promise<void> {
+    const ctCart = await this.ctCartService.getCart({
+      id: getCartIdFromContext(),
+    });
+
+    const ctPayment = await this.ctPaymentService.getPayment({
+      id: paymentReference,
+    });
+    const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
+
+    log.info(`PaymentIntent confirmed.`, {
+      ctCartId: ctCart.id,
+      stripePaymentIntentId: ctPayment.interfaceId,
+      amountPlanned: JSON.stringify(amountPlanned),
+    });
+
+    await this.ctPaymentService.updatePayment({
+      id: ctPayment.id,
+      transaction: {
+        interactionId: paymentIntentId,
+        type: PaymentTransactions.AUTHORIZATION,
+        amount: amountPlanned,
+        state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
+      },
+    });
+  }
+
+  /**
+   * Return the Stripe payment configuration and the cart amount planed information.
+   *
+   * @param {string} opts - Options for initializing the cart payment.
+   * @return {Promise<ConfigElementResponseSchemaDTO>} Returns a promise that resolves with the cart information, appearance, and capture method.
+   */
+  public async initializeCartPayment(opts: string): Promise<ConfigElementResponseSchemaDTO> {
+    const ctCart = await this.ctCartService.getCart({
+      id: getCartIdFromContext(),
+    });
+
+    const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
+
+    const appearance = getConfig().stripePaymentElementAppearance;
+
+    log.info(`Cart and Stripe.Element ${opts} config retrieved.`, {
       cartId: ctCart.id,
       cartInfo: {
         amount: amountPlanned.centAmount,
         currency: amountPlanned.currencyCode,
-        payment: {
-          //id: updatedPayment.id,
-        },
       },
-
       stripeElementAppearance: appearance,
+      stripeCaptureMethod: getConfig().stripeCaptureMethod,
     });
 
     return {
@@ -324,7 +334,6 @@ export class StripePaymentService extends AbstractPaymentService {
       },
       appearance: appearance,
       captureMethod: getConfig().stripeCaptureMethod,
-      paymentReference: ctPayment.id,
     };
   }
 

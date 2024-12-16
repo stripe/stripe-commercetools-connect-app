@@ -331,7 +331,7 @@ describe('Stripe Payment APIs', () => {
       //When
       const responseGetConfig = await fastifyApp.inject({
         method: 'GET',
-        url: `/payments/id`,
+        url: `/payments`,
         headers: {
           'x-session-id': sessionId,
           'content-type': 'application/json',
@@ -386,7 +386,7 @@ describe('Stripe Payment APIs', () => {
 
       //Then
       expect(responseGetConfig.statusCode).toEqual(400);
-      expect(responseGetConfig.body).toEqual(JSON.stringify({ outcome: 'rejected' }));
+      expect(responseGetConfig.body).toEqual(JSON.stringify({ outcome: 'rejected', error: JSON.stringify({}) }));
       expect(spiedPaymentService.updatePaymentIntentStripeSuccessful).toHaveBeenCalled();
     });
   });
