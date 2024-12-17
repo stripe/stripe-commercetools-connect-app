@@ -50,12 +50,6 @@ export class DropinComponents implements DropinComponent {
     if (this.baseOptions.paymentElement) {
       this.paymentElement.mount(selector);
 
-      this.paymentElement.on('ready', () => {
-        this.dropinOptions
-          .onDropinReady()
-          .then(() => {})
-          .catch((error) => console.error(error));
-      })
     } else {
       console.error("Payment Element not initialized");
     }
