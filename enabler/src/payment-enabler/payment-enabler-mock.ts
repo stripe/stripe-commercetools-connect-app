@@ -8,7 +8,7 @@ import { DropinEmbeddedBuilder } from "../dropin/dropin-embedded";
 import {
   loadStripe,
   Stripe,
-  StripeElements,
+  StripeElements, StripeExpressCheckoutElement, StripeExpressCheckoutElementOptions,
   StripePaymentElementOptions
 } from "@stripe/stripe-js";
 import {StripePaymentElement} from "@stripe/stripe-js";
@@ -30,7 +30,7 @@ export type BaseOptions = {
   locale?: string;
   onComplete: (result: PaymentResult) => void;
   onError: (error?: any) => void;
-  paymentElement: StripePaymentElement; // MVP https://docs.stripe.com/payments/payment-element
+  paymentElement: StripePaymentElement | StripeExpressCheckoutElement; // MVP https://docs.stripe.com/payments/payment-element | https://docs.stripe.com/elements/express-checkout-element
   elements: StripeElements; // MVP https://docs.stripe.com/js/elements_object
 };
 
@@ -47,11 +47,9 @@ export class MockPaymentEnabler implements PaymentEnabler {
     options: EnablerOptions
   ): Promise<{ baseOptions: BaseOptions }> => {
 
-    // MVP accept this value from the enabler, so we can render other options.
-    const paymentMethodType : string = 'payment'//options.paymentMethod.type.toLowerCase().toString()
 
     const [cartInfoResponse, configEnvResponse]: [ConfigElementResponseSchemaDTO, ConfigResponseSchemaDTO]
-      = await MockPaymentEnabler.fetchConfigData(paymentMethodType, options);
+      = await MockPaymentEnabler.fetchConfigData(options);
     const stripeSDK = await MockPaymentEnabler.getStripeSDK(configEnvResponse);
 
     const elements= MockPaymentEnabler.getElements(stripeSDK, cartInfoResponse);
@@ -65,7 +63,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
         sessionId: options.sessionId,
         onComplete: options.onComplete || (() => {}),
         onError: options.onError || (() => {}),
-        paymentElement: elements.create('payment', elementsOptions as StripePaymentElementOptions ),// MVP this could be expressCheckout or payment for subscritpion.
+        paymentElement: MockPaymentEnabler.getPaymentElement(elementsOptions, cartInfoResponse, elements),
         elements: elements
       },
     });
@@ -142,12 +140,12 @@ export class MockPaymentEnabler implements PaymentEnabler {
 
 
   private static async fetchConfigData(
-    paymentMethodType: string, options: EnablerOptions
+    options: EnablerOptions
   ): Promise<[ConfigElementResponseSchemaDTO, ConfigResponseSchemaDTO]> {
     const headers = MockPaymentEnabler.getFetchHeader(options);
 
     const [configElementResponse, configEnvResponse] = await Promise.all([
-      fetch(`${options.processorUrl}/config-element/${paymentMethodType}`, headers), // MVP this could be used by expressCheckout and Subscription
+      fetch(`${options.processorUrl}/config-element`, headers), // MVP this could be used by expressCheckout and Subscription
       fetch(`${options.processorUrl}/operations/config`, headers),
     ]);
 
@@ -182,4 +180,15 @@ export class MockPaymentEnabler implements PaymentEnabler {
     }
   }
 
+  private static getPaymentElement(elementsOptions: object, cartInfoResponse: any, elements): StripePaymentElement | StripeExpressCheckoutElement {
+    if(cartInfoResponse.webElements === 'expressCheckout'){
+      console.log('--------creating expressCheckout')
+      return elements.create('expressCheckout', elementsOptions as StripeExpressCheckoutElementOptions);
+    } else {
+      console.log('--------creating paymentElement')
+      return elements.create('payment', elementsOptions as StripePaymentElementOptions)
+    }
+  }
 }
+
+

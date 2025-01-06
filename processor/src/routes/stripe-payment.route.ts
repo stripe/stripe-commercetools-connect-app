@@ -132,27 +132,18 @@ export const configElementRoutes = async (
   fastify: FastifyInstance,
   opts: FastifyPluginOptions & PaymentRoutesOptions,
 ) => {
-  fastify.get<{ Reply: ConfigElementResponseSchemaDTO; Params: { paymentComponent: string } }>(
-    '/config-element/:paymentComponent',
+  fastify.get<{ Reply: ConfigElementResponseSchemaDTO }>(
+    '/config-element',
     {
       preHandler: [opts.sessionHeaderAuthHook.authenticate()],
       schema: {
-        params: {
-          $id: 'paramsSchema',
-          type: 'object',
-          properties: {
-            paymentComponent: Type.Union([Type.Literal('payment'), Type.Literal('expressCheckout')]),
-          },
-          required: ['paymentComponent'],
-        },
         response: {
           200: ConfigElementResponseSchema,
         },
       },
     },
     async (request, reply) => {
-      const { paymentComponent } = request.params;
-      const resp = await opts.paymentService.initializeCartPayment(paymentComponent);
+      const resp = await opts.paymentService.initializeCartPayment();
 
       return reply.status(200).send(resp);
     },

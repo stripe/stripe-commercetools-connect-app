@@ -41,6 +41,7 @@ export const ConfigElementResponseSchema = Type.Object({
   }),
   appearance: Type.Optional(Type.String()),
   captureMethod: Type.String(),
+  webElements: Type.String(),
 });
 
 export const CtPaymentSchema = Type.Object({

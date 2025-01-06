@@ -124,9 +124,6 @@ export class StripePaymentService extends AbstractPaymentService {
         {
           type: 'embedded',
         },
-        {
-          type: 'embeddedExpress',
-        },
       ],
       components: [],
     };
@@ -308,19 +305,22 @@ export class StripePaymentService extends AbstractPaymentService {
   /**
    * Return the Stripe payment configuration and the cart amount planed information.
    *
-   * @param {string} opts - Options for initializing the cart payment.
    * @return {Promise<ConfigElementResponseSchemaDTO>} Returns a promise that resolves with the cart information, appearance, and capture method.
    */
-  public async initializeCartPayment(opts: string): Promise<ConfigElementResponseSchemaDTO> {
+  public async initializeCartPayment(): Promise<ConfigElementResponseSchemaDTO> {
     const ctCart = await this.ctCartService.getCart({
       id: getCartIdFromContext(),
     });
 
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
 
-    const appearance = getConfig().stripePaymentElementAppearance;
+    const webElement = getConfig().stripeWebElements;
+    const appearance =
+      webElement === 'paymentElement'
+        ? getConfig().stripePaymentElementAppearance
+        : getConfig().stripeExpressCheckoutAppearance;
 
-    log.info(`Cart and Stripe.Element ${opts} config retrieved.`, {
+    log.info(`Cart and ${webElement} config retrieved.`, {
       cartId: ctCart.id,
       cartInfo: {
         amount: amountPlanned.centAmount,
@@ -328,6 +328,7 @@ export class StripePaymentService extends AbstractPaymentService {
       },
       stripeElementAppearance: appearance,
       stripeCaptureMethod: getConfig().stripeCaptureMethod,
+      webElements: webElement,
     });
 
     return {
@@ -337,6 +338,7 @@ export class StripePaymentService extends AbstractPaymentService {
       },
       appearance: appearance,
       captureMethod: getConfig().stripeCaptureMethod,
+      webElements: webElement,
     };
   }
 
