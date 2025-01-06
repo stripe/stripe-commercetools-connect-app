@@ -106,14 +106,25 @@ describe('stripeEvent.converter', () => {
     expect(result).toEqual({
       id: 'pi_11111',
       paymentMethod: 'payment',
+      pspReference: 'pi_11111',
       transactions: [
         {
           amount: {
             centAmount: 34500,
             currencyCode: 'MXN',
           },
-          state: 'Pending',
+          interactionId: 'pi_11111',
+          state: 'Success',
           type: 'Refund',
+        },
+        {
+          amount: {
+            centAmount: 34500,
+            currencyCode: 'MXN',
+          },
+          interactionId: 'pi_11111',
+          state: 'Success',
+          type: 'Chargeback',
         },
       ],
     });

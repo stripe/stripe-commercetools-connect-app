@@ -18,7 +18,6 @@ import {
   PaymentIntentConfirmRequestSchema,
   PaymentIntentConfirmResponseSchemaDTO,
   PaymentIntentResponseSchema,
-  PaymentIntentResponseSchemaDTO,
   PaymentModificationStatus,
 } from '../dtos/operations/payment-intents.dto';
 
@@ -37,27 +36,18 @@ type StripeRoutesOptions = {
  *
  */
 export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPluginOptions & PaymentRoutesOptions) => {
-  fastify.get<{ Reply: PaymentResponseSchemaDTO; Params: { id: string } }>(
-    '/payments/:id',
+  fastify.get<{ Reply: PaymentResponseSchemaDTO }>(
+    '/payments',
     {
       preHandler: [opts.sessionHeaderAuthHook.authenticate()],
       schema: {
-        params: {
-          $id: 'paramsSchema',
-          type: 'object',
-          properties: {
-            id: Type.String(),
-          },
-          required: ['id'],
-        },
         response: {
           200: PaymentResponseSchema,
         },
       },
     },
     async (request, reply) => {
-      const { id } = request.params; // paymentReference
-      const resp = await opts.paymentService.createPaymentIntentStripe(id);
+      const resp = await opts.paymentService.createPaymentIntentStripe();
 
       return reply.status(200).send(resp);
     },
@@ -88,12 +78,11 @@ export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPlugi
     async (request, reply) => {
       const { id } = request.params; // paymentReference
       try {
-        await opts.paymentService.updatePaymentIntentStripeSuccessful(id);
+        await opts.paymentService.updatePaymentIntentStripeSuccessful(request.body.paymentIntent, id);
 
         return reply.status(200).send({ outcome: PaymentModificationStatus.APPROVED });
       } catch (error) {
-        log.error('Confirming payment error: ' + error);
-        return reply.status(400).send({ outcome: PaymentModificationStatus.REJECTED });
+        return reply.status(400).send({ outcome: PaymentModificationStatus.REJECTED, error: JSON.stringify(error) });
       }
     },
   );
@@ -123,8 +112,8 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
       }
 
       switch (event.type) {
+        case 'charge.succeeded':
         case 'charge.captured':
-        case 'payment_intent.payment_failed':
           log.info(`Received: ${event.type} event of ${event.data.object.id}`);
           break;
         default:

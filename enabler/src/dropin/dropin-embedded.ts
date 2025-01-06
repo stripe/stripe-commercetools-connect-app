@@ -50,12 +50,6 @@ export class DropinComponents implements DropinComponent {
     if (this.baseOptions.paymentElement) {
       this.paymentElement.mount(selector);
 
-      this.paymentElement.on('ready', () => {
-        this.dropinOptions
-          .onDropinReady()
-          .then(() => {})
-          .catch((error) => console.error(error));
-      })
     } else {
       console.error("Payment Element not initialized");
     }
@@ -70,7 +64,7 @@ export class DropinComponents implements DropinComponent {
         return;
       }
 
-      let { errors : processorError, sClientSecret : client_secret, paymentReference: paymentReference} = await fetch(`${this.baseOptions.processorUrl}/payments/${this.baseOptions.paymentReference}`,{
+      let { errors : processorError, sClientSecret : client_secret, paymentReference: paymentReference } = await fetch(`${this.baseOptions.processorUrl}/payments`,{
         method : "GET",
         headers : {
           "Content-Type": "application/json",
@@ -104,10 +98,20 @@ export class DropinComponents implements DropinComponent {
           "Content-Type": "application/json",
           "x-session-id" : this.baseOptions.sessionId
         }, body : JSON.stringify({paymentIntent:paymentIntent.id})
-      }).then( () =>
-        this.baseOptions.onComplete?.({isSuccess:true, paymentReference: paymentReference}))
-        .catch(()=>
-          this.baseOptions.onComplete?.({isSuccess:false}))
+      }).then( (response) => {
+        if(response.status === 200){
+          this.baseOptions.onComplete?.({isSuccess:true, paymentReference: paymentReference})
+        }else {
+          this.baseOptions.onError?.("Error on /confirmPayments");
+
+        }
+      })
+        .catch((error)=> {
+          this.baseOptions.onError?.(error);
+        });
+
+
+
     }
 
   }

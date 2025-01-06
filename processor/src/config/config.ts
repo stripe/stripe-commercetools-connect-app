@@ -22,7 +22,6 @@ export const config = {
   stripeWebhookSigningSecret: process.env.STRIPE_WEBHOOK_SIGNING_SECRET || '',
   stripeCaptureMethod: process.env.STRIPE_CAPTURE_METHOD || 'automatic',
   stripePaymentElementAppearance: process.env.STRIPE_APPEARANCE_PAYMENT_ELEMENT,
-  stripeExpressCheckoutAppearance: process.env.STRIPE_APPEARANCE_EXPRESS_CHECKOUT,
   stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
 
   // Payment Providers config

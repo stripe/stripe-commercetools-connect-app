@@ -13,7 +13,7 @@ export class StripeEventConverter {
       paymentIntentId = data.id;
     } else {
       data = opts.data.object as Stripe.Charge;
-      paymentIntentId = (data.payment_intent as Stripe.PaymentIntent).id;
+      paymentIntentId = (data.payment_intent || data.id) as string;
     }
 
     return {
@@ -26,7 +26,7 @@ export class StripeEventConverter {
 
   private populateTransactions(event: Stripe.Event, paymentIntentId: string): TransactionData[] {
     switch (event.type) {
-      case StripeEvent.PAYMENT_INTENT__CANCELED: //TODO paymentIntent.captured = true create cancelauthorization success
+      case StripeEvent.PAYMENT_INTENT__CANCELED:
         return [
           {
             type: PaymentTransactions.AUTHORIZATION,
@@ -69,10 +69,18 @@ export class StripeEventConverter {
           },
         ];
       case StripeEvent.CHARGE__REFUNDED:
+        const isCaptured: boolean = (event.data.object as Stripe.Charge).captured;
+        if (!isCaptured) return [];
         return [
           {
             type: PaymentTransactions.REFUND,
-            state: PaymentStatus.PENDING,
+            state: PaymentStatus.SUCCESS,
+            amount: this.populateAmount(event),
+            interactionId: paymentIntentId,
+          },
+          {
+            type: PaymentTransactions.CHARGE_BACK,
+            state: PaymentStatus.SUCCESS,
             amount: this.populateAmount(event),
             interactionId: paymentIntentId,
           },
