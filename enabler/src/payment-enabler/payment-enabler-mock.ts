@@ -31,6 +31,7 @@ export type BaseOptions = {
   onComplete: (result: PaymentResult) => void;
   onError: (error?: any) => void;
   paymentElement: StripePaymentElement | StripeExpressCheckoutElement; // MVP https://docs.stripe.com/payments/payment-element | https://docs.stripe.com/elements/express-checkout-element
+  paymentElementValue: 'paymentElement' | 'expressCheckout';
   elements: StripeElements; // MVP https://docs.stripe.com/js/elements_object
 };
 
@@ -64,6 +65,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
         onComplete: options.onComplete || (() => {}),
         onError: options.onError || (() => {}),
         paymentElement: MockPaymentEnabler.getPaymentElement(elementsOptions, cartInfoResponse, elements),
+        paymentElementValue: cartInfoResponse.webElements,
         elements: elements
       },
     });
@@ -182,10 +184,8 @@ export class MockPaymentEnabler implements PaymentEnabler {
 
   private static getPaymentElement(elementsOptions: object, cartInfoResponse: any, elements): StripePaymentElement | StripeExpressCheckoutElement {
     if(cartInfoResponse.webElements === 'expressCheckout'){
-      console.log('--------creating expressCheckout')
       return elements.create('expressCheckout', elementsOptions as StripeExpressCheckoutElementOptions);
     } else {
-      console.log('--------creating paymentElement')
       return elements.create('payment', elementsOptions as StripePaymentElementOptions)
     }
   }

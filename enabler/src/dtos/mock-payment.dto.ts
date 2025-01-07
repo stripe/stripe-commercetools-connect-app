@@ -23,6 +23,7 @@ export const ConfigElementResponseSchema = Type.Object({
   }),
   appearance: Type.Optional(Type.String()),
   captureMethod: Type.String(),
+  webElements: Type.Optional(Type.Union([Type.Literal('paymentElement'), Type.Literal('expressCheckout')]) ),
 });
 
 export const ConfigResponseSchema = Type.Object({

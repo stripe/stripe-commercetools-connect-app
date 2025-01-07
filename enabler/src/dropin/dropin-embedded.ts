@@ -57,11 +57,13 @@ export class DropinComponents implements DropinComponent {
 
   async submit(): Promise<void> {
     {
-      const { error : submitError } = await this.baseOptions.elements.submit();
+      if(this.baseOptions.paymentElementValue === 'paymentElement'){
+        const { error : submitError } = await this.baseOptions.elements.submit();
 
-      if (submitError) {
-        this.baseOptions.onError?.(submitError);
-        return;
+        if (submitError) {
+          this.baseOptions.onError?.(submitError);
+          return;
+        }
       }
 
       let { errors : processorError, sClientSecret : client_secret, paymentReference: paymentReference } = await fetch(`${this.baseOptions.processorUrl}/payments`,{
