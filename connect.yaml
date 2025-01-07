@@ -47,6 +47,8 @@ deployAs:
           description: Stripe Appearance for Express Checkout (example - "{\"theme\":\"stripe\",\"variables\":{\"colorPrimary\":\"#0570DE\",\"colorBackground\":\"#FFFFFF\",\"colorText\":\"#30313D\",\"colorDanger\":\"#DF1B41\",\"fontFamily\":\"Ideal Sans,system-ui,sansserif\",\"spacingUnit\":\"2px\",\"borderRadius\":\"4px\"}}").
         - key: STRIPE_PUBLISHABLE_KEY
           description: Stripe Publishable Key
+        - key: STRIPE_APPLE_PAY_WELL_KNOWN
+          description: Domain association file from Stripe. (example - https://stripe.com/files/apple-pay/apple-developer-merchantid-domain-association)
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
           description: commercetools client secret.

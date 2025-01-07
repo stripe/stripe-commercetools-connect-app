@@ -25,6 +25,7 @@ export const config = {
   stripePaymentElementAppearance: process.env.STRIPE_APPEARANCE_PAYMENT_ELEMENT,
   stripeExpressCheckoutAppearance: process.env.STRIPE_APPEARANCE_EXPRESS_CHECKOUT,
   stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
+  stripeApplePayWellKnown: process.env.STRIPE_APPLE_PAY_WELL_KNOWN || 'mockWellKnown',
 
   // Payment Providers config
   returnUrl: process.env.RETURN_URL,

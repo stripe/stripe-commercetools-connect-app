@@ -342,6 +342,15 @@ export class StripePaymentService extends AbstractPaymentService {
     };
   }
 
+  /**
+   * Return the Stripe payment configuration and the cart amount planed information.
+   *
+   * @return {Promise<ConfigElementResponseSchemaDTO>} Returns a promise that resolves with the cart information, appearance, and capture method.
+   */
+  public applePayConfig(): string {
+    return getConfig().stripeApplePayWellKnown;
+  }
+
   private convertPaymentResultCode(resultCode: PaymentOutcome): string {
     switch (resultCode) {
       case PaymentOutcome.AUTHORIZED:

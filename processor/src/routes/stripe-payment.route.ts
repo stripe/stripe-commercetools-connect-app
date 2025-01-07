@@ -148,4 +148,11 @@ export const configElementRoutes = async (
       return reply.status(200).send(resp);
     },
   );
+  fastify.get<{ Reply: string }>(
+    '/.well-known/apple-developer-merchantid-domain-association',
+    async (request, reply) => {
+      const resp = opts.paymentService.applePayConfig();
+      return reply.status(200).send(resp);
+    },
+  );
 };
