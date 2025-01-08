@@ -5,7 +5,10 @@ import {
   PaymentDropinBuilder,
 } from "../payment-enabler/payment-enabler";
 import { BaseOptions } from "../payment-enabler/payment-enabler-mock";
-import {StripeExpressCheckoutElement, StripePaymentElement} from "@stripe/stripe-js";
+import {
+  StripeExpressCheckoutElement,
+  StripePaymentElement
+} from "@stripe/stripe-js";
 
 export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
   public dropinHasSubmit = true;
@@ -47,23 +50,25 @@ export class DropinComponents implements DropinComponent {
   }
 
   async mount(selector: string) {
-    if (this.baseOptions.paymentElement) {
+    if (this.baseOptions.paymentElementValue === 'paymentElement') {
       this.paymentElement.mount(selector);
 
     } else {
-      console.error("Payment Element not initialized");
+      (this.paymentElement as StripeExpressCheckoutElement).mount(selector);
+      (this.paymentElement as StripeExpressCheckoutElement).on("confirm", async () => {
+        await this.submit();
+      })
     }
   }
 
   async submit(): Promise<void> {
     {
-      if(this.baseOptions.paymentElementValue === 'paymentElement'){
-        const { error : submitError } = await this.baseOptions.elements.submit();
 
-        if (submitError) {
-          this.baseOptions.onError?.(submitError);
-          return;
-        }
+      const { error : submitError } = await this.baseOptions.elements.submit();
+
+      if (submitError) {
+        this.baseOptions.onError?.(submitError);
+        return;
       }
 
       let { errors : processorError, sClientSecret : client_secret, paymentReference: paymentReference } = await fetch(`${this.baseOptions.processorUrl}/payments`,{
