@@ -64,7 +64,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
         sessionId: options.sessionId,
         onComplete: options.onComplete || (() => {}),
         onError: options.onError || (() => {}),
-        paymentElement: MockPaymentEnabler.getPaymentElement(elementsOptions, cartInfoResponse, elements),
+        paymentElement: MockPaymentEnabler.getPaymentElement(elementsOptions, options.paymentElementType, elements),
         paymentElementValue: cartInfoResponse.webElements,
         elements: elements
       },
@@ -147,7 +147,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
     const headers = MockPaymentEnabler.getFetchHeader(options);
 
     const [configElementResponse, configEnvResponse] = await Promise.all([
-      fetch(`${options.processorUrl}/config-element`, headers), // MVP this could be used by expressCheckout and Subscription
+      fetch(`${options.processorUrl}/config-element/${options.paymentElementType}`, headers), // MVP this could be used by expressCheckout and Subscription
       fetch(`${options.processorUrl}/operations/config`, headers),
     ]);
 
@@ -169,6 +169,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
     let appOptions;
     if(config.appearance !== undefined)
       appOptions = config.appearance
+      console.log(options)
     return {
       type: 'payment',
       options: {},
@@ -182,8 +183,8 @@ export class MockPaymentEnabler implements PaymentEnabler {
     }
   }
 
-  private static getPaymentElement(elementsOptions: object, cartInfoResponse: any, elements): StripePaymentElement | StripeExpressCheckoutElement {
-    if(cartInfoResponse.webElements === 'expressCheckout'){
+  private static getPaymentElement(elementsOptions: object, paymentElementType: any, elements): StripePaymentElement | StripeExpressCheckoutElement {
+    if(paymentElementType === 'expressCheckout'){
       return elements.create('expressCheckout', elementsOptions as StripeExpressCheckoutElementOptions);
     } else {
       return elements.create('payment', elementsOptions as StripePaymentElementOptions)

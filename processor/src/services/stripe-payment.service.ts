@@ -307,14 +307,14 @@ export class StripePaymentService extends AbstractPaymentService {
    *
    * @return {Promise<ConfigElementResponseSchemaDTO>} Returns a promise that resolves with the cart information, appearance, and capture method.
    */
-  public async initializeCartPayment(): Promise<ConfigElementResponseSchemaDTO> {
+  public async initializeCartPayment(paymentType: string): Promise<ConfigElementResponseSchemaDTO> {
     const ctCart = await this.ctCartService.getCart({
       id: getCartIdFromContext(),
     });
 
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
 
-    const webElement = getConfig().stripeWebElements;
+    const webElement = paymentType; //getConfig().stripeWebElements;
     const appearance =
       webElement === 'paymentElement'
         ? getConfig().stripePaymentElementAppearance

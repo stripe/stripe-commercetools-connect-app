@@ -399,7 +399,7 @@ describe('Stripe Payment APIs', () => {
       //When
       const responseGetConfig = await fastifyApp.inject({
         method: 'GET',
-        url: `/config-element`,
+        url: `/config-element/paymentElement`,
         headers: {
           'x-session-id': sessionId,
           'content-type': 'application/json',

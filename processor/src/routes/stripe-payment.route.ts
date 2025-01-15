@@ -132,18 +132,27 @@ export const configElementRoutes = async (
   fastify: FastifyInstance,
   opts: FastifyPluginOptions & PaymentRoutesOptions,
 ) => {
-  fastify.get<{ Reply: ConfigElementResponseSchemaDTO }>(
-    '/config-element',
+  fastify.get<{ Reply: ConfigElementResponseSchemaDTO; Params: { payment: string } }>(
+    '/config-element/:payment',
     {
       preHandler: [opts.sessionHeaderAuthHook.authenticate()],
       schema: {
+        params: {
+          $id: 'paramsSchema',
+          type: 'object',
+          properties: {
+            payment: Type.String(),
+          },
+          required: ['payment'],
+        },
         response: {
           200: ConfigElementResponseSchema,
         },
       },
     },
     async (request, reply) => {
-      const resp = await opts.paymentService.initializeCartPayment();
+      const { payment } = request.params; // paymentReference
+      const resp = await opts.paymentService.initializeCartPayment(payment);
 
       return reply.status(200).send(resp);
     },
