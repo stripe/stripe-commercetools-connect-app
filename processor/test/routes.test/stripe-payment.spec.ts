@@ -25,6 +25,7 @@ import {
   mockRoute__get_config_element_succeed,
   mockEvent__charge_succeeded_notCaptured,
   mockEvent__paymentIntent_requiresAction,
+  mockRoute__well_know__succeed,
 } from '../utils/mock-routes-data';
 import * as Config from '../../src/config/config';
 import * as Logger from '../../src/libs/logger/index';
@@ -410,6 +411,24 @@ describe('Stripe Payment APIs', () => {
       expect(responseGetConfig.statusCode).toEqual(200);
       expect(responseGetConfig.json()).toEqual(mockRoute__get_config_element_succeed);
       expect(spiedPaymentService.initializeCartPayment).toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /.well-known/apple-developer-merchantid-domain-association', () => {
+    test('should call /.well-known/apple-developer-merchantid-domain-association', async () => {
+      //Given
+      jest.spyOn(spiedPaymentService, 'applePayConfig').mockReturnValue(mockRoute__well_know__succeed);
+
+      //When
+      const responseGetConfig = await fastifyApp.inject({
+        method: 'GET',
+        url: `/.well-known/apple-developer-merchantid-domain-association`,
+      });
+
+      //Then
+      expect(responseGetConfig.statusCode).toEqual(200);
+      expect(responseGetConfig.body).toEqual(mockRoute__well_know__succeed);
+      expect(spiedPaymentService.applePayConfig).toHaveBeenCalled();
     });
   });
 });

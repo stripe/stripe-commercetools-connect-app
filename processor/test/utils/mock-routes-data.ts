@@ -771,3 +771,5 @@ export const mockModifyPayment__payment_intent_canceled: ModifyPayment = {
     ],
   },
 };
+
+export const mockRoute__well_know__succeed: string = 'mockWellKnowString';
