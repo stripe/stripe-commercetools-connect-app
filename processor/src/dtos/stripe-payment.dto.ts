@@ -32,6 +32,7 @@ export enum PaymentOutcome {
 export const PaymentResponseSchema = Type.Object({
   sClientSecret: Type.String(),
   paymentReference: Type.String(),
+  merchantReturnUrl: Type.String(),
 });
 
 export const ConfigElementResponseSchema = Type.Object({

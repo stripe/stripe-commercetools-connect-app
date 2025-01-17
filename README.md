@@ -196,6 +196,7 @@ Here you can see the details about various variables in configuration
 - `STRIPE_PUBLISHABLE_KEY`: Stripe authenticates your front end requests using your account’s Publishable keys
 - `STRIPE_WEBHOOK_ID`: Stripe unique identifier for the [Webhook Endpoints](https://docs.stripe.com/api/webhook_endpoints)
 - `STRIPE_WEBHOOK_SIGNING_SECRET`: Stripe Secret key to verify webhook signatures using the official libraries. This key is created in the [Stripe dashboard Webhook](https://docs.stripe.com/webhooks).
+- `MERCHANT_RETURN_URL` : Merchant return URL used on the [confirmPayment](https://docs.stripe.com/js/payment_intents/confirm_payment) return_url parameter.
 
 ## Development
 

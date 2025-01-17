@@ -71,7 +71,11 @@ export class DropinComponents implements DropinComponent {
         return;
       }
 
-      let { errors : processorError, sClientSecret : client_secret, paymentReference: paymentReference } = await fetch(`${this.baseOptions.processorUrl}/payments`,{
+      let {
+        errors : processorError,
+        sClientSecret : client_secret,
+        paymentReference: paymentReference,
+        merchantReturnUrl: merchantReturnUrl } = await fetch(`${this.baseOptions.processorUrl}/payments`,{
         method : "GET",
         headers : {
           "Content-Type": "application/json",
@@ -89,7 +93,7 @@ export class DropinComponents implements DropinComponent {
         elements: this.baseOptions.elements,
         clientSecret: client_secret,
         confirmParams : {
-          return_url : 'https://example.com'
+          return_url : merchantReturnUrl
         },
         redirect : "if_required"
       });
@@ -107,7 +111,7 @@ export class DropinComponents implements DropinComponent {
         }, body : JSON.stringify({paymentIntent:paymentIntent.id})
       }).then( (response) => {
         if(response.status === 200){
-          this.baseOptions.onComplete?.({isSuccess:true, paymentReference: paymentReference})
+          this.baseOptions.onComplete?.({isSuccess:true, paymentReference: paymentReference, paymentIntent: paymentIntent.id})
         }else {
           this.baseOptions.onError?.("Error on /confirmPayments");
 

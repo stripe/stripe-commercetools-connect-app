@@ -18,7 +18,11 @@ import { getConfig } from '../config/config';
 import { appLogger, paymentSDK } from '../payment-sdk';
 import { CaptureMethod, StripePaymentServiceOptions } from './types/stripe-payment.type';
 import { ConfigElementResponseSchemaDTO, PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/stripe-payment.dto';
-import { getCartIdFromContext, getPaymentInterfaceFromContext } from '../libs/fastify/context/context';
+import {
+  getCartIdFromContext,
+  getMerchantReturnUrlFromContext,
+  getPaymentInterfaceFromContext,
+} from '../libs/fastify/context/context';
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
 import crypto from 'crypto';
@@ -174,6 +178,7 @@ export class StripePaymentService extends AbstractPaymentService {
 
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
     const captureMethodConfig = getConfig().stripeCaptureMethod;
+    const merchantReturnUrl = getMerchantReturnUrlFromContext() || getConfig().merchantReturnUrl;
     let paymentIntent!: Stripe.PaymentIntent;
 
     try {
@@ -243,6 +248,7 @@ export class StripePaymentService extends AbstractPaymentService {
       ctCartId: ctCart.id,
       ctPayment: ctPayment.id,
       stripePaymentIntentId: paymentIntent.id,
+      merchantReturnUrl: merchantReturnUrl,
     });
 
     try {
@@ -265,6 +271,7 @@ export class StripePaymentService extends AbstractPaymentService {
     return {
       sClientSecret: paymentIntent.client_secret ?? '',
       paymentReference: ctPayment.id,
+      merchantReturnUrl: merchantReturnUrl,
     };
   }
 

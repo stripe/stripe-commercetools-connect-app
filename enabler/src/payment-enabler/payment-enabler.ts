@@ -202,6 +202,11 @@ export type PaymentResult =
        * The payment reference.
        */
       paymentReference: string;
+
+      /**
+       * The payment intent id.
+       */
+      paymentIntent: string;
     }
   | {
       /**

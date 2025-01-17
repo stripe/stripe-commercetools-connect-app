@@ -28,7 +28,7 @@ export const config = {
   stripeApplePayWellKnown: process.env.STRIPE_APPLE_PAY_WELL_KNOWN || 'mockWellKnown',
 
   // Payment Providers config
-  returnUrl: process.env.RETURN_URL,
+  merchantReturnUrl: process.env.MERCHANT_RETURN_URL || '',
 };
 
 export const getConfig = () => {

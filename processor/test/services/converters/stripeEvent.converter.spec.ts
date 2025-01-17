@@ -73,7 +73,7 @@ describe('stripeEvent.converter', () => {
             currencyCode: 'MXN',
           },
           interactionId: 'pi_11111',
-          state: 'Initial',
+          state: 'Pending',
           type: 'Authorization',
         },
       ],
