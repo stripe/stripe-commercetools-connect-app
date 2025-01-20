@@ -414,15 +414,15 @@ describe('Stripe Payment APIs', () => {
     });
   });
 
-  describe('GET /.well-known/apple-developer-merchantid-domain-association', () => {
-    test('should call /.well-known/apple-developer-merchantid-domain-association', async () => {
+  describe('GET /applePayConfig', () => {
+    test('should call /applePayConfig', async () => {
       //Given
       jest.spyOn(spiedPaymentService, 'applePayConfig').mockReturnValue(mockRoute__well_know__succeed);
 
       //When
       const responseGetConfig = await fastifyApp.inject({
         method: 'GET',
-        url: `/.well-known/apple-developer-merchantid-domain-association`,
+        url: `/applePayConfig`,
       });
 
       //Then
