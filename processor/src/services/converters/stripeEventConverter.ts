@@ -54,7 +54,7 @@ export class StripeEventConverter {
         return [
           {
             type: PaymentTransactions.AUTHORIZATION,
-            state: PaymentStatus.PENDING,
+            state: PaymentStatus.INITIAL,
             amount: this.populateAmount(event),
             interactionId: paymentIntentId,
           },

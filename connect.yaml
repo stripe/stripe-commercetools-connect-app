@@ -35,9 +35,6 @@ deployAs:
         - key: STRIPE_CAPTURE_METHOD
           description: Stripe capture method (example - manual|automatic).
           default: automatic
-        - key: STRIPE_WEB_ELEMENTS
-          description: Stripe Web Elements to be deployed (example - paymentElement|expressCheckout).
-          default: paymentElement
         - key: STRIPE_WEBHOOK_ID
           description: Stripe unique identifier for the Webhook Endpoints (example - we_*****).
           required: true
