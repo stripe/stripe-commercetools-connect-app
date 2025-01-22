@@ -379,7 +379,7 @@ export class StripePaymentService extends AbstractPaymentService {
   public async processStripeEvent(event: Stripe.Event): Promise<void> {
     log.info('Processing notification', { event: JSON.stringify(event.id) });
     try {
-      const updateData = await this.stripeEventConverter.convert(event);
+      const updateData = this.stripeEventConverter.convert(event);
 
       for (const tx of updateData.transactions) {
         const updatedPayment = await this.ctPaymentService.updatePayment({
@@ -400,7 +400,7 @@ export class StripePaymentService extends AbstractPaymentService {
       if (event.type === StripeEvent.PAYMENT_INTENT__SUCCEEDED) {
         const ctCart = await this.ctCartService.getCartByPaymentId({ paymentId: updateData.id });
         const updatedCart = await this.updateCartAddress(event, ctCart);
-        await this.createOrder(updatedCart);
+        await this.createOrder(updatedCart, updateData.pspReference);
       }
     } catch (e) {
       log.error('Error processing notification', { error: e });
@@ -408,9 +408,9 @@ export class StripePaymentService extends AbstractPaymentService {
     }
   }
 
-  public async createOrder(cart: Cart) {
+  public async createOrder(cart: Cart, paymentIntent: string | undefined) {
     const apiClient = paymentSDK.ctAPI.client;
-    await apiClient
+    const order = await apiClient
       .orders()
       .post({
         body: {
@@ -418,12 +418,25 @@ export class StripePaymentService extends AbstractPaymentService {
             id: cart.id,
             typeId: 'cart',
           },
+          shipmentState: 'Pending',
+          orderState: 'Open',
           version: cart.version,
         },
       })
-      .execute()
-      .then((res) => console.log(JSON.stringify(res, null, 2)))
-      .catch((err) => console.log(JSON.stringify(err, null, 2)));
+      .execute();
+
+    const idempotencyKey = crypto.randomUUID();
+
+    if (paymentIntent)
+      await stripeApi().paymentIntents.update(
+        paymentIntent,
+        {
+          metadata: {
+            ct_order_id: order.body.id,
+          },
+        },
+        { idempotencyKey },
+      );
   }
 
   public async updateCartAddress(event: Stripe.Event, ctCart: Cart): Promise<Cart> {
