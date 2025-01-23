@@ -421,6 +421,7 @@ export class StripePaymentService extends AbstractPaymentService {
           shipmentState: 'Pending',
           orderState: 'Open',
           version: cart.version,
+          paymentState: 'Paid',
         },
       })
       .execute();

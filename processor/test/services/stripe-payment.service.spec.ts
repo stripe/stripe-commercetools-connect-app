@@ -22,7 +22,7 @@ import { PaymentStatus, StripePaymentServiceOptions } from '../../src/services/t
 import { AbstractPaymentService } from '../../src/services/abstract-payment.service';
 import { StripePaymentService } from '../../src/services/stripe-payment.service';
 import * as StatusHandler from '@commercetools/connect-payments-sdk/dist/api/handlers/status.handler';
-import { HealthCheckResult } from '@commercetools/connect-payments-sdk';
+import { HealthCheckResult, Order } from '@commercetools/connect-payments-sdk';
 import * as Logger from '../../src/libs/logger/index';
 
 import Stripe from 'stripe';
@@ -30,6 +30,8 @@ import * as StripeClient from '../../src/clients/stripe.client';
 import { SupportedPaymentComponentsSchemaDTO } from '../../src/dtos/operations/payment-componets.dto';
 import { StripeEventConverter } from '../../src/services/converters/stripeEventConverter';
 import { PaymentTransactions } from '../../src/dtos/operations/payment-intents.dto';
+import { Cart } from '@commercetools/platform-sdk';
+import { ClientResponse } from '@commercetools/platform-sdk/dist/declarations/src/generated/shared/utils/common-types';
 
 jest.mock('stripe', () => ({
   __esModule: true,
@@ -398,10 +400,22 @@ describe('stripe-payment.service', () => {
         paymentMethod: 'payment',
         transactions: [],
       };
+      const mockCart = {
+        id: 'mock-cart-id',
+        version: 1,
+      } as Cart;
+      const mockUpdatedCart = {
+        id: 'mock-cart-id',
+        version: 2,
+      } as Cart;
+
       const mockStripeEventConverter = jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(test);
       const updatePaymentMock = jest
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
+      jest.spyOn(DefaultCartService.prototype, 'getCartByPaymentId').mockResolvedValue(mockCart);
+      jest.spyOn(StripePaymentService.prototype, 'updateCartAddress').mockResolvedValue(mockUpdatedCart);
+      jest.spyOn(StripePaymentService.prototype, 'createOrder').mockResolvedValue();
 
       const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
       await stripePaymentService.processStripeEvent(mockEvent);
@@ -410,50 +424,100 @@ describe('stripe-payment.service', () => {
       expect(updatePaymentMock).toHaveBeenCalledTimes(0);
     });
 
-    /*test('should return correct ModifyPayment for a charge refunded', () => {
-      const mockEvent: Stripe.Event = mockEvent__charge_refund_captured;
+    describe('method createOrder', () => {
+      test('should create an order and update the payment intent metadata', async () => {
+        Stripe.prototype.paymentIntents = {
+          create: jest.fn(),
+          update: jest.fn(),
+        } as unknown as Stripe.PaymentIntentsResource;
 
-      const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
-      const result = stripePaymentService.processStripeEvent(mockEvent);
+        const mockCart: Cart = {
+          id: 'mock-cart-id',
+          version: 1,
+        } as Cart;
 
-      expect(result).toEqual({
-        paymentId: 'pi_11111',
-        stripePaymentIntent: undefined,
-        data: {
-          actions: [
-            {
-              action: 'refundPayment',
-              amount: {
-                centAmount: 34500,
-                currencyCode: 'MXN',
-              },
-            },
-          ],
-        },
+        const mockOrderResponse: ClientResponse<Order> = {
+          body: {
+            id: 'mock-order-id',
+            version: 1,
+            orderState: 'Open',
+            paymentState: 'Paid',
+          } as Order,
+          statusCode: 201,
+          headers: {},
+        };
+
+        const executeMock = jest.fn().mockReturnValue(mockOrderResponse);
+        const client = paymentSDK.ctAPI.client;
+        client.orders = jest.fn(() => ({
+          post: jest.fn(() => ({
+            execute: executeMock,
+          })),
+        })) as any;
+        const stripeUpdateMock = jest.spyOn(Stripe.prototype.paymentIntents, 'update').mockResolvedValue({} as any);
+
+        const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
+        await stripePaymentService.createOrder(mockCart as any, 'mockPaymentIntent');
+
+        expect(executeMock).toHaveBeenCalled();
+        expect(stripeUpdateMock).toHaveBeenCalled();
       });
     });
 
-    test('should return correct ModifyPayment for a charge event', () => {
-      const mockEvent: Stripe.Event = mockEvent__paymentIntent_canceled;
+    describe('method updateCartAddress', () => {
+      test('should update the cart address and return the updated cart', async () => {
+        const mockEvent: Stripe.Event = mockEvent__paymentIntent_succeeded_captureMethodManual;
+        Stripe.prototype.charges = {
+          retrieve: jest.fn(),
+        } as unknown as Stripe.ChargesResource;
 
-      const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
-      const result = stripePaymentService.processStripeEvent(mockEvent);
-
-      expect(result).toEqual({
-        paymentId: undefined,
-        stripePaymentIntent: 'pi_11111',
-        data: {
-          actions: [
-            {
-              action: 'cancelPayment',
-              amount: {
-                centAmount: 0,
-                currencyCode: 'MXN',
-              },
+        const mockCharge = {
+          billing_details: {
+            name: 'mockName',
+            address: {
+              country: 'US',
+              city: 'mockCity',
+              postal_code: '12345',
+              state: 'mockState',
+              line1: 'mockStreet',
             },
-          ],
-        },
+          },
+          shipping: null,
+        };
+        const mockCart: Cart = {
+          id: 'mock-cart-id',
+          version: 1,
+        } as Cart;
+        const mockUpdatedCartResponse: ClientResponse<Cart> = {
+          body: {
+            id: 'mock-cart-id',
+            version: 2,
+          } as Cart,
+          statusCode: 200,
+          headers: {},
+        };
+
+        const executeMock = jest.fn().mockReturnValue(mockUpdatedCartResponse);
+        const client = paymentSDK.ctAPI.client;
+        client.carts = jest.fn(() => ({
+          withId: jest.fn(() => ({
+            post: jest.fn(() => ({
+              execute: executeMock,
+            })),
+          })),
+        })) as any;
+
+        const stripeRetrieveMock = jest
+          .spyOn(Stripe.prototype.charges, 'retrieve')
+          .mockResolvedValue(mockCharge as any);
+
+        const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
+        const updatedCart = await stripePaymentService.updateCartAddress(mockEvent, mockCart);
+
+        expect(stripeRetrieveMock).toHaveBeenCalledWith('ch_11111');
+        expect(executeMock).toHaveBeenCalled();
+        expect(updatedCart).toEqual(mockUpdatedCartResponse.body);
       });
-    });*/
+    });
   });
 });

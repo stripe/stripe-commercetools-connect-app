@@ -26,6 +26,7 @@ import {
   mockEvent__charge_succeeded_notCaptured,
   mockEvent__paymentIntent_requiresAction,
   mockRoute__well_know__succeed,
+  mockEvent__charge_succeeded_captured,
 } from '../utils/mock-routes-data';
 import * as Config from '../../src/config/config';
 import * as Logger from '../../src/libs/logger/index';
@@ -267,6 +268,27 @@ describe('Stripe Payment APIs', () => {
       });
 
       //Then
+      expect(response.statusCode).toEqual(200);
+      expect(Logger.log.info).toHaveBeenCalled();
+    });
+
+    test('it should handle a charge.captured event gracefully.', async () => {
+      setupMockConfig({
+        stripeSecretKey: 'stripeSecretKey',
+        authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
+      });
+
+      Stripe.prototype.webhooks = { constructEvent: jest.fn() } as unknown as Stripe.Webhooks;
+      jest.spyOn(Stripe.prototype.webhooks, 'constructEvent').mockReturnValue(mockEvent__charge_succeeded_captured);
+
+      const response = await fastifyApp.inject({
+        method: 'POST',
+        url: `/stripe/webhooks`,
+        headers: {
+          'stripe-signature': 't=123123123,v1=gk2j34gk2j34g2k3j4',
+        },
+      });
+
       expect(response.statusCode).toEqual(200);
       expect(Logger.log.info).toHaveBeenCalled();
     });
