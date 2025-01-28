@@ -20,6 +20,7 @@ import {
   PaymentIntentResponseSchema,
   PaymentModificationStatus,
 } from '../dtos/operations/payment-intents.dto';
+import { StripeEvent } from '../services/types/stripe-payment.type';
 
 type PaymentRoutesOptions = {
   paymentService: StripePaymentService;
@@ -112,8 +113,8 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
       }
 
       switch (event.type) {
-        case 'charge.succeeded':
-        case 'charge.captured':
+        case StripeEvent.PAYMENT_INTENT__REQUIRED_ACTION:
+        case StripeEvent.CHARGE__CAPTURED:
           log.info(`Received: ${event.type} event of ${event.data.object.id}`);
           break;
         default:

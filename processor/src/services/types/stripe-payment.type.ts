@@ -31,6 +31,7 @@ export enum StripeEvent {
   PAYMENT_INTENT__PAYMENT_FAILED = 'payment_intent.payment_failed',
   CHARGE__REFUNDED = 'charge.refunded',
   CHARGE__CAPTURED = 'charge.captured',
+  CHARGE__SUCCEEDED = 'charge.succeeded',
 }
 
 export enum PaymentStatus {

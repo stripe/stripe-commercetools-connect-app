@@ -23,10 +23,10 @@ import {
   mockEvent__paymentIntent_canceled,
   mockRoute__payments_succeed,
   mockRoute__get_config_element_succeed,
-  mockEvent__charge_succeeded_notCaptured,
   mockEvent__paymentIntent_requiresAction,
   mockRoute__well_know__succeed,
   mockEvent__charge_succeeded_captured,
+  mockEvent__charge_capture_succeeded_notCaptured,
 } from '../utils/mock-routes-data';
 import * as Config from '../../src/config/config';
 import * as Logger from '../../src/libs/logger/index';
@@ -37,7 +37,7 @@ jest.mock('stripe', () => ({
   __esModule: true,
   default: jest.fn().mockImplementation(() => ({
     webhooks: {
-      constructEvent: jest.fn<() => Stripe.Event>().mockReturnValue(mockEvent__charge_succeeded_notCaptured),
+      constructEvent: jest.fn<() => Stripe.Event>().mockReturnValue(mockEvent__charge_capture_succeeded_notCaptured),
     },
   })),
 }));

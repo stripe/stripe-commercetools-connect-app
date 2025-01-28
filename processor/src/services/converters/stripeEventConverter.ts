@@ -50,15 +50,6 @@ export class StripeEventConverter {
             interactionId: paymentIntentId,
           },
         ];
-      case StripeEvent.PAYMENT_INTENT__REQUIRED_ACTION:
-        return [
-          {
-            type: PaymentTransactions.AUTHORIZATION,
-            state: PaymentStatus.INITIAL,
-            amount: this.populateAmount(event),
-            interactionId: paymentIntentId,
-          },
-        ];
       case StripeEvent.PAYMENT_INTENT__PAYMENT_FAILED:
         return [
           {
@@ -79,6 +70,16 @@ export class StripeEventConverter {
           },
           {
             type: PaymentTransactions.CHARGE_BACK,
+            state: PaymentStatus.SUCCESS,
+            amount: this.populateAmount(event),
+            interactionId: paymentIntentId,
+          },
+        ];
+      case StripeEvent.CHARGE__SUCCEEDED:
+        if ((event.data.object as Stripe.Charge).captured) return [];
+        return [
+          {
+            type: PaymentTransactions.AUTHORIZATION,
             state: PaymentStatus.SUCCESS,
             amount: this.populateAmount(event),
             interactionId: paymentIntentId,

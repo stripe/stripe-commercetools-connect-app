@@ -4,8 +4,8 @@ import {
   mockEvent__charge_refund_captured,
   mockEvent__paymentIntent_canceled,
   mockEvent__paymentIntent_paymentFailed,
-  mockEvent__paymentIntent_requiresAction,
   mockEvent__paymentIntent_succeeded_captureMethodAutomatic,
+  mockEvent__charge_succeeded_notCaptured,
 } from '../../utils/mock-routes-data';
 
 describe('stripeEvent.converter', () => {
@@ -55,26 +55,6 @@ describe('stripeEvent.converter', () => {
           interactionId: 'pi_11111',
           state: 'Success',
           type: 'CancelAuthorization',
-        },
-      ],
-    });
-  });
-
-  test('convert a payment_intent.requires_action event', () => {
-    const result = converter.convert(mockEvent__paymentIntent_requiresAction);
-
-    expect(result).toEqual({
-      paymentMethod: 'payment',
-      pspReference: 'pi_11111',
-      transactions: [
-        {
-          amount: {
-            centAmount: 0,
-            currencyCode: 'MXN',
-          },
-          interactionId: 'pi_11111',
-          state: 'Initial',
-          type: 'Authorization',
         },
       ],
     });
@@ -139,5 +119,25 @@ describe('stripeEvent.converter', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(Error);
     }
+  });
+
+  test('convert a charge.succeeded event', () => {
+    const result = converter.convert(mockEvent__charge_succeeded_notCaptured);
+
+    expect(result).toEqual({
+      paymentMethod: 'payment',
+      pspReference: 'pi_11111',
+      transactions: [
+        {
+          amount: {
+            centAmount: 0,
+            currencyCode: 'MXN',
+          },
+          interactionId: 'pi_11111',
+          state: 'Success',
+          type: 'Authorization',
+        },
+      ],
+    });
   });
 });

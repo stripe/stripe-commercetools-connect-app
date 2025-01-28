@@ -184,10 +184,10 @@ The conversion of the webhook event to a transaction is converted in hte `/src/s
 The following webhooks currently supported and transformed to different payment transactions in commercetools are:
 - **payment_intent.canceled**: Modified the payment transaction Authorization to Failure and create a payment transaction CancelAuthorization: Success 
 - **payment_intent.succeeded**: Creates a payment transaction Charge: Success. 
-- **payment_intent.requires_action**: Modify the payment transaction Authorization to Pending.
+- **payment_intent.requires_action**: Logs the information in the connector app inside the Processor logs.
 - **payment_intent.payment_failed**: Modify the payment transaction Authorization to Failure.
 - **charge.refunded**: Create a payment transaction Refund to Success, and a Chargeback to Success.
-- **charge.succeeded**: Logs the information in the connector app inside the Processor logs.
+- **charge.succeeded**: If the charge is not captured, create the payment transaction to Authorization:Success.
 - **charge.captured**: Logs the information in the connector app inside the Processor logs.
 
 #### Endpoint

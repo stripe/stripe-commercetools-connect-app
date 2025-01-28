@@ -575,7 +575,7 @@ export const mockRoute__get_config_element_succeed: ConfigElementResponseSchemaD
   webElements: 'mockWebElement',
 };
 
-export const mockEvent__charge_succeeded_notCaptured: Stripe.Event = {
+export const mockEvent__charge_capture_succeeded_notCaptured: Stripe.Event = {
   id: 'evt_11111',
   object: 'event',
   api_version: '2024-04-10',
@@ -644,6 +644,77 @@ export const mockEvent__charge_succeeded_notCaptured: Stripe.Event = {
     idempotency_key: '7ae634ca-11111',
   },
   type: 'charge.captured',
+};
+
+export const mockEvent__charge_succeeded_notCaptured: Stripe.Event = {
+  id: 'evt_11111',
+  object: 'event',
+  api_version: '2024-04-10',
+  created: 1718306259,
+  data: {
+    object: {
+      id: 'ch_11111',
+      object: 'charge',
+      amount: 123100,
+      amount_captured: 0,
+      amount_refunded: 0,
+      application: null,
+      application_fee: null,
+      application_fee_amount: null,
+      balance_transaction: null,
+      billing_details: commonBillingDetails,
+      calculated_statement_descriptor: 'AAAAAAA',
+      captured: false,
+      created: 1718306259,
+      currency: 'mxn',
+      customer: null,
+      description: 'Manual payment',
+      disputed: false,
+      failure_balance_transaction: null,
+      failure_code: null,
+      failure_message: null,
+      fraud_details: {},
+      invoice: null,
+      livemode: false,
+      metadata: {
+        cart_id: '11111-22222',
+      },
+      on_behalf_of: null,
+      outcome: {
+        network_status: 'approved_by_network',
+        reason: null,
+        risk_level: 'normal',
+        risk_score: 14,
+        seller_message: 'Payment complete.',
+        type: 'authorized',
+      },
+      paid: true,
+      payment_intent: 'pi_11111',
+      payment_method: 'pm_11111',
+      payment_method_details: commonPaymentMethodDetails,
+      radar_options: {},
+      receipt_email: null,
+      receipt_number: null,
+      receipt_url: 'https://pay.stripe.com/receipts/payment/11111',
+      refunded: false,
+      review: null,
+      shipping: null,
+      source: null,
+      source_transfer: null,
+      statement_descriptor: 'aaaaaaa',
+      statement_descriptor_suffix: null,
+      status: 'succeeded',
+      transfer_data: null,
+      transfer_group: null,
+    },
+  },
+  livemode: false,
+  pending_webhooks: 1,
+  request: {
+    id: 'req_11111',
+    idempotency_key: '7ae634ca-11111',
+  },
+  type: 'charge.succeeded',
 };
 
 export const mockEvent__charge_succeeded_captured: Stripe.Event = {
