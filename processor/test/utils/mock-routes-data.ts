@@ -543,6 +543,7 @@ export const mockRoute__payments_succeed: PaymentResponseSchemaDTO = {
   sClientSecret: 'mock_paymentReference',
   paymentReference: 'mock_paymentReference',
   merchantReturnUrl: 'mock_merchantReturnUrl',
+  cartId: 'mockCartId',
 };
 
 export const mockRoute__paymentsComponents_succeed: SupportedPaymentComponentsSchemaDTO = {

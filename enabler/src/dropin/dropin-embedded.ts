@@ -75,7 +75,8 @@ export class DropinComponents implements DropinComponent {
         errors : processorError,
         sClientSecret : client_secret,
         paymentReference: paymentReference,
-        merchantReturnUrl: merchantReturnUrl } = await fetch(`${this.baseOptions.processorUrl}/payments`,{
+        merchantReturnUrl: merchantReturnUrl,
+        cartId: cartId } = await fetch(`${this.baseOptions.processorUrl}/payments`,{
         method : "GET",
         headers : {
           "Content-Type": "application/json",
@@ -93,7 +94,7 @@ export class DropinComponents implements DropinComponent {
         elements: this.baseOptions.elements,
         clientSecret: client_secret,
         confirmParams : {
-          return_url : merchantReturnUrl
+          return_url : merchantReturnUrl+`?cartId=${cartId}&paymentReference=${paymentReference}`
         },
         redirect : "if_required"
       });

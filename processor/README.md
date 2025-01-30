@@ -163,6 +163,8 @@ N/A
 #### Response Parameters
 - **sClientSecret**: The client secret is used to complete the payment from your frontend. 
 - **paymentReference**: The payment reference of the current process.
+- **merchantReturnUrl**: The URL used as the `return_url` parameter in Stripe's [confirmPayment](https://docs.stripe.com/js/payment_intents/confirm_payment) process. After the payment confirmation, Stripe appends the `paymentReference` and `cartId` as query parameters to this URL. For Buy Now, Pay Later (BNPL) payment methods, this URL can be used to reinitialize the commercetools Checkout SDK. More information on implementing the return URL for BNPL payment methods can be found in the [commercetools Checkout SDK documentation](https://docs.commercetools.com/checkout/sdk#return-url).
+- **cartId**: The cartId of the current proccess.
 
 ### Confirm the Payment Intent to commercetools
 This endpoint update the initial payment transaction in commercetools. It is called after the Stripe confirm the payment submit was successful.
@@ -183,12 +185,18 @@ The conversion of the webhook event to a transaction is converted in hte `/src/s
 
 The following webhooks currently supported and transformed to different payment transactions in commercetools are:
 - **payment_intent.canceled**: Modified the payment transaction Authorization to Failure and create a payment transaction CancelAuthorization: Success 
-- **payment_intent.succeeded**: Creates a payment transaction Charge: Success. 
+- **payment_intent.succeeded**: Creates a payment transaction Charge: Success. Create the order from the cart that has the payment referenced. 
 - **payment_intent.requires_action**: Logs the information in the connector app inside the Processor logs.
 - **payment_intent.payment_failed**: Modify the payment transaction Authorization to Failure.
 - **charge.refunded**: Create a payment transaction Refund to Success, and a Chargeback to Success.
 - **charge.succeeded**: If the charge is not captured, create the payment transaction to Authorization:Success.
 - **charge.captured**: Logs the information in the connector app inside the Processor logs.
+
+### Order Creation
+
+The order is created during the processing of the `payment_intent.succeeded` webhook. Before creating the order, the cart must include shipment information.
+
+In the current implementation, the sample application retrieves shipment and address details from the `last_charge` attribute included in the Stripe event payload. This setup serves as an example and can be adapted or reused based on your specific requirements.
 
 #### Endpoint
 `POST /stripe/webhooks`
@@ -198,6 +206,18 @@ The [Event object](https://docs.stripe.com/api/events) sent to your webhook endp
 
 #### Response Parameters
 The endpoint returns a 200 response to indicate the successful processing of the webhook event.
+
+### Apple pay well-know file
+This endpoint return the string of the .well-know call domain [file from Stripe](https://stripe.com/files/apple-pay/apple-developer-merchantid-domain-association).
+
+#### Endpoint
+`GET /applePayConfig`
+
+#### Query Parameters
+N/A
+
+#### Response Parameters
+- **string**: The string value of the well-know domain file.
 
 ### Get supported payment components
 Private endpoint protected by JSON Web Token that exposes the payment methods supported by the connector so that checkout application can retrieve the available payment components.
