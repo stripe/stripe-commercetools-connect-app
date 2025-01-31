@@ -284,30 +284,36 @@ export class StripePaymentService extends AbstractPaymentService {
    * @return {Promise<void>} - A Promise that resolves when the PaymentIntent is successfully updated.
    */
   public async updatePaymentIntentStripeSuccessful(paymentIntentId: string, paymentReference: string): Promise<void> {
-    const ctCart = await this.ctCartService.getCart({
-      id: getCartIdFromContext(),
-    });
-
-    const ctPayment = await this.ctPaymentService.getPayment({
-      id: paymentReference,
-    });
-    const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
-
-    log.info(`PaymentIntent confirmed.`, {
-      ctCartId: ctCart.id,
-      stripePaymentIntentId: ctPayment.interfaceId,
-      amountPlanned: JSON.stringify(amountPlanned),
-    });
-
-    await this.ctPaymentService.updatePayment({
-      id: ctPayment.id,
-      transaction: {
-        interactionId: paymentIntentId,
-        type: PaymentTransactions.AUTHORIZATION,
-        amount: amountPlanned,
-        state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
-      },
-    });
+    try {
+      console.log('updatePaymentIntentStripeSuccessful 0');
+      const ctCart = await this.ctCartService.getCart({
+        id: getCartIdFromContext(),
+      });
+      console.log('updatePaymentIntentStripeSuccessful 1');
+      const ctPayment = await this.ctPaymentService.getPayment({
+        id: paymentReference,
+      });
+      console.log('updatePaymentIntentStripeSuccessful 2');
+      const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
+      console.log('updatePaymentIntentStripeSuccessful 3');
+      log.info(`PaymentIntent confirmed.`, {
+        ctCartId: ctCart.id,
+        stripePaymentIntentId: ctPayment.interfaceId,
+        amountPlanned: JSON.stringify(amountPlanned),
+      });
+      console.log('updatePaymentIntentStripeSuccessful 4');
+      await this.ctPaymentService.updatePayment({
+        id: ctPayment.id,
+        transaction: {
+          interactionId: paymentIntentId,
+          type: PaymentTransactions.AUTHORIZATION,
+          amount: amountPlanned,
+          state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
+        },
+      });
+    } catch (error) {
+      console.log('updatePaymentIntentStripeSuccessful error', JSON.stringify(error, null, 2));
+    }
   }
 
   /**
