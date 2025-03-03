@@ -3,6 +3,7 @@ dotenv.config();
 
 import {
   createLaunchpadPurchaseOrderNumberCustomType,
+  createProductTypeSubscription,
   retrieveWebhookEndpoint,
   updateWebhookEndpoint,
 } from './actions';
@@ -10,6 +11,7 @@ import {
 const STRIPE_WEBHOOKS_ROUTE = 'stripe/webhooks';
 const CONNECT_SERVICE_URL = 'CONNECT_SERVICE_URL';
 const STRIPE_WEBHOOK_ID = 'STRIPE_WEBHOOK_ID';
+const STRIPE_IS_SUBSCRIPTION = 'STRIPE_IS_SUBSCRIPTION'; //TODO define with Vishnu how we are going to enable the subscription functionality by the front, or instalation.
 const msgError = 'Post-deploy failed:';
 
 async function postDeploy(_properties: Map<string, unknown>) {
@@ -17,6 +19,7 @@ async function postDeploy(_properties: Map<string, unknown>) {
 
   const applicationUrl = _properties.get(CONNECT_SERVICE_URL) as string;
   const stripeWebhookId = (_properties.get(STRIPE_WEBHOOK_ID) as string) ?? '';
+  const stripeIsSubscription: boolean = _properties.get(STRIPE_IS_SUBSCRIPTION) as boolean;
 
   if (_properties) {
     if (stripeWebhookId === '') {
@@ -28,6 +31,10 @@ async function postDeploy(_properties: Map<string, unknown>) {
         await updateWebhookEndpoint(stripeWebhookId, weAppUrl);
       }
     }
+  }
+
+  if (stripeIsSubscription) {
+    await createProductTypeSubscription();
   }
 }
 

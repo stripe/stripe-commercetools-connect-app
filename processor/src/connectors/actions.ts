@@ -1,4 +1,4 @@
-import { launchpadPurchaseOrderCustomType } from '../custom-types/custom-types';
+import { launchpadPurchaseOrderCustomType, productTypeSubscription, typeLineItem } from '../custom-types/custom-types';
 import { log } from '../libs/logger';
 import { paymentSDK } from '../payment-sdk';
 import Stripe from 'stripe';
@@ -53,6 +53,61 @@ export async function updateWebhookEndpoint(weId: string, weAppUrl: string): Pro
     });
   } catch (error: any) {
     log.error('[UPDATE_WEBHOOK_ENDPOINT]', error);
+    throw new Error(error);
+  }
+}
+
+export async function createProductTypeSubscription(): Promise<void> {
+  log.info(`[CREATE_PRODUCT_TYPE_SUBSCRIPTION] Starting the process for creating product type subscription.`);
+
+  try {
+    const apiClient = paymentSDK.ctAPI.client;
+    const keyLineItem = 'line-item-subscription';
+    const keyProductType = 'subscription-information';
+
+    const getResLineItem = await apiClient
+      .types()
+      .get({
+        queryArgs: {
+          where: `key="${keyLineItem}"`,
+        },
+      })
+      .execute();
+
+    if (getResLineItem.body.results.length) {
+      log.info('Type line item for subscription already exists. Skipping creation.');
+    } else {
+      const createResLineItem = await apiClient
+        .types()
+        .post({
+          body: typeLineItem,
+        })
+        .execute();
+      log.info(`Type line item for subscription created successfully ${createResLineItem.body.id}.`);
+    }
+
+    const getResProductTypeSubscription = await apiClient
+      .productTypes()
+      .get({
+        queryArgs: {
+          where: `key="${keyProductType}"`,
+        },
+      })
+      .execute();
+
+    if (getResProductTypeSubscription.body.results.length) {
+      log.info('Product type subscription already exists. Skipping creation.');
+    } else {
+      const createResProductTypeSubscription = await apiClient
+        .productTypes()
+        .post({
+          body: productTypeSubscription,
+        })
+        .execute();
+      log.info(`Product type subscription created successfully ${createResProductTypeSubscription.body.id}.`);
+    }
+  } catch (error: any) {
+    log.error('[CREATE_PRODUCT_TYPE_SUBSCRIPTION]', error);
     throw new Error(error);
   }
 }
