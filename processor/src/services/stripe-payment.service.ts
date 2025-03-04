@@ -286,25 +286,23 @@ export class StripePaymentService extends AbstractPaymentService {
    */
   public async updatePaymentIntentStripeSuccessful(paymentIntentId: string, paymentReference: string): Promise<void> {
     try {
-      console.log('updatePaymentIntentStripeSuccessful 0');
       const ctCart = await this.ctCartService.getCart({
         id: getCartIdFromContext(),
       });
-      console.log('updatePaymentIntentStripeSuccessful 1');
       const ctPayment = await this.ctPaymentService.getPayment({
         id: paymentReference,
       });
-      console.log('updatePaymentIntentStripeSuccessful 2');
-      const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
-      console.log('updatePaymentIntentStripeSuccessful 3');
+      const amountPlanned = ctPayment.amountPlanned;
+
       log.info(`PaymentIntent confirmed.`, {
         ctCartId: ctCart.id,
         stripePaymentIntentId: ctPayment.interfaceId,
         amountPlanned: JSON.stringify(amountPlanned),
       });
-      console.log('updatePaymentIntentStripeSuccessful 4');
+
       await this.ctPaymentService.updatePayment({
         id: ctPayment.id,
+        pspReference: paymentIntentId,
         transaction: {
           interactionId: paymentIntentId,
           type: PaymentTransactions.AUTHORIZATION,
