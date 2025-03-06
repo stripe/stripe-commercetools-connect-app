@@ -245,10 +245,6 @@ describe('stripe-payment.service', () => {
       const getPaymentMock = jest
         .spyOn(DefaultPaymentService.prototype, 'getPayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
-      const getPaymentAmountMock = jest
-        .spyOn(DefaultCartService.prototype, 'getPaymentAmount')
-        .mockResolvedValue(mockGetPaymentAmount);
-
       const updatePaymentMock = jest
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
@@ -258,7 +254,6 @@ describe('stripe-payment.service', () => {
 
       expect(getCartMock).toHaveBeenCalled();
       expect(getPaymentMock).toHaveBeenCalled();
-      expect(getPaymentAmountMock).toHaveBeenCalled();
       expect(updatePaymentMock).toHaveBeenCalled();
     });
   });
