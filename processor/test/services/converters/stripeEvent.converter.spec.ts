@@ -15,8 +15,12 @@ describe('stripeEvent.converter', () => {
     const result = converter.convert(mockEvent__paymentIntent_succeeded_captureMethodAutomatic);
 
     expect(result).toEqual({
-      paymentMethod: 'payment',
+      paymentMethod: undefined,
+      id: 'pi_11111',
       pspReference: 'pi_11111',
+      pspInteraction: {
+        response: JSON.stringify(mockEvent__paymentIntent_succeeded_captureMethodAutomatic),
+      },
       transactions: [
         {
           amount: {
@@ -35,8 +39,12 @@ describe('stripeEvent.converter', () => {
     const result = converter.convert(mockEvent__paymentIntent_canceled);
 
     expect(result).toEqual({
-      paymentMethod: 'payment',
+      id: 'pi_11111',
+      paymentMethod: undefined,
       pspReference: 'pi_11111',
+      pspInteraction: {
+        response: JSON.stringify(mockEvent__paymentIntent_canceled),
+      },
       transactions: [
         {
           amount: {
@@ -64,7 +72,11 @@ describe('stripeEvent.converter', () => {
     const result = converter.convert(mockEvent__paymentIntent_paymentFailed);
 
     expect(result).toEqual({
-      paymentMethod: 'payment',
+      id: undefined,
+      paymentMethod: undefined,
+      pspInteraction: {
+        response: JSON.stringify(mockEvent__paymentIntent_paymentFailed),
+      },
       pspReference: 'pi_11111',
       transactions: [
         {
@@ -80,13 +92,16 @@ describe('stripeEvent.converter', () => {
     });
   });
 
-  test('convert a payment_intent.payment_failed event', () => {
+  test('convert a charge.refunded event', () => {
     const result = converter.convert(mockEvent__charge_refund_captured);
 
     expect(result).toEqual({
       id: 'pi_11111',
-      paymentMethod: 'payment',
+      paymentMethod: 'card',
       pspReference: 'pi_11111',
+      pspInteraction: {
+        response: JSON.stringify(mockEvent__charge_refund_captured),
+      },
       transactions: [
         {
           amount: {
@@ -125,8 +140,12 @@ describe('stripeEvent.converter', () => {
     const result = converter.convert(mockEvent__charge_succeeded_notCaptured);
 
     expect(result).toEqual({
-      paymentMethod: 'payment',
+      id: 'pi_11111',
+      paymentMethod: 'card',
       pspReference: 'pi_11111',
+      pspInteraction: {
+        response: JSON.stringify(mockEvent__charge_succeeded_notCaptured),
+      },
       transactions: [
         {
           amount: {
