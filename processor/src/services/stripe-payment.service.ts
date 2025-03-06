@@ -177,6 +177,7 @@ export class StripePaymentService extends AbstractPaymentService {
       id: getCartIdFromContext(),
     });
 
+    const shipping = ctCart.shippingAddress;
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
     const captureMethodConfig = getConfig().stripeCaptureMethod;
     const merchantReturnUrl = getMerchantReturnUrlFromContext() || getConfig().merchantReturnUrl;
@@ -196,6 +197,17 @@ export class StripePaymentService extends AbstractPaymentService {
           metadata: {
             cart_id: ctCart.id,
             ct_project_key: getConfig().projectKey,
+          },
+          shipping: {
+            name: `${shipping?.firstName} ${shipping?.lastName}`,
+            phone: shipping?.phone || shipping?.mobile,
+            address: {
+              line1: `${shipping?.streetNumber} ${shipping?.streetName}`,
+              city: shipping?.city,
+              postal_code: shipping?.postalCode,
+              state: shipping?.state,
+              country: shipping?.country,
+            },
           },
         },
         {
