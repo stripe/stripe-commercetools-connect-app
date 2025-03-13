@@ -1,3 +1,5 @@
+import Stripe from 'stripe';
+
 export const config = {
   // Required by Payment SDK
   projectKey: process.env.CTP_PROJECT_KEY || 'payment-integration',
@@ -25,6 +27,9 @@ export const config = {
   stripeExpressCheckoutAppearance: process.env.STRIPE_APPEARANCE_EXPRESS_CHECKOUT,
   stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
   stripeApplePayWellKnown: process.env.STRIPE_APPLE_PAY_WELL_KNOWN || 'mockWellKnown',
+  stripeApiVersion: process.env.STRIPE_API_VERSION || '2024-09-30',
+  stripeSetupFutureUsage:
+    (process.env.STRIPE_SETUP_FUTURE_USAGE as Stripe.PaymentIntentCreateParams.SetupFutureUsage) || undefined,
 
   // Payment Providers config
   merchantReturnUrl: process.env.MERCHANT_RETURN_URL || '',

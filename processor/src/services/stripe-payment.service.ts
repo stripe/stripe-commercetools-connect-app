@@ -17,17 +17,24 @@ import { AbstractPaymentService } from './abstract-payment.service';
 import { getConfig } from '../config/config';
 import { appLogger, paymentSDK } from '../payment-sdk';
 import { CaptureMethod, StripeEvent, StripePaymentServiceOptions } from './types/stripe-payment.type';
-import { ConfigElementResponseSchemaDTO, PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/stripe-payment.dto';
+import {
+  ConfigElementResponseSchemaDTO,
+  CustomerResponseSchemaDTO,
+  PaymentOutcome,
+  PaymentResponseSchemaDTO,
+} from '../dtos/stripe-payment.dto';
 import {
   getCartIdFromContext,
   getMerchantReturnUrlFromContext,
   getPaymentInterfaceFromContext,
 } from '../libs/fastify/context/context';
-import { stripeApi, wrapStripeError } from '../clients/stripe.client';
+import { stripeApi as StripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
 import crypto from 'crypto';
 import { StripeEventConverter } from './converters/stripeEventConverter';
 import { Cart } from '@commercetools/platform-sdk';
+
+const stripeApi = StripeApi();
 
 export class StripePaymentService extends AbstractPaymentService {
   private stripeEventConverter: StripeEventConverter;
@@ -81,7 +88,7 @@ export class StripePaymentService extends AbstractPaymentService {
         }),
         async () => {
           try {
-            const paymentMethods = await stripeApi().paymentMethods.list({
+            const paymentMethods = await stripeApi.paymentMethods.list({
               limit: 3,
             });
             return {
@@ -168,26 +175,80 @@ export class StripePaymentService extends AbstractPaymentService {
   }
 
   /**
+   * Validates if the customer exists in Stripe and creates a new customer if it does not exist.
+   * @param {string} id - The stripe customer id to validate.
+   * @returns Promise with the stripeCustomerId, ephemeralKey and sessionId.
+   */
+  public async getCustomerSession(id?: string): Promise<CustomerResponseSchemaDTO | undefined> {
+    const config = getConfig();
+    try {
+      const cart = await this.ctCartService.getCart({ id: getCartIdFromContext() });
+      const stripeCustomerId = await this.validateStripeCustomerId(cart, id);
+
+      if (!stripeCustomerId) {
+        throw 'Failed to create get customer id.';
+      }
+
+      const ephemeralKey = await stripeApi.ephemeralKeys.create(
+        { customer: stripeCustomerId },
+        { apiVersion: config.stripeApiVersion },
+      );
+
+      if (!ephemeralKey || !ephemeralKey.secret) {
+        throw 'Failed to create ephemeral key.';
+      }
+
+      const session = await stripeApi.customerSessions.create({
+        customer: stripeCustomerId,
+        components: {
+          payment_element: {
+            enabled: true,
+            features: {
+              payment_method_redisplay: 'enabled',
+              payment_method_remove: 'enabled',
+              payment_method_save: 'enabled',
+              payment_method_save_usage: config.stripeSetupFutureUsage,
+              payment_method_redisplay_limit: 10,
+            },
+          },
+        },
+      });
+
+      if (!session) {
+        throw 'Failed to create session.';
+      }
+
+      return {
+        stripeCustomerId,
+        ephemeralKey: ephemeralKey.secret,
+        sessionId: session.client_secret,
+      };
+    } catch (error) {
+      throw wrapStripeError(error);
+    }
+  }
+
+  /**
    * Creates a payment intent using the Stripe API and create commercetools payment with Initial transaction.
    *
    * @return Promise<PaymentResponseSchemaDTO> A Promise that resolves to a PaymentResponseSchemaDTO object containing the client secret and payment reference.
    */
-  public async createPaymentIntentStripe(): Promise<PaymentResponseSchemaDTO> {
-    const ctCart = await this.ctCartService.getCart({
-      id: getCartIdFromContext(),
-    });
-
-    const shipping = ctCart.shippingAddress;
+  public async createPaymentIntentStripe(stripeCustomerId?: string): Promise<PaymentResponseSchemaDTO> {
+    const config = getConfig();
+    const ctCart = await this.ctCartService.getCart({ id: getCartIdFromContext() });
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
-    const captureMethodConfig = getConfig().stripeCaptureMethod;
-    const merchantReturnUrl = getMerchantReturnUrlFromContext() || getConfig().merchantReturnUrl;
+    const shipping = ctCart.shippingAddress;
+    const captureMethodConfig = config.stripeCaptureMethod;
+    const merchantReturnUrl = getMerchantReturnUrlFromContext() || config.merchantReturnUrl;
     let paymentIntent!: Stripe.PaymentIntent;
 
     try {
+      const customerId = await this.validateStripeCustomerId(ctCart, stripeCustomerId);
       const idempotencyKey = crypto.randomUUID();
-      // MVP Add customer address to the payment Intent creation
-      paymentIntent = await stripeApi().paymentIntents.create(
+      paymentIntent = await stripeApi.paymentIntents.create(
         {
+          customer: customerId,
+          setup_future_usage: config.stripeSetupFutureUsage,
           amount: amountPlanned.centAmount,
           currency: amountPlanned.currencyCode,
           automatic_payment_methods: {
@@ -196,7 +257,7 @@ export class StripePaymentService extends AbstractPaymentService {
           capture_method: captureMethodConfig as CaptureMethod,
           metadata: {
             cart_id: ctCart.id,
-            ct_project_key: getConfig().projectKey,
+            ct_project_key: config.projectKey,
           },
           shipping: {
             name: `${shipping?.firstName} ${shipping?.lastName}`,
@@ -266,7 +327,7 @@ export class StripePaymentService extends AbstractPaymentService {
 
     try {
       const idempotencyKey = crypto.randomUUID();
-      await stripeApi().paymentIntents.update(
+      await stripeApi.paymentIntents.update(
         paymentIntent.id,
         {
           metadata: {
@@ -333,17 +394,17 @@ export class StripePaymentService extends AbstractPaymentService {
    * @return {Promise<ConfigElementResponseSchemaDTO>} Returns a promise that resolves with the cart information, appearance, and capture method.
    */
   public async initializeCartPayment(paymentType: string): Promise<ConfigElementResponseSchemaDTO> {
-    const ctCart = await this.ctCartService.getCart({
-      id: getCartIdFromContext(),
-    });
-
+    const {
+      stripePaymentElementAppearance,
+      stripeExpressCheckoutAppearance,
+      stripeCaptureMethod,
+      stripeSetupFutureUsage,
+    } = getConfig();
+    const ctCart = await this.ctCartService.getCart({ id: getCartIdFromContext() });
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
-
     const webElement = paymentType; //getConfig().stripeWebElements;
     const appearance =
-      webElement === 'paymentElement'
-        ? getConfig().stripePaymentElementAppearance
-        : getConfig().stripeExpressCheckoutAppearance;
+      webElement === 'paymentElement' ? stripePaymentElementAppearance : stripeExpressCheckoutAppearance;
 
     log.info(`Cart and ${webElement} config retrieved.`, {
       cartId: ctCart.id,
@@ -352,8 +413,9 @@ export class StripePaymentService extends AbstractPaymentService {
         currency: amountPlanned.currencyCode,
       },
       stripeElementAppearance: appearance,
-      stripeCaptureMethod: getConfig().stripeCaptureMethod,
+      stripeCaptureMethod: stripeCaptureMethod,
       webElements: webElement,
+      stripeSetupFutureUsage: stripeSetupFutureUsage,
     });
 
     return {
@@ -362,8 +424,9 @@ export class StripePaymentService extends AbstractPaymentService {
         currency: amountPlanned.currencyCode,
       },
       appearance: appearance,
-      captureMethod: getConfig().stripeCaptureMethod,
+      captureMethod: stripeCaptureMethod,
       webElements: webElement,
+      setupFutureUsage: stripeSetupFutureUsage,
     };
   }
 
@@ -446,7 +509,7 @@ export class StripePaymentService extends AbstractPaymentService {
     const idempotencyKey = crypto.randomUUID();
 
     if (paymentIntent)
-      await stripeApi().paymentIntents.update(
+      await stripeApi.paymentIntents.update(
         paymentIntent,
         {
           metadata: {
@@ -460,7 +523,7 @@ export class StripePaymentService extends AbstractPaymentService {
   public async updateCartAddress(event: Stripe.Event, ctCart: Cart): Promise<Cart> {
     const apiClient = paymentSDK.ctAPI.client;
     const { latest_charge } = event.data.object as Stripe.PaymentIntent;
-    const charge = await stripeApi().charges.retrieve(latest_charge as string);
+    const charge = await stripeApi.charges.retrieve(latest_charge as string);
     const { billing_details, shipping } = charge;
     let billingAlias: Stripe.Charge.BillingDetails | Stripe.Charge.Shipping;
     if (!shipping) {
@@ -492,5 +555,42 @@ export class StripePaymentService extends AbstractPaymentService {
       })
       .execute();
     return cart.body;
+  }
+
+  private async validateStripeCustomerId(cart: Cart, id?: string): Promise<string> {
+    if (id) {
+      try {
+        const customer = await stripeApi.customers.retrieve(id);
+        if (customer && !customer.deleted) {
+          return customer.id;
+        }
+      } catch (e) {
+        const error = e as Error;
+        //If customer is not found, continue normal flow
+        if (!error?.message.includes('No such customer')) {
+          throw error;
+        }
+      }
+    }
+    const email = cart.customerEmail || cart.shippingAddress?.email;
+
+    if (!email) {
+      throw 'Customer email not found.';
+    }
+
+    //If customer is not found, find by email
+    const customers = await stripeApi.customers.list({ email });
+    const existingCustomer = customers.data.find((customer) => customer.email === email && !customer.deleted);
+
+    if (existingCustomer) {
+      return existingCustomer.id;
+    }
+
+    //If customer is not found, create a new customer
+    const newCustomer = await stripeApi.customers.create({
+      email,
+      name: `${cart.shippingAddress?.firstName} ${cart.shippingAddress?.lastName}`.trim(),
+    });
+    return newCustomer.id;
   }
 }

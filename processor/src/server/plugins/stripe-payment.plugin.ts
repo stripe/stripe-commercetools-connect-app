@@ -1,6 +1,11 @@
 import { FastifyInstance } from 'fastify';
 import { paymentSDK } from '../../payment-sdk';
-import { configElementRoutes, paymentRoutes, stripeWebhooksRoutes } from '../../routes/stripe-payment.route';
+import {
+  configElementRoutes,
+  customerRoutes,
+  paymentRoutes,
+  stripeWebhooksRoutes,
+} from '../../routes/stripe-payment.route';
 import { StripePaymentService } from '../../services/stripe-payment.service';
 import { StripeHeaderAuthHook } from '../../libs/fastify/hooks/stripe-header-auth.hook';
 
@@ -10,6 +15,11 @@ export default async function (server: FastifyInstance) {
     ctPaymentService: paymentSDK.ctPaymentService,
     ctOrderService: paymentSDK.ctOrderService,
   });
+  await server.register(customerRoutes, {
+    paymentService: stripePaymentService,
+    sessionHeaderAuthHook: paymentSDK.sessionHeaderAuthHookFn,
+  });
+
   await server.register(paymentRoutes, {
     paymentService: stripePaymentService,
     sessionHeaderAuthHook: paymentSDK.sessionHeaderAuthHookFn,
