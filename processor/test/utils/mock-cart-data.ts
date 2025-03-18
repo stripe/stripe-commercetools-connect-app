@@ -29,6 +29,7 @@ export const mockGetCartResult = () => {
     shippingInfo: shippingInfo,
     createdAt: '2024-01-01T00:00:00Z',
     lastModifiedAt: '2024-01-01T00:00:00Z',
+    customerEmail: 'test@example.com',
     paymentInfo: {
       payments: [
         {
@@ -37,6 +38,21 @@ export const mockGetCartResult = () => {
           obj: undefined,
         },
       ],
+    },
+    shippingAddress: {
+      title: 'Mr.',
+      firstName: 'John',
+      lastName: 'Smith',
+      streetName: 'Test street',
+      streetNumber: '123',
+      postalCode: '12345',
+      city: 'Los Angeles',
+      state: 'CA',
+      country: 'US',
+      phone: '+312345678',
+      mobile: '+312345679',
+      email: 'test@example.com',
+      key: 'address1',
     },
   };
   return mockGetCartResult;

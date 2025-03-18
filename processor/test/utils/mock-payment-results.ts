@@ -75,6 +75,10 @@ const commonPaymentResult = {
 
 export const mockGetPaymentResult: Payment = {
   id: '123456',
+  customer: {
+    id: 'cus_1234567890',
+    typeId: 'customer',
+  },
   version: 1,
   amountPlanned: {
     type: 'centPrecision',
@@ -398,3 +402,5 @@ export const mockCapturePaymentResult: PaymentProviderModificationResponse = {
   outcome: PaymentModificationStatus.APPROVED,
   pspReference: 'mockPspReference',
 };
+
+export const mockStripeCustomerId = 'cus_1234567890';

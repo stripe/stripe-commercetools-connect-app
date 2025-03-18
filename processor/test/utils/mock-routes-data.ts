@@ -574,6 +574,7 @@ export const mockRoute__get_config_element_succeed: ConfigElementResponseSchemaD
   appearance: '',
   captureMethod: 'captureMethod',
   webElements: 'mockWebElement',
+  setupFutureUsage: 'on_session',
 };
 
 export const mockEvent__charge_capture_succeeded_notCaptured: Stripe.Event = {

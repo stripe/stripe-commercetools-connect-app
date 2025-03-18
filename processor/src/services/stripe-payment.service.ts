@@ -28,13 +28,11 @@ import {
   getMerchantReturnUrlFromContext,
   getPaymentInterfaceFromContext,
 } from '../libs/fastify/context/context';
-import { stripeApi as StripeApi, wrapStripeError } from '../clients/stripe.client';
+import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
 import crypto from 'crypto';
 import { StripeEventConverter } from './converters/stripeEventConverter';
 import { Cart } from '@commercetools/platform-sdk';
-
-const stripeApi = StripeApi();
 
 export class StripePaymentService extends AbstractPaymentService {
   private stripeEventConverter: StripeEventConverter;
@@ -88,7 +86,7 @@ export class StripePaymentService extends AbstractPaymentService {
         }),
         async () => {
           try {
-            const paymentMethods = await stripeApi.paymentMethods.list({
+            const paymentMethods = await stripeApi().paymentMethods.list({
               limit: 3,
             });
             return {
@@ -189,7 +187,7 @@ export class StripePaymentService extends AbstractPaymentService {
         throw 'Failed to create get customer id.';
       }
 
-      const ephemeralKey = await stripeApi.ephemeralKeys.create(
+      const ephemeralKey = await stripeApi().ephemeralKeys.create(
         { customer: stripeCustomerId },
         { apiVersion: config.stripeApiVersion },
       );
@@ -198,7 +196,7 @@ export class StripePaymentService extends AbstractPaymentService {
         throw 'Failed to create ephemeral key.';
       }
 
-      const session = await stripeApi.customerSessions.create({
+      const session = await stripeApi().customerSessions.create({
         customer: stripeCustomerId,
         components: {
           payment_element: {
@@ -245,7 +243,7 @@ export class StripePaymentService extends AbstractPaymentService {
     try {
       const customerId = await this.validateStripeCustomerId(ctCart, stripeCustomerId);
       const idempotencyKey = crypto.randomUUID();
-      paymentIntent = await stripeApi.paymentIntents.create(
+      paymentIntent = await stripeApi().paymentIntents.create(
         {
           customer: customerId,
           setup_future_usage: config.stripeSetupFutureUsage,
@@ -327,7 +325,7 @@ export class StripePaymentService extends AbstractPaymentService {
 
     try {
       const idempotencyKey = crypto.randomUUID();
-      await stripeApi.paymentIntents.update(
+      await stripeApi().paymentIntents.update(
         paymentIntent.id,
         {
           metadata: {
@@ -509,7 +507,7 @@ export class StripePaymentService extends AbstractPaymentService {
     const idempotencyKey = crypto.randomUUID();
 
     if (paymentIntent)
-      await stripeApi.paymentIntents.update(
+      await stripeApi().paymentIntents.update(
         paymentIntent,
         {
           metadata: {
@@ -523,7 +521,7 @@ export class StripePaymentService extends AbstractPaymentService {
   public async updateCartAddress(event: Stripe.Event, ctCart: Cart): Promise<Cart> {
     const apiClient = paymentSDK.ctAPI.client;
     const { latest_charge } = event.data.object as Stripe.PaymentIntent;
-    const charge = await stripeApi.charges.retrieve(latest_charge as string);
+    const charge = await stripeApi().charges.retrieve(latest_charge as string);
     const { billing_details, shipping } = charge;
     let billingAlias: Stripe.Charge.BillingDetails | Stripe.Charge.Shipping;
     if (!shipping) {
@@ -557,10 +555,10 @@ export class StripePaymentService extends AbstractPaymentService {
     return cart.body;
   }
 
-  private async validateStripeCustomerId(cart: Cart, id?: string): Promise<string> {
+  public async validateStripeCustomerId(cart: Cart, id?: string): Promise<string> {
     if (id) {
       try {
-        const customer = await stripeApi.customers.retrieve(id);
+        const customer = await stripeApi().customers.retrieve(id);
         if (customer && !customer.deleted) {
           return customer.id;
         }
@@ -579,7 +577,7 @@ export class StripePaymentService extends AbstractPaymentService {
     }
 
     //If customer is not found, find by email
-    const customers = await stripeApi.customers.list({ email });
+    const customers = await stripeApi().customers.list({ email });
     const existingCustomer = customers.data.find((customer) => customer.email === email && !customer.deleted);
 
     if (existingCustomer) {
@@ -587,7 +585,7 @@ export class StripePaymentService extends AbstractPaymentService {
     }
 
     //If customer is not found, create a new customer
-    const newCustomer = await stripeApi.customers.create({
+    const newCustomer = await stripeApi().customers.create({
       email,
       name: `${cart.shippingAddress?.firstName} ${cart.shippingAddress?.lastName}`.trim(),
     });
