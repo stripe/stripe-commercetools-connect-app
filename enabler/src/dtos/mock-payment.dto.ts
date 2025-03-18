@@ -1,5 +1,4 @@
 import { Static, Type } from '@sinclair/typebox';
-import { PaymentIntent, Stripe } from '@stripe/stripe-js';
 
 export enum PaymentOutcome {
   AUTHORIZED = 'Authorized',
