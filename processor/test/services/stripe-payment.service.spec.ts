@@ -282,7 +282,7 @@ describe('stripe-payment.service', () => {
         .spyOn(DefaultCartService.prototype, 'addPayment')
         .mockResolvedValue(mockGetCartResult());
       const validateStripeCustomerIdMock = jest
-        .spyOn(StripePaymentService.prototype, 'validateStripeCustomerId')
+        .spyOn(StripePaymentService.prototype, 'getStripeCustomerId')
         .mockResolvedValue(mockStripeCustomerId);
 
       const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
@@ -321,7 +321,7 @@ describe('stripe-payment.service', () => {
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
       const wrapStripeError = jest.spyOn(StripeClient, 'wrapStripeError').mockReturnValue(error);
       const validateStripeCustomerIdMock = jest
-        .spyOn(StripePaymentService.prototype, 'validateStripeCustomerId')
+        .spyOn(StripePaymentService.prototype, 'getStripeCustomerId')
         .mockResolvedValue(mockStripeCustomerId);
       const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
       try {
