@@ -199,25 +199,7 @@ export class StripePaymentService extends AbstractPaymentService {
         throw 'Failed to create ephemeral key.';
       }
 
-      const paymentConfig = config.stripeSavedPaymentMethodConfig;
-      const session = await stripeApi().customerSessions.create({
-        customer: stripeCustomerId,
-        components: {
-          payment_element: {
-            enabled: true,
-            features: {
-              //default values
-              payment_method_redisplay: 'enabled',
-              payment_method_remove: 'enabled',
-              payment_method_save: 'enabled',
-              payment_method_save_usage: 'off_session',
-              payment_method_redisplay_limit: 10,
-              //custom values will override default values
-              ...paymentConfig,
-            },
-          },
-        },
-      });
+      const session = await this.createSession(stripeCustomerId);
       if (!session) {
         throw 'Failed to create session.';
       }
@@ -629,7 +611,7 @@ export class StripePaymentService extends AbstractPaymentService {
     return newCustomer;
   }
 
-  public async saveStripeCustomerId(id: string, cart: Cart): Promise<boolean> {
+  private async saveStripeCustomerId(id: string, cart: Cart): Promise<boolean> {
     if (cart.custom?.fields?.stripeCustomerId === id) {
       return true;
     }
@@ -652,5 +634,29 @@ export class StripePaymentService extends AbstractPaymentService {
       })
       .execute();
     return Boolean(response.body.custom?.fields?.stripeCustomerId);
+  }
+
+  private async createSession(stripeCustomerId: string) {
+    const paymentConfig = getConfig().stripeSavedPaymentMethodConfig;
+    const session = await stripeApi().customerSessions.create({
+      customer: stripeCustomerId,
+      components: {
+        payment_element: {
+          enabled: true,
+          features: {
+            //default values
+            payment_method_redisplay: 'enabled',
+            payment_method_remove: 'enabled',
+            payment_method_save: 'enabled',
+            payment_method_save_usage: 'off_session',
+            payment_method_redisplay_limit: 10,
+            //custom values will override default values
+            ...paymentConfig,
+          },
+        },
+      },
+    });
+
+    return session;
   }
 }
