@@ -247,10 +247,11 @@ export class StripePaymentService extends AbstractPaymentService {
             ...(ctCart.customerId ? { customer_id: ctCart.customerId } : null),
           },
           shipping: {
-            name: `${shipping?.firstName} ${shipping?.lastName}`,
+            name: `${shipping?.firstName} ${shipping?.lastName}`.trim(),
             phone: shipping?.phone || shipping?.mobile,
             address: {
-              line1: `${shipping?.streetNumber} ${shipping?.streetName}`,
+              line1: `${shipping?.streetNumber} ${shipping?.streetName}`.trim(),
+              line2: shipping?.additionalStreetInfo,
               city: shipping?.city,
               postal_code: shipping?.postalCode,
               state: shipping?.state,
