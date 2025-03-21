@@ -1,10 +1,20 @@
 import Stripe from 'stripe';
+import { parseJSON } from '../utils';
 
-const getSavedPaymentConfig = () => {
+type PaymentFeatures = Stripe.CustomerSessionCreateParams.Components.PaymentElement.Features;
+
+const getSavedPaymentConfig = (): PaymentFeatures => {
   const config = process.env.STRIPE_SAVED_PAYMENT_METHODS_CONFIG;
-  return config
-    ? (JSON.parse(config) as Stripe.CustomerSessionCreateParams.Components.PaymentElement.Features)
-    : undefined;
+  return {
+    //default values
+    payment_method_redisplay: 'enabled',
+    payment_method_remove: 'enabled',
+    payment_method_save: 'enabled',
+    payment_method_save_usage: 'off_session',
+    payment_method_redisplay_limit: 10,
+    //custom values will override default values
+    ...(config ? parseJSON<PaymentFeatures>(config) : null),
+  };
 };
 
 export const config = {

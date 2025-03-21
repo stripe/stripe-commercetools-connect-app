@@ -574,7 +574,7 @@ export const mockRoute__get_config_element_succeed: ConfigElementResponseSchemaD
   appearance: '',
   captureMethod: 'captureMethod',
   webElements: 'mockWebElement',
-  setupFutureUsage: 'on_session',
+  setupFutureUsage: 'off_session',
   layout: '{"type":"accordion","defaultCollapsed":false,"radios":true,"spacedAccordionItems":true}',
 };
 

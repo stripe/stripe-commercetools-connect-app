@@ -234,7 +234,7 @@ export class StripePaymentService extends AbstractPaymentService {
       paymentIntent = await stripeApi().paymentIntents.create(
         {
           customer: stripeCustomerId,
-          setup_future_usage: config.stripeSavedPaymentMethodConfig?.payment_method_save_usage ?? 'off_session',
+          setup_future_usage: config.stripeSavedPaymentMethodConfig?.payment_method_save_usage,
           amount: amountPlanned.centAmount,
           currency: amountPlanned.currencyCode,
           automatic_payment_methods: {
@@ -394,7 +394,7 @@ export class StripePaymentService extends AbstractPaymentService {
     const webElement = paymentType; //getConfig().stripeWebElements;
     const appearance =
       webElement === 'paymentElement' ? stripePaymentElementAppearance : stripeExpressCheckoutAppearance;
-    const setupFutureUsage = stripeSavedPaymentMethodConfig?.payment_method_save_usage ?? 'off_session';
+    const setupFutureUsage = stripeSavedPaymentMethodConfig.payment_method_save_usage!;
 
     log.info(`Cart and ${webElement} config retrieved.`, {
       cartId: ctCart.id,
@@ -647,16 +647,7 @@ export class StripePaymentService extends AbstractPaymentService {
       components: {
         payment_element: {
           enabled: true,
-          features: {
-            //default values
-            payment_method_redisplay: 'enabled',
-            payment_method_remove: 'enabled',
-            payment_method_save: 'enabled',
-            payment_method_save_usage: 'off_session',
-            payment_method_redisplay_limit: 10,
-            //custom values will override default values
-            ...paymentConfig,
-          },
+          features: { ...paymentConfig },
         },
       },
     });
