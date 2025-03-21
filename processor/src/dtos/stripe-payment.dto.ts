@@ -45,6 +45,7 @@ export const ConfigElementResponseSchema = Type.Object({
   captureMethod: Type.String(),
   webElements: Type.String(),
   setupFutureUsage: Type.String(),
+  layout: Type.String(),
 });
 
 export const CtPaymentSchema = Type.Object({

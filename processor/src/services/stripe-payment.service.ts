@@ -387,6 +387,7 @@ export class StripePaymentService extends AbstractPaymentService {
       stripeExpressCheckoutAppearance,
       stripeCaptureMethod,
       stripeSavedPaymentMethodConfig,
+      stripeLayout,
     } = getConfig();
     const ctCart = await this.ctCartService.getCart({ id: getCartIdFromContext() });
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
@@ -405,6 +406,7 @@ export class StripePaymentService extends AbstractPaymentService {
       stripeCaptureMethod: stripeCaptureMethod,
       webElements: webElement,
       stripeSetupFutureUsage: setupFutureUsage,
+      layout: stripeLayout,
     });
 
     return {
@@ -416,6 +418,7 @@ export class StripePaymentService extends AbstractPaymentService {
       captureMethod: stripeCaptureMethod,
       webElements: webElement,
       setupFutureUsage: setupFutureUsage,
+      layout: stripeLayout,
     };
   }
 

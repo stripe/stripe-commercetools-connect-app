@@ -32,6 +32,7 @@ export const ConfigElementResponseSchema = Type.Object({
   captureMethod: Type.Union([Type.Literal('manual'), Type.Literal('automatic')]),
   webElements: Type.Optional(Type.Union([Type.Literal('paymentElement'), Type.Literal('expressCheckout')]) ),
   setupFutureUsage: Type.Optional(Type.Union([Type.Literal('off_session'), Type.Literal('on_session')]) ),
+  layout: Type.String(),
 });
 
 export const ConfigResponseSchema = Type.Object({
