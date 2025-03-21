@@ -6,13 +6,18 @@ import {
 } from "./payment-enabler";
 import { DropinEmbeddedBuilder } from "../dropin/dropin-embedded";
 import {
+  Appearance,
+  LayoutObject,
   loadStripe,
   Stripe,
-  StripeElements, StripeExpressCheckoutElement, StripeExpressCheckoutElementOptions,
-  StripePaymentElementOptions
+  StripeElements,
+  StripeExpressCheckoutElement,
+  StripeExpressCheckoutElementOptions,
+  StripePaymentElementOptions,
 } from "@stripe/stripe-js";
 import {StripePaymentElement} from "@stripe/stripe-js";
 import {ConfigElementResponseSchemaDTO, ConfigResponseSchemaDTO} from "../dtos/mock-payment.dto.ts";
+import { parseJSON } from "../utils/index.ts";
 
 
 declare global {
@@ -35,7 +40,14 @@ export type BaseOptions = {
   elements: StripeElements; // MVP https://docs.stripe.com/js/elements_object
 };
 
-
+interface ElementsOptions {
+  type: string;
+  options: Record<string, any>;
+  onComplete: (result: PaymentResult) => void;
+  onError: (error?: any) => void;
+  layout: LayoutObject;
+  appearance: Appearance;
+} 
 
 export class MockPaymentEnabler implements PaymentEnabler {
   setupData: Promise<{ baseOptions: BaseOptions }>;
@@ -124,14 +136,17 @@ export class MockPaymentEnabler implements PaymentEnabler {
     }
   }
 
-  private static getElements(stripeSDK: Stripe | null, cartInfoResponse): StripeElements | null {
+  private static getElements(
+    stripeSDK: Stripe | null,
+    cartInfoResponse: ConfigElementResponseSchemaDTO
+  ): StripeElements | null {
     if (!stripeSDK) return null;
     try {
       return stripeSDK.elements?.({
         mode: 'payment',
         amount: cartInfoResponse.cartInfo.amount,
         currency: cartInfoResponse.cartInfo.currency.toLowerCase(),
-        appearance: JSON.parse(cartInfoResponse.appearance || "{}"),
+        appearance: parseJSON(cartInfoResponse.appearance),
         capture_method: cartInfoResponse.captureMethod,
       });
     } catch (error) {
@@ -164,32 +179,52 @@ export class MockPaymentEnabler implements PaymentEnabler {
     }
   }
 
-  private static getElementsOptions(options: EnablerOptions, config: any): object {
-    // MVP options from the Stripe element appareance can be here. https://docs.stripe.com/js/elements_object/create
-    let appOptions;
-    if(config.appearance !== undefined)
-      appOptions = config.appearance
-      console.log(options)
+  private static getElementsOptions(
+    options: EnablerOptions,
+    config: ConfigElementResponseSchemaDTO
+  ): ElementsOptions {
+    const { appearance, layout } = config;
+
     return {
       type: 'payment',
       options: {},
       onComplete: options.onComplete,
       onError: options.onError,
-      layout: {
-        type: 'tabs',
-        defaultCollapsed: false
-      },
-      ...(appOptions!== undefined && {appearance : appOptions}),
+      layout: this.getLayoutObject(layout),
+      appearance: parseJSON(appearance),
     }
   }
 
-  private static getPaymentElement(elementsOptions: object, paymentElementType: any, elements): StripePaymentElement | StripeExpressCheckoutElement {
+  private static getPaymentElement(
+    elementsOptions: ElementsOptions,
+    paymentElementType: string,
+    elements: StripeElements
+  ): StripePaymentElement | StripeExpressCheckoutElement {
     if(paymentElementType === 'expressCheckout'){
       return elements.create('expressCheckout', elementsOptions as StripeExpressCheckoutElementOptions);
     } else {
       return elements.create('payment', elementsOptions as StripePaymentElementOptions)
     }
   }
+
+  private static getLayoutObject(layout: string): LayoutObject {    
+    if (layout) {
+      const parsedObject = parseJSON<LayoutObject>(layout);
+      const isValid = this.validateLayoutObject(parsedObject);
+      if (isValid) {
+        return parsedObject;
+      }
+    }
+
+    return {
+      type: 'tabs',
+      defaultCollapsed: false,
+    };
+  }
+
+  private static validateLayoutObject(layout: LayoutObject): boolean {
+    if (!layout) return false;
+    const validLayouts = ['tabs', 'accordion', 'auto'];
+    return validLayouts.includes(layout.type);
+  }
 }
-
-

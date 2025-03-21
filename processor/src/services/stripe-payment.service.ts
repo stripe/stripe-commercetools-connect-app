@@ -334,6 +334,9 @@ export class StripePaymentService extends AbstractPaymentService {
    * @return {Promise<ConfigElementResponseSchemaDTO>} Returns a promise that resolves with the cart information, appearance, and capture method.
    */
   public async initializeCartPayment(paymentType: string): Promise<ConfigElementResponseSchemaDTO> {
+    const { stripeLayout, stripePaymentElementAppearance, stripeExpressCheckoutAppearance, stripeCaptureMethod } =
+      getConfig();
+
     const ctCart = await this.ctCartService.getCart({
       id: getCartIdFromContext(),
     });
@@ -342,9 +345,7 @@ export class StripePaymentService extends AbstractPaymentService {
 
     const webElement = paymentType; //getConfig().stripeWebElements;
     const appearance =
-      webElement === 'paymentElement'
-        ? getConfig().stripePaymentElementAppearance
-        : getConfig().stripeExpressCheckoutAppearance;
+      webElement === 'paymentElement' ? stripePaymentElementAppearance : stripeExpressCheckoutAppearance;
 
     log.info(`Cart and ${webElement} config retrieved.`, {
       cartId: ctCart.id,
@@ -353,8 +354,9 @@ export class StripePaymentService extends AbstractPaymentService {
         currency: amountPlanned.currencyCode,
       },
       stripeElementAppearance: appearance,
-      stripeCaptureMethod: getConfig().stripeCaptureMethod,
+      stripeCaptureMethod: stripeCaptureMethod,
       webElements: webElement,
+      layout: stripeLayout,
     });
 
     return {
@@ -363,8 +365,9 @@ export class StripePaymentService extends AbstractPaymentService {
         currency: amountPlanned.currencyCode,
       },
       appearance: appearance,
-      captureMethod: getConfig().stripeCaptureMethod,
+      captureMethod: stripeCaptureMethod,
       webElements: webElement,
+      layout: stripeLayout,
     };
   }
 
