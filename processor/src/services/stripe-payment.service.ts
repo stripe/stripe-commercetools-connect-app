@@ -244,7 +244,7 @@ export class StripePaymentService extends AbstractPaymentService {
           metadata: {
             cart_id: ctCart.id,
             ct_project_key: config.projectKey,
-            ...(ctCart.customerId ? { customer_id: ctCart.customerId } : null),
+            ...(ctCart.customerId ? { ct_customer_id: ctCart.customerId } : null),
           },
           shipping: {
             name: `${shipping?.firstName} ${shipping?.lastName}`.trim(),
@@ -550,16 +550,18 @@ export class StripePaymentService extends AbstractPaymentService {
   }
 
   public async getStripeCustomerId(cart: Cart, id?: string): Promise<string> {
+    const ctCustomerId = cart.customerId!;
     if (id) {
-      const isValid = await this.validateStripeCustomerId(id);
+      const isValid = await this.validateStripeCustomerId(id, ctCustomerId);
       if (isValid) {
         return id;
       }
     }
 
+    //TODO: Get the stripeCustomer from Customer info, not from cart
     const savedCustomerId = cart.custom?.fields?.stripeCustomerId;
     if (savedCustomerId) {
-      const isValid = await this.validateStripeCustomerId(savedCustomerId);
+      const isValid = await this.validateStripeCustomerId(savedCustomerId, ctCustomerId);
       if (isValid) {
         return savedCustomerId;
       }
@@ -570,7 +572,7 @@ export class StripePaymentService extends AbstractPaymentService {
       throw 'Customer email not found.';
     }
 
-    const existingCustomer = await this.findStripeCustomer(email);
+    const existingCustomer = await this.findStripeCustomer(email, ctCustomerId);
     if (existingCustomer?.id) {
       return existingCustomer.id;
     }
@@ -583,10 +585,10 @@ export class StripePaymentService extends AbstractPaymentService {
     }
   }
 
-  private async validateStripeCustomerId(id: string): Promise<boolean> {
+  private async validateStripeCustomerId(stripeCustomerId: string, ctCustomerId: string): Promise<boolean> {
     try {
-      const customer = await stripeApi().customers.retrieve(id);
-      return Boolean(customer && !customer.deleted);
+      const customer = await stripeApi().customers.retrieve(stripeCustomerId);
+      return Boolean(customer && !customer.deleted && customer.metadata?.ct_customer_id === ctCustomerId);
     } catch (e) {
       const error = e as Error;
       if (!error?.message.includes('No such customer')) {
@@ -597,10 +599,10 @@ export class StripePaymentService extends AbstractPaymentService {
     }
   }
 
-  private async findStripeCustomer(email: string): Promise<Stripe.Customer | undefined> {
-    const allCustomers = await stripeApi().customers.list({ email });
-    const customer = allCustomers.data.find((customer) => customer.email === email && !customer.deleted);
-    return customer;
+  private async findStripeCustomer(email: string, ctCustomerId: string): Promise<Stripe.Customer> {
+    const query = `email:'${email}' AND metadata['ct_customer_id']:'${ctCustomerId}'`;
+    const customer = await stripeApi().customers.search({ query });
+    return customer.data[0];
   }
 
   private async createStripeCustomer(cart: Cart, email: string): Promise<Stripe.Customer> {
@@ -615,8 +617,9 @@ export class StripePaymentService extends AbstractPaymentService {
     return newCustomer;
   }
 
-  private async saveStripeCustomerId(id: string, cart: Cart): Promise<boolean> {
-    if (cart.custom?.fields?.stripeCustomerId === id) {
+  private async saveStripeCustomerId(stripeCustomerId: string, cart: Cart): Promise<boolean> {
+    //TODO: Set the stripeCustomer in the Customer info, not in cart
+    if (cart.custom?.fields?.stripeCustomerId === stripeCustomerId) {
       return true;
     }
 
@@ -629,9 +632,14 @@ export class StripePaymentService extends AbstractPaymentService {
           version: cart.version,
           actions: [
             {
-              action: 'setCustomField',
-              name: 'stripeCustomerId',
-              value: id,
+              action: 'setCustomType',
+              type: {
+                typeId: 'type',
+                key: 'stripe-customer-id-type',
+              },
+              fields: {
+                stripeCustomerId: stripeCustomerId,
+              },
             },
           ],
         },
