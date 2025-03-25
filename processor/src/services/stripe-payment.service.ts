@@ -471,8 +471,7 @@ export class StripePaymentService extends AbstractPaymentService {
 
       if (event.type === StripeEvent.PAYMENT_INTENT__SUCCEEDED) {
         const ctCart = await this.ctCartService.getCartByPaymentId({ paymentId: updateData.id });
-        const updatedCart = await this.updateCartAddress(event, ctCart);
-        await this.createOrder(updatedCart, updateData.pspReference);
+        await this.createOrder(ctCart, updateData.pspReference);
       }
     } catch (e) {
       log.error('Error processing notification', { error: e });
@@ -510,43 +509,6 @@ export class StripePaymentService extends AbstractPaymentService {
         },
         { idempotencyKey },
       );
-  }
-
-  public async updateCartAddress(event: Stripe.Event, ctCart: Cart): Promise<Cart> {
-    const apiClient = paymentSDK.ctAPI.client;
-    const { latest_charge } = event.data.object as Stripe.PaymentIntent;
-    const charge = await stripeApi().charges.retrieve(latest_charge as string);
-    const { billing_details, shipping } = charge;
-    let billingAlias: Stripe.Charge.BillingDetails | Stripe.Charge.Shipping;
-    if (!shipping) {
-      billingAlias = billing_details;
-    } else {
-      billingAlias = shipping;
-    }
-
-    const cart = await apiClient
-      .carts()
-      .withId({ ID: ctCart.id })
-      .post({
-        body: {
-          version: ctCart.version,
-          actions: [
-            {
-              action: 'setShippingAddress',
-              address: {
-                key: billingAlias.name || 'mockName',
-                country: billingAlias.address?.country || 'US',
-                city: billingAlias.address?.city || 'mockCity',
-                postalCode: billingAlias.address?.postal_code || 'mockPostalCode',
-                state: billingAlias.address?.state || 'mockState',
-                streetName: billingAlias.address?.line1 || 'mockStreenName',
-              },
-            },
-          ],
-        },
-      })
-      .execute();
-    return cart.body;
   }
 
   public async getStripeCustomerId(cart: Cart, id?: string): Promise<string> {
