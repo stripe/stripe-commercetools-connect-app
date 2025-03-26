@@ -1,5 +1,9 @@
 import Stripe from 'stripe';
-import { ConfigElementResponseSchemaDTO, PaymentResponseSchemaDTO } from '../../src/dtos/stripe-payment.dto';
+import {
+  ConfigElementResponseSchemaDTO,
+  CustomerResponseSchemaDTO,
+  PaymentResponseSchemaDTO,
+} from '../../src/dtos/stripe-payment.dto';
 import { SupportedPaymentComponentsSchemaDTO } from '../../src/dtos/operations/payment-componets.dto';
 import {
   PaymentIntentResponseSchemaDTO,
@@ -537,6 +541,12 @@ export const mockEvent__paymentIntent_canceled: Stripe.Event = {
     idempotency_key: 'ASDFG-12345',
   },
   type: 'payment_intent.canceled',
+};
+
+export const mockRoute__customer_session_succeed: CustomerResponseSchemaDTO = {
+  ephemeralKey: 'mockEphemeralKey',
+  sessionId: 'mockSessionId',
+  stripeCustomerId: 'mockStripeCustomerId',
 };
 
 export const mockRoute__payments_succeed: PaymentResponseSchemaDTO = {

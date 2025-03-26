@@ -402,5 +402,3 @@ export const mockCapturePaymentResult: PaymentProviderModificationResponse = {
   outcome: PaymentModificationStatus.APPROVED,
   pspReference: 'mockPspReference',
 };
-
-export const mockStripeCustomerId = 'cus_1234567890';

@@ -1,4 +1,4 @@
-export const parseJSON = <T extends object | []>(json: string): T => {
+export const parseJSON = <T extends object | []>(json?: string): T => {
   try {
     return JSON.parse(json || '{}');
   } catch (error) {
