@@ -563,8 +563,8 @@ export class StripePaymentService extends AbstractPaymentService {
     try {
       const query = `metadata['ct_customer_id']:'${ctCustomerId}'`;
       const customer = await stripeApi().customers.search({ query });
-      log.warn('Stripe customer found');
-      log.warn('customer.data', JSON.stringify(customer.data, null, 2));
+      log.info('Stripe customer found');
+      log.info('customer.data', JSON.stringify(customer.data, null, 2));
       return customer.data[0];
     } catch (e) {
       log.warn(`Error finding Stripe customer for ctCustomerId: ${ctCustomerId}`, { error: e });
