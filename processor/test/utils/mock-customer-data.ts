@@ -1,5 +1,6 @@
 import Stripe from 'stripe';
 import { mockCtCustomerId } from './mock-cart-data';
+import { Customer } from '@commercetools/platform-sdk';
 
 const lastResponse = {
   headers: {},
@@ -57,10 +58,92 @@ export const mockCustomerData: Stripe.Response<Stripe.Customer> = {
   next_invoice_sequence: 1,
   phone: null,
   preferred_locales: [],
-  shipping: null,
+  shipping: {
+    address: {
+      city: 'Los Angeles',
+      country: 'US',
+      line1: '123 Test street',
+      line2: 'department 1',
+      postal_code: '12345',
+      state: 'CA',
+    },
+    name: 'John Smith',
+    phone: '+312345678',
+  },
   tax_exempt: 'none',
   test_clock: null,
   lastResponse,
+};
+
+export const mockCtCustomerData: Customer = {
+  id: 'xxxxxx-test-id',
+  version: 1,
+  createdAt: '2025-03-19T00:09:28.752Z',
+  lastModifiedAt: '2025-03-19T00:48:46.632Z',
+  email: 'test@example.com',
+  firstName: 'Gildardo',
+  lastName: 'Diaz',
+  addresses: [
+    {
+      title: 'Mr.',
+      firstName: 'John',
+      lastName: 'Smith',
+      streetName: 'Test street',
+      streetNumber: '123',
+      postalCode: '12345',
+      city: 'Los Angeles',
+      state: 'CA',
+      country: 'US',
+      phone: '+312345678',
+      mobile: '+312345679',
+      email: 'test@example.com',
+      key: 'address1',
+      additionalStreetInfo: 'department 1',
+    },
+  ],
+  isEmailVerified: false,
+  stores: [],
+  authenticationMode: 'Password',
+  custom: {
+    type: {
+      typeId: 'type',
+      id: 'xxxxxxxxxxx',
+    },
+    fields: {
+      stripeConnector_stripeCustomerId: 'cus_Example',
+    },
+  },
+};
+
+export const mockCtCustomerWithoutCustomFieldsData: Customer = {
+  id: 'xxxxxx-test-id',
+  version: 1,
+  createdAt: '2025-03-19T00:09:28.752Z',
+  lastModifiedAt: '2025-03-19T00:48:46.632Z',
+  email: 'test@example.com',
+  firstName: 'Gildardo',
+  lastName: 'Diaz',
+  addresses: [
+    {
+      id: 'xxxxxx-test-id',
+      country: 'US',
+      city: 'Los Angeles',
+      state: 'CA',
+      streetName: 'Test street',
+      streetNumber: '123',
+      postalCode: '12345',
+    },
+  ],
+  isEmailVerified: false,
+  stores: [],
+  authenticationMode: 'Password',
+  custom: {
+    type: {
+      typeId: 'type',
+      id: 'xxxxxxxxxxx',
+    },
+    fields: {},
+  },
 };
 
 export const mockSearchCustomerResponse: Stripe.Response<Stripe.ApiSearchResult<Stripe.Customer>> = {

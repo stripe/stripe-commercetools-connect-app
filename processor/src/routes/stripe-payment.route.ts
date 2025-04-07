@@ -52,12 +52,16 @@ export const customerRoutes = async (fastify: FastifyInstance, opts: FastifyPlug
         },
         response: {
           200: CustomerResponseSchema,
+          204: Type.Null(),
         },
       },
     },
     async (request, reply) => {
       const stripeCustomerId = request?.query?.customerId;
       const resp = await opts.paymentService.getCustomerSession(stripeCustomerId);
+      if (!resp) {
+        return reply.status(204).send(resp);
+      }
       return reply.status(200).send(resp);
     },
   );
