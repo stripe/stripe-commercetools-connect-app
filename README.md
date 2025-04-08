@@ -3,9 +3,7 @@
 This repository provides a commercetools [connect](https://docs.commercetools.com/connect) integration for [Stripe payment](https://docs.stripe.com/payments/payment-element), enabling a drop-in experience through the Stripe Payment Element and supporting webhook handling, payment intents, and checkout configuration.
 
 ## Features
-
-- Typescript language supported.
-- Uses Fastify as web server framework.
+- Uses [commercetools SDK](https://docs.commercetools.com/sdk/js-sdk-getting-started) for the commercetools-specific communication.
 - It uses [connect payment SDK](https://github.com/commercetools/connect-payments-sdk) to manage request context, sessions, and JWT authentication.
 - Use [commercetools payment api](https://docs.commercetools.com/checkout/payment-intents-api) to manage payment transactions.
 - Includes local development utilities in npm commands to build, start, test, lint & prettify code.
@@ -26,6 +24,10 @@ In addition, please make sure the API client has enough scope to manage Payment.
 
 Configure various URLs from the commercetools platform, so that the connect application can handle the session and authentication process for endpoints.
 Their values are input for environment variables/configurations for connecting, with variable names `CTP_API_URL`, `CTP_AUTH_URL`, and `CTP_SESSION_URL`.
+
+#### 3. Stripe account and keys
+
+Configure Stripe secret and public keys so the Connect application can handle endpoint session and authentication processes. Their values are taken as input as environment variables/ configuration for Connect, with variable names `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, and `STRIPE_WEBHOOK_SIGNING_SECRET`.
 
 ## Getting started
 
@@ -83,32 +85,27 @@ Before installing the connector, you must create a Stripe account and obtain the
    - `automatic_async`: (Default) Stripe asynchronously captures funds when the customer authorizes the Payment. Recommended over `capture_method=automatic` due to improved latency. Read the [integration guide](https://docs.stripe.com/elements/appearance-api) for more information.
    - `manual`: Places a hold on the funds when the customer authorizes the Payment but doesn't capture the funds until later. (Not all payment methods support this.)
 3. **STRIPE_APPEARANCE_PAYMENT_ELEMENT**: This configuration enables the theming for the payment element component. The value needs to be a valid stringified JSON. More information about the properties can be found [here](https://docs.stripe.com/elements/appearance-api).
-
-```text
+```
 //stringified, eg.
-"{\"theme\":\"stripe\",\"variables\":{\"colorPrimary\":\"#0570DE\",\"colorBackground\":\"#FFFFFF\",\"colorText\":\"#30313D\",\"colorDanger\":\"#DF1B41\",\"fontFamily\":\"Ideal Sans,system-ui,sansserif\",\"spacingUnit\":\"2px\",\"borderRadius\":\"4px\"}}".
+{"theme":"night", "labels":"floating"}
 ```
 
-1. **STRIPE_APPEARANCE_EXPRESS_CHECKOUT**: This configuration enables the theming for the express checkout component. The value needs to be a valid stringified JSON. More information about the properties can be found [here](https://docs.stripe.com/elements/appearance-api).
-
-```text
+4. **STRIPE_APPEARANCE_EXPRESS_CHECKOUT**: This configuration enables the theming for the express checkout component. The value needs to be a valid stringified JSON. More information about the properties can be found [here](https://docs.stripe.com/elements/appearance-api).
+```
 //stringified, eg.
-"{\"theme\":\"stripe\",\"variables\":{\"colorPrimary\":\"#0570DE\",\"colorBackground\":\"#FFFFFF\",\"colorText\":\"#30313D\",\"colorDanger\":\"#DF1B41\",\"fontFamily\":\"Ideal Sans,system-ui,sansserif\",\"spacingUnit\":\"2px\",\"borderRadius\":\"4px\"}}".
+{"type":"accordion","defaultCollapsed":false,"radios":true, "spacedAccordionItems":false}
 ```
 
 5. **STRIPE_WEBHOOK_ID**: Unique identifier of a Webhook Endpoint in Stripe.
 6. **STRIPE_WEBHOOK_SIGNING_SECRET**: Signing secret of a Webhook Endpoint in Stripe.
 7. **STRIPE_APPLE_PAY_WELL_KNOWN**: Domain association file from Stripe. (example - https://stripe.com/files/apple-pay/apple-developer-merchantid-domain-association)
 8. **STRIPE_LAYOUT**: This configuration enables the Layout for the payment component. The value needs to be a valid stringified JSON. More information about the properties can be found [here](https://docs.stripe.com/payments/payment-element#layout).
-
-```text
-//stringified eg.
-"{\"type\":\"accordion\",\"defaultCollapsed\":false,\"radios\":true \"spacedAccordionItems\":false}".
 ```
-
+//stringified eg.
+{"type":"accordion","defaultCollapsed":false,"radios":true, "spacedAccordionItems":false}
+```
 9. **STRIPE_SAVED_PAYMENT_METHODS_CONFIG**: The configuration for the saved payment methods. The value needs to be a valid stringified JSON. More information about the properties can be found [here](https://docs.stripe.com/api/customer_sessions/object#customer_session_object-components-payment_element-features). This feature is disabled by default. To enable it, you need to add the expected customer session object.
-
-```text
+```
 //stringified, eg.
 {"payment_method_save_usage":"off_session","payment_method_redisplay_limit":10}
 ```
@@ -259,8 +256,12 @@ deployAs:
           description: Stripe Appearance for Express Checkout (example - {"theme":"night","labels":"floating"} ).
         - key: STRIPE_PUBLISHABLE_KEY
           description: Stripe Publishable Key
+          required: true
         - key: STRIPE_APPLE_PAY_WELL_KNOWN
           description: Domain association file from Stripe. (example - https://stripe.com/files/apple-pay/apple-developer-merchantid-domain-association)
+        - key: STRIPE_SAVED_PAYMENT_METHODS_CONFIG
+          description: Stripe configuration for saved payment methods (example - {"payment_method_save":"enabled","payment_method_save_usage":"off_session","payment_method_redisplay":"enabled","payment_method_redisplay_limit":10}).
+          default: '{"payment_method_save":"disabled"}'
         - key: MERCHANT_RETURN_URL
           description: Merchant return URL
           required: true
@@ -277,8 +278,6 @@ deployAs:
         - key: STRIPE_WEBHOOK_SIGNING_SECRET
           description: Stripe Webhook signing secret  (example - whsec_*****).
           required: true
-          - key: STRIPE_SAVED_PAYMENT_METHODS_CONFIG
-          description: Stripe configuration for saved payment methods (example - {"payment_method_save_usage":"off_session","payment_method_redisplay_limit":10}).
 
 ```
 
@@ -292,7 +291,7 @@ Here, you can see the details about various variables in the configuration
 - `CTP_JWKS_URL`: The JSON Web Key Set URL. Default value is `https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json`
 - `CTP_JWT_ISSUER`: The issuer inside JSON Web Token, required in the JWT validation process. The default value is `https://mc-api.europe-west1.gcp.commercetools.com`
 - `STRIPE_CAPTURE_METHOD`: Stripe capture method (manual or automatic), default value: automatic.
-`STRIPE_APPEARANCE_PAYMENT_ELEMENT`: Stripe Elements supports visual customization, which allows you to match the design of your site with the `appearance` option. This value has the specific appearance of the Payment Element component. The value needs to be a valid stringified JSON. More information about the properties can be found [here](https://docs.stripe.com/elements/appearance-api).
+- `STRIPE_APPEARANCE_PAYMENT_ELEMENT`: Stripe Elements supports visual customization, which allows you to match the design of your site with the `appearance` option. This value has the specific appearance of the Payment Element component. The value needs to be a valid stringified JSON. More information about the properties can be found [here](https://docs.stripe.com/elements/appearance-api).
 - `STRIPE_APPEARANCE_EXPRESS_CHECKOUT`: Stripe Elements supports visual customization, which allows you to match the design of your site with the `appearance` option. This value has the specific appearance of the Express Checkout component.
 - `STRIPE_LAYOUT`: Stripe allows you to customize the Payment Element's Layout to fit your checkout flow (accordions or tabs). Default value is `{"type":"tabs","defaultCollapsed":false}`
 - `STRIPE_APPLE_PAY_WELL_KNOWN`: Domain association file from Stripe. We can find more information in this [link](https://stripe.com/files/apple-pay/apple-developer-merchantid-domain-association).

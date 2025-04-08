@@ -125,6 +125,7 @@ describe('stripeEvent.converter', () => {
     const result = converter.convert(mockEvent__charge_succeeded_notCaptured);
 
     expect(result).toEqual({
+      id: 'pi_11111',
       paymentMethod: 'payment',
       pspReference: 'pi_11111',
       transactions: [

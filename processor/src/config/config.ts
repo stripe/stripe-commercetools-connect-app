@@ -39,7 +39,7 @@ export const config = {
   stripeLayout: process.env.STRIPE_LAYOUT || '{"type":"tabs","defaultCollapsed":false}',
   stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
   stripeApplePayWellKnown: process.env.STRIPE_APPLE_PAY_WELL_KNOWN || 'mockWellKnown',
-  stripeApiVersion: process.env.STRIPE_API_VERSION || '2024-09-30',
+  stripeApiVersion: process.env.STRIPE_API_VERSION || '2025-02-24.acacia',
   stripeSavedPaymentMethodConfig: getSavedPaymentConfig(),
   // Payment Providers config
   merchantReturnUrl: process.env.MERCHANT_RETURN_URL || '',

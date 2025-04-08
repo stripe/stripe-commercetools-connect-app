@@ -290,6 +290,7 @@ export const mockStripeUpdatePaymentResult: Stripe.Response<Stripe.PaymentIntent
 export const mockGetPaymentAmount: PaymentAmount = {
   centAmount: 150000,
   currencyCode: 'USD',
+  fractionDigits: 2,
 };
 
 export const mockStripePaymentMethodsList: Stripe.ApiList<Stripe.PaymentMethod> = {

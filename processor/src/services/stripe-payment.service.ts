@@ -182,7 +182,7 @@ export class StripePaymentService extends AbstractPaymentService {
   /**
    * Validates if the customer exists in Stripe and creates a new customer if it does not exist, to create a session
    * for the Stripe customer.
-   * @param {string} id - The stripe customer id to validate.
+   * @param {string} defaultStripeCustomerId - The stripe customer id to validate.
    * @returns Promise with the stripeCustomerId, ephemeralKey and sessionId.
    */
   public async getCustomerSession(defaultStripeCustomerId?: string): Promise<CustomerResponseSchemaDTO | undefined> {
@@ -563,8 +563,6 @@ export class StripePaymentService extends AbstractPaymentService {
     try {
       const query = `metadata['ct_customer_id']:'${ctCustomerId}'`;
       const customer = await stripeApi().customers.search({ query });
-      log.info('Stripe customer found');
-      log.info('customer.data', JSON.stringify(customer.data, null, 2));
       return customer.data[0];
     } catch (e) {
       log.warn(`Error finding Stripe customer for ctCustomerId: ${ctCustomerId}`, { error: e });

@@ -173,12 +173,23 @@ Token can be found in response
 
 Use the token to authenticate requests protected by JWT: `Authorization: Bearer <token>`.
 
+### Merchant Return URL
+
+The `MERCHANT_RETURN_URL` plays a key role during the payment confirmation process using [confirmPayment](https://docs.stripe.com/js/payment_intents/confirm_payment). This URL is used as the `return_url` parameter in the confirmation step.
+
+For **Buy Now Pay Later (BNPL)** payment methods, Stripe appends the `payment_intent` to the return URL after the payment process is completed. Upon redirection to the merchant's site, the following steps are necessary to ensure proper integration with commercetools Checkout SDK:
+
+1. Retrieve the `payment_intent` from the URL parameters.
+2. Extract the `ct_payment_id` from the `payment_intent` metadata.
+3. Use the `ct_payment_id` to update the `paymentReference` in the commercetools Checkout SDK to properly link the payment.
+
+By implementing this workflow, seamless integration of BNPL payment methods with commercetools Checkout is achieved.
+
 ## APIs
 
 The processor exposes the following endpoints to execute various operations with the Stripe platform:
 
-### Collect Payment and Appearance Details
-
+### Configurations of collecting payment, appearance and future usage
 This endpoint retrieves the payment information from the cart in session to use the prebuilt Stripe Payment Element UI component. This component simplifies the payment process for a variety of payment methods. The `paymentComponent` is requested in the query parameters to send the correct appearance from the environment variables configuration.
 
 #### Endpoint
