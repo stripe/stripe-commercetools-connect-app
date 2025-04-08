@@ -156,7 +156,32 @@ export class StripePaymentService extends AbstractPaymentService {
    * @returns Promise with mocking data containing operation status and PSP reference
    */
   public async capturePayment(request: CapturePaymentRequest): Promise<PaymentProviderModificationResponse> {
-    return { outcome: PaymentModificationStatus.APPROVED, pspReference: request.payment.interfaceId as string };
+    try {
+      const paymentIntentId = request.payment.interfaceId as string;
+      const amount = request.amount.centAmount;
+      const response = await stripeApi().paymentIntents.capture(paymentIntentId, {
+        amount_to_capture: amount,
+      });
+
+      if (response.status === 'succeeded') {
+        return {
+          outcome: PaymentModificationStatus.APPROVED,
+          pspReference: response.id,
+        };
+      } else {
+        log.warn('Stripe capture did not succeed as expected', { status: response.status, id: response.id });
+        return {
+          outcome: PaymentModificationStatus.REJECTED,
+          pspReference: response.id,
+        };
+      }
+    } catch (error) {
+      log.error('Error capturing payment in Stripe', { error });
+      return {
+        outcome: PaymentModificationStatus.REJECTED,
+        pspReference: request.payment.interfaceId as string,
+      };
+    }
   }
 
   /**
@@ -166,7 +191,17 @@ export class StripePaymentService extends AbstractPaymentService {
    * @returns Promise with mocking data containing operation status and PSP reference
    */
   public async cancelPayment(request: CancelPaymentRequest): Promise<PaymentProviderModificationResponse> {
-    return { outcome: PaymentModificationStatus.APPROVED, pspReference: request.payment.interfaceId as string };
+    try {
+      const paymentIntentId = request.payment.interfaceId as string;
+      await stripeApi().paymentIntents.cancel(paymentIntentId);
+      return { outcome: PaymentModificationStatus.APPROVED, pspReference: paymentIntentId };
+    } catch (error) {
+      log.error('Error canceling payment in Stripe', { error });
+      return {
+        outcome: PaymentModificationStatus.REJECTED,
+        pspReference: request.payment.interfaceId as string,
+      };
+    }
   }
 
   /**
@@ -176,7 +211,21 @@ export class StripePaymentService extends AbstractPaymentService {
    * @returns Promise with mocking data containing operation status and PSP reference
    */
   public async refundPayment(request: RefundPaymentRequest): Promise<PaymentProviderModificationResponse> {
-    return { outcome: PaymentModificationStatus.RECEIVED, pspReference: request.payment.interfaceId as string };
+    try {
+      const paymentIntentId = request.payment.interfaceId as string;
+      const amount = request.amount.centAmount;
+      await stripeApi().refunds.create({
+        payment_intent: paymentIntentId,
+        amount: amount,
+      });
+      return { outcome: PaymentModificationStatus.RECEIVED, pspReference: paymentIntentId };
+    } catch (error) {
+      log.error('Error refunding payment in Stripe', { error });
+      return {
+        outcome: PaymentModificationStatus.REJECTED,
+        pspReference: request.payment.interfaceId as string,
+      };
+    }
   }
 
   /**
