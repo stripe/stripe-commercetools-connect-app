@@ -43,13 +43,16 @@ deployAs:
         - key: STRIPE_APPEARANCE_EXPRESS_CHECKOUT
           description: Stripe Appearance for Express Checkout (example - "{\"theme\":\"stripe\",\"variables\":{\"colorPrimary\":\"#0570DE\",\"colorBackground\":\"#FFFFFF\",\"colorText\":\"#30313D\",\"colorDanger\":\"#DF1B41\",\"fontFamily\":\"Ideal Sans,system-ui,sansserif\",\"spacingUnit\":\"2px\",\"borderRadius\":\"4px\"}}").
         - key: STRIPE_LAYOUT
-          description: Stripe Layout for Payment Element (example - "{\"type\":\"accordion\",\"defaultCollapsed\":false,\"radios\":true \"spacedAccordionItems\":false}").
+          description: Stripe Layout for Payment Element (example - {"type":"accordion","defaultCollapsed":false,"radios":true,"spacedAccordionItems":false} ).
           default: '{"type":"tabs","defaultCollapsed":false}'
         - key: STRIPE_PUBLISHABLE_KEY
           description: Stripe Publishable Key
           required: true
         - key: STRIPE_APPLE_PAY_WELL_KNOWN
           description: Domain association file from Stripe. (example - https://stripe.com/files/apple-pay/apple-developer-merchantid-domain-association)
+        - key: STRIPE_SAVED_PAYMENT_METHODS_CONFIG
+          description: Stripe configuration for saved payment methods (example - {"payment_method_save":"enabled","payment_method_save_usage":"off_session","payment_method_redisplay":"enabled","payment_method_redisplay_limit":10}).
+          default: '{"payment_method_save":"disabled"}'
         - key: MERCHANT_RETURN_URL
           description: Merchant return URL
           required: true
@@ -66,6 +69,3 @@ deployAs:
         - key: STRIPE_WEBHOOK_SIGNING_SECRET
           description: Stripe Webhook signing secret  (example - whsec_*****).
           required: true
-        - key: STRIPE_SAVED_PAYMENT_METHODS_CONFIG
-          description: Stripe configuration for saved payment methods (example - {"payment_method_save":"enabled","payment_method_save_usage":"off_session","payment_method_redisplay":"enabled","payment_method_redisplay_limit":10}).
-          default: '{"payment_method_save":"disabled"}'
