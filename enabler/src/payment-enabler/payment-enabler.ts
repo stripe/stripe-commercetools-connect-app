@@ -153,6 +153,10 @@ export type EnablerOptions = {
    * This variable should be a string value that defines the type of payment element being used in the application.
    */
   paymentElementType?: string;
+  /**
+   * The Stripe customer ID.
+   */
+  stripeCustomerId?: string;
 };
 
 /**

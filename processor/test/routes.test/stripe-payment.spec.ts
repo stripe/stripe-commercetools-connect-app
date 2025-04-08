@@ -13,7 +13,12 @@ import {
   SessionHeaderAuthenticationManager,
 } from '@commercetools/connect-payments-sdk';
 import { IncomingHttpHeaders } from 'node:http';
-import { configElementRoutes, paymentRoutes, stripeWebhooksRoutes } from '../../src/routes/stripe-payment.route';
+import {
+  configElementRoutes,
+  customerRoutes,
+  paymentRoutes,
+  stripeWebhooksRoutes,
+} from '../../src/routes/stripe-payment.route';
 import { StripePaymentService } from '../../src/services/stripe-payment.service';
 import {
   mockEvent__paymentIntent_processing,
@@ -27,6 +32,7 @@ import {
   mockRoute__well_know__succeed,
   mockEvent__charge_succeeded_captured,
   mockEvent__charge_capture_succeeded_notCaptured,
+  mockRoute__customer_session_succeed,
 } from '../utils/mock-routes-data';
 import * as Config from '../../src/config/config';
 import * as Logger from '../../src/libs/logger/index';
@@ -115,6 +121,12 @@ describe('Stripe Payment APIs', () => {
     });
 
     await fastifyApp.register(configElementRoutes, {
+      prefix: '/',
+      sessionHeaderAuthHook: spiedSessionHeaderAuthenticationHook,
+      paymentService: spiedPaymentService,
+    });
+
+    await fastifyApp.register(customerRoutes, {
       prefix: '/',
       sessionHeaderAuthHook: spiedSessionHeaderAuthenticationHook,
       paymentService: spiedPaymentService,
@@ -451,6 +463,28 @@ describe('Stripe Payment APIs', () => {
       expect(responseGetConfig.statusCode).toEqual(200);
       expect(responseGetConfig.body).toEqual(mockRoute__well_know__succeed);
       expect(spiedPaymentService.applePayConfig).toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /customer/session', () => {
+    test('should call /customer/session and return valid information', async () => {
+      //Given
+      jest.spyOn(spiedPaymentService, 'getCustomerSession').mockResolvedValue(mockRoute__customer_session_succeed);
+
+      //When
+      const responseGetConfig = await fastifyApp.inject({
+        method: 'GET',
+        url: `/customer/session?customerId=customerId`,
+        headers: {
+          'x-session-id': sessionId,
+          'content-type': 'application/json',
+        },
+      });
+
+      //Then
+      expect(responseGetConfig.statusCode).toEqual(200);
+      expect(responseGetConfig.json()).toEqual(mockRoute__customer_session_succeed);
+      expect(spiedPaymentService.getCustomerSession).toHaveBeenCalled();
     });
   });
 });
