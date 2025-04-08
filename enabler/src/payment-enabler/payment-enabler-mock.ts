@@ -1,8 +1,10 @@
 import {
-  DropinType, EnablerOptions,
+  DropinType,
+  EnablerOptions,
   PaymentComponentBuilder,
   PaymentDropinBuilder,
-  PaymentEnabler, PaymentResult,
+  PaymentEnabler,
+  PaymentResult,
 } from "./payment-enabler";
 import { DropinEmbeddedBuilder } from "../dropin/dropin-embedded";
 import {
@@ -15,8 +17,12 @@ import {
   StripeExpressCheckoutElementOptions,
   StripePaymentElementOptions,
 } from "@stripe/stripe-js";
-import {StripePaymentElement} from "@stripe/stripe-js";
-import {ConfigElementResponseSchemaDTO, ConfigResponseSchemaDTO} from "../dtos/mock-payment.dto.ts";
+import { StripePaymentElement } from "@stripe/stripe-js";
+import {
+  ConfigElementResponseSchemaDTO,
+  ConfigResponseSchemaDTO,
+  CustomerResponseSchemaDTO,
+} from "../dtos/mock-payment.dto.ts";
 import { parseJSON } from "../utils/index.ts";
 
 
@@ -38,6 +44,7 @@ export type BaseOptions = {
   paymentElement: StripePaymentElement | StripeExpressCheckoutElement; // MVP https://docs.stripe.com/payments/payment-element | https://docs.stripe.com/elements/express-checkout-element
   paymentElementValue: 'paymentElement' | 'expressCheckout';
   elements: StripeElements; // MVP https://docs.stripe.com/js/elements_object
+  stripeCustomerId?: string;
 };
 
 interface ElementsOptions {
@@ -47,7 +54,7 @@ interface ElementsOptions {
   onError: (error?: any) => void;
   layout: LayoutObject;
   appearance: Appearance;
-} 
+}
 
 export class MockPaymentEnabler implements PaymentEnabler {
   setupData: Promise<{ baseOptions: BaseOptions }>;
@@ -59,13 +66,10 @@ export class MockPaymentEnabler implements PaymentEnabler {
   private static _Setup = async (
     options: EnablerOptions
   ): Promise<{ baseOptions: BaseOptions }> => {
-
-
-    const [cartInfoResponse, configEnvResponse]: [ConfigElementResponseSchemaDTO, ConfigResponseSchemaDTO]
-      = await MockPaymentEnabler.fetchConfigData(options);
+    const [cartInfoResponse, configEnvResponse] = await MockPaymentEnabler.fetchConfigData(options);
     const stripeSDK = await MockPaymentEnabler.getStripeSDK(configEnvResponse);
-
-    const elements= MockPaymentEnabler.getElements(stripeSDK, cartInfoResponse);
+    const customer = await MockPaymentEnabler.getCustomerOptions(options);
+    const elements = MockPaymentEnabler.getElements(stripeSDK, cartInfoResponse, customer);
     const elementsOptions = MockPaymentEnabler.getElementsOptions(options, cartInfoResponse);
 
     return Promise.resolve({
@@ -78,7 +82,8 @@ export class MockPaymentEnabler implements PaymentEnabler {
         onError: options.onError || (() => {}),
         paymentElement: MockPaymentEnabler.getPaymentElement(elementsOptions, options.paymentElementType, elements),
         paymentElementValue: cartInfoResponse.webElements,
-        elements: elements
+        elements: elements,
+        ...(customer && {stripeCustomerId: customer?.stripeCustomerId,})
       },
     });
   };
@@ -87,9 +92,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
     type: string
   ): Promise<PaymentComponentBuilder | never> {
     const { baseOptions } = await this.setupData;
-
-    const supportedMethods = {
-    };
+    const supportedMethods = {};
 
     if (!Object.keys(supportedMethods).includes(type)) {
       throw new Error(
@@ -105,8 +108,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
   async createDropinBuilder(
     type: DropinType
   ): Promise<PaymentDropinBuilder | never> {
-
-    const setupData= await this.setupData;
+    const setupData = await this.setupData;
     if (!setupData) {
       throw new Error("StripePaymentEnabler not initialized");
     }
@@ -138,7 +140,8 @@ export class MockPaymentEnabler implements PaymentEnabler {
 
   private static getElements(
     stripeSDK: Stripe | null,
-    cartInfoResponse: ConfigElementResponseSchemaDTO
+    cartInfoResponse: ConfigElementResponseSchemaDTO,
+    customer: CustomerResponseSchemaDTO
   ): StripeElements | null {
     if (!stripeSDK) return null;
     try {
@@ -146,6 +149,15 @@ export class MockPaymentEnabler implements PaymentEnabler {
         mode: 'payment',
         amount: cartInfoResponse.cartInfo.amount,
         currency: cartInfoResponse.cartInfo.currency.toLowerCase(),
+        captureMethod: cartInfoResponse.captureMethod,
+        ...(customer && {
+          customerOptions: {
+            customer: customer.stripeCustomerId,
+            ephemeralKey: customer.ephemeralKey,
+          },
+          setupFutureUsage: cartInfoResponse.setupFutureUsage,
+          customerSessionClientSecret: customer.sessionId,
+        }),
         appearance: parseJSON(cartInfoResponse.appearance),
         capture_method: cartInfoResponse.captureMethod,
       });
@@ -154,7 +166,6 @@ export class MockPaymentEnabler implements PaymentEnabler {
       return null;
     }
   }
-
 
   private static async fetchConfigData(
     options: EnablerOptions
@@ -205,6 +216,20 @@ export class MockPaymentEnabler implements PaymentEnabler {
     } else {
       return elements.create('payment', elementsOptions as StripePaymentElementOptions)
     }
+  }
+
+  private static async getCustomerOptions(options: EnablerOptions): Promise<CustomerResponseSchemaDTO> {
+    const headers = MockPaymentEnabler.getFetchHeader(options);
+    const apiUrl = new URL(`${options.processorUrl}/customer/session`);
+    apiUrl.searchParams.append("customerId", options.stripeCustomerId);
+    const response = await fetch(apiUrl.toString(), headers);
+
+    if (response.status === 204) {
+      console.log("No Stripe customer session");
+      return undefined;
+    }
+    const data: CustomerResponseSchemaDTO = await response.json();
+    return data;
   }
 
   private static getLayoutObject(layout: string): LayoutObject {    

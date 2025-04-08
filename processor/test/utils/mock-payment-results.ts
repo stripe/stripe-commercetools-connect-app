@@ -75,6 +75,10 @@ const commonPaymentResult = {
 
 export const mockGetPaymentResult: Payment = {
   id: '123456',
+  customer: {
+    id: 'cus_1234567890',
+    typeId: 'customer',
+  },
   version: 1,
   amountPlanned: {
     type: 'centPrecision',
@@ -286,6 +290,7 @@ export const mockStripeUpdatePaymentResult: Stripe.Response<Stripe.PaymentIntent
 export const mockGetPaymentAmount: PaymentAmount = {
   centAmount: 150000,
   currencyCode: 'USD',
+  fractionDigits: 2,
 };
 
 export const mockStripePaymentMethodsList: Stripe.ApiList<Stripe.PaymentMethod> = {
