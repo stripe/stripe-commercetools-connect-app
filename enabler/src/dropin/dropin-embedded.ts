@@ -10,11 +10,21 @@ import {
   StripePaymentElement,
 } from "@stripe/stripe-js";
 
+interface BillingAddress {
+  city: string;
+  country: string;
+  line1: string;
+  line2: string;
+  postal_code: string;
+  state: string;
+}
+
 interface ConfirmPaymentProps {
   merchantReturnUrl: string;
   cartId: string;
   clientSecret: string;
   paymentReference: string;
+  billingAddress?: BillingAddress;
 }
 
 interface ConfirmPaymentIntentProps {
@@ -81,14 +91,20 @@ export class DropinComponents implements DropinComponent {
         throw submitError;
       }
 
-      const { sClientSecret, paymentReference, merchantReturnUrl, cartId } =
-        await this.getPayment();
+      const {
+        sClientSecret,
+        paymentReference,
+        merchantReturnUrl,
+        cartId,
+        billingAddress
+      } = await this.getPayment();
 
       const { paymentIntent } = await this.confirmStripePayment({
         merchantReturnUrl,
         cartId,
         clientSecret: sClientSecret,
         paymentReference,
+        ...(billingAddress && {billingAddress: JSON.parse(billingAddress) as BillingAddress}),
       });
 
       await this.confirmPaymentIntent({
@@ -123,6 +139,7 @@ export class DropinComponents implements DropinComponent {
     cartId,
     clientSecret,
     paymentReference,
+    billingAddress,
   }: ConfirmPaymentProps) {
     const returnUrl = new URL(merchantReturnUrl);
     returnUrl.searchParams.append("cartId", cartId);
@@ -133,6 +150,20 @@ export class DropinComponents implements DropinComponent {
       clientSecret,
       confirmParams: {
         return_url: returnUrl.toString(),
+        ...(billingAddress &&{
+          payment_method_data: {
+            billing_details: {
+              address: {
+                city: billingAddress.city,
+                country: billingAddress.country,
+                line1: billingAddress.line1,
+                line2: billingAddress.line2,
+                postal_code: billingAddress.postal_code,
+                state: billingAddress.state,
+              }
+            }
+          }
+        })
       },
       redirect: "if_required",
     });

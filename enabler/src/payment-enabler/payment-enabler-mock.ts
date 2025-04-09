@@ -6,7 +6,7 @@ import {
   PaymentEnabler,
   PaymentResult,
 } from "./payment-enabler";
-import { DropinEmbeddedBuilder } from "../dropin/dropin-embedded";
+import {DropinEmbeddedBuilder} from "../dropin/dropin-embedded";
 import {
   Appearance,
   LayoutObject,
@@ -15,15 +15,15 @@ import {
   StripeElements,
   StripeExpressCheckoutElement,
   StripeExpressCheckoutElementOptions,
+  StripePaymentElement,
   StripePaymentElementOptions,
 } from "@stripe/stripe-js";
-import { StripePaymentElement } from "@stripe/stripe-js";
 import {
   ConfigElementResponseSchemaDTO,
   ConfigResponseSchemaDTO,
   CustomerResponseSchemaDTO,
 } from "../dtos/mock-payment.dto.ts";
-import { parseJSON } from "../utils/index.ts";
+import {parseJSON} from "../utils";
 
 
 declare global {
@@ -54,6 +54,11 @@ interface ElementsOptions {
   onError: (error?: any) => void;
   layout: LayoutObject;
   appearance: Appearance;
+  fields: {
+    billingDetails: {
+      address: string;
+    };
+  };
 }
 
 export class MockPaymentEnabler implements PaymentEnabler {
@@ -194,8 +199,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
     options: EnablerOptions,
     config: ConfigElementResponseSchemaDTO
   ): ElementsOptions {
-    const { appearance, layout } = config;
-
+    const { appearance, layout, collectBillingAddress } = config;
     return {
       type: 'payment',
       options: {},
@@ -203,6 +207,13 @@ export class MockPaymentEnabler implements PaymentEnabler {
       onError: options.onError,
       layout: this.getLayoutObject(layout),
       appearance: parseJSON(appearance),
+      ...(collectBillingAddress !== 'auto' && {
+        fields: {
+          billingDetails: {
+            address: collectBillingAddress,
+          }
+        }
+      }),
     }
   }
 
@@ -228,11 +239,10 @@ export class MockPaymentEnabler implements PaymentEnabler {
       console.log("No Stripe customer session");
       return undefined;
     }
-    const data: CustomerResponseSchemaDTO = await response.json();
-    return data;
+    return await response.json();
   }
 
-  private static getLayoutObject(layout: string): LayoutObject {    
+  private static getLayoutObject(layout: string): LayoutObject {
     if (layout) {
       const parsedObject = parseJSON<LayoutObject>(layout);
       const isValid = this.validateLayoutObject(parsedObject);

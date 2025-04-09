@@ -4,7 +4,6 @@ import * as Actions from '../../src/connectors/actions';
 import * as Logger from '../../src/libs/logger';
 import {
   mock_CustomType_withFieldDefinition,
-  mock_CustomType_withNoFieldDefinition,
   mock_Stripe_retrieveWebhookEnpoints_response,
   mock_Stripe_updateWebhookEnpoints_response,
 } from '../utils/mock-actions-data';
@@ -106,30 +105,17 @@ describe('Actions test', () => {
       //jest.spyOn(CustomTypeHelper, 'createCustomerCustomType').mockImplementation(mockCreateCustomerCustomType);
       //jest.spyOn(CustomTypeHelper, 'addFieldToType').mockImplementation(mockAddFieldToType);
 
-      await Actions.ensureStripeCustomTypeForCustomer();
+      await Actions.createStripeCustomTypeForCustomer();
 
-      expect(Logger.log.info).toHaveBeenCalledTimes(2);
+      expect(Logger.log.info).toHaveBeenCalledTimes(1);
       expect(mockGetTypeByKey).toHaveBeenCalled();
-    });
-
-    test('should add field to Stripe custom type already exist', async () => {
-      const mockGetTypeByKey = jest
-        .spyOn(CustomTypeHelper, 'getTypeByKey')
-        .mockResolvedValue(mock_CustomType_withNoFieldDefinition);
-      const mockAddFieldToType = jest.spyOn(CustomTypeHelper, 'addFieldToType').mockResolvedValue();
-
-      await Actions.ensureStripeCustomTypeForCustomer();
-
-      expect(Logger.log.info).toHaveBeenCalledTimes(3);
-      expect(mockGetTypeByKey).toHaveBeenCalled();
-      expect(mockAddFieldToType).toHaveBeenCalled();
     });
 
     test('should create Stripe custom type', async () => {
       const mockGetTypeByKey = jest.spyOn(CustomTypeHelper, 'getTypeByKey').mockResolvedValue(undefined);
       const mockCreateCustomerCustomType = jest.spyOn(CustomTypeHelper, 'createCustomerCustomType').mockResolvedValue();
 
-      await Actions.ensureStripeCustomTypeForCustomer();
+      await Actions.createStripeCustomTypeForCustomer();
 
       expect(Logger.log.info).toHaveBeenCalledTimes(2);
       expect(mockGetTypeByKey).toHaveBeenCalled();
@@ -143,7 +129,7 @@ describe('Actions test', () => {
         .mockRejectedValue(new Error('error'));
 
       await expect(async () => {
-        await Actions.ensureStripeCustomTypeForCustomer();
+        await Actions.createStripeCustomTypeForCustomer();
       }).rejects.toThrow();
       expect(Logger.log.info).toHaveBeenCalledTimes(2);
       expect(Logger.log.error).toHaveBeenCalledTimes(1);
