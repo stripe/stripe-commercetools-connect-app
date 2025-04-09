@@ -8,15 +8,17 @@ import {
 } from '../../routes/stripe-payment.route';
 import { StripePaymentService } from '../../services/stripe-payment.service';
 import { StripeHeaderAuthHook } from '../../libs/fastify/hooks/stripe-header-auth.hook';
+import { StripeCustomerService } from '../../services/stripe-customer.service';
 
 export default async function (server: FastifyInstance) {
+  const stripeCustomer = new StripeCustomerService(paymentSDK.ctCartService);
   const stripePaymentService = new StripePaymentService({
     ctCartService: paymentSDK.ctCartService,
     ctPaymentService: paymentSDK.ctPaymentService,
     ctOrderService: paymentSDK.ctOrderService,
   });
   await server.register(customerRoutes, {
-    paymentService: stripePaymentService,
+    customerService: stripeCustomer,
     sessionHeaderAuthHook: paymentSDK.sessionHeaderAuthHookFn,
   });
 

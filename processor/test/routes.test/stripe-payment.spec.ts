@@ -38,12 +38,15 @@ import * as Config from '../../src/config/config';
 import * as Logger from '../../src/libs/logger/index';
 import { StripeHeaderAuthHook } from '../../src/libs/fastify/hooks/stripe-header-auth.hook';
 import { appLogger } from '../../src/payment-sdk';
+import { StripeCustomerService } from '../../src/services/stripe-customer.service';
 
 jest.mock('stripe', () => ({
   __esModule: true,
   default: jest.fn().mockImplementation(() => ({
     webhooks: {
-      constructEvent: jest.fn<() => Stripe.Event>().mockReturnValue(mockEvent__charge_capture_succeeded_notCaptured),
+      constructEvent: jest
+        .fn<() => Stripe.Event>()
+        .mockImplementation(() => mockEvent__charge_capture_succeeded_notCaptured),
     },
   })),
 }));
@@ -51,7 +54,7 @@ jest.mock('../../src/services/stripe-payment.service');
 jest.mock('../../src/libs/logger/index');
 
 interface FlexibleConfig {
-  [key: string]: string; // Adjust the type according to your config values
+  [key: string]: string | number | Config.PaymentFeatures;
 }
 function setupMockConfig(keysAndValues: Record<string, string>) {
   const mockConfig: FlexibleConfig = {};
@@ -59,7 +62,7 @@ function setupMockConfig(keysAndValues: Record<string, string>) {
     mockConfig[key] = keysAndValues[key];
   });
 
-  jest.spyOn(Config, 'getConfig').mockReturnValue(mockConfig as any);
+  jest.spyOn(Config, 'getConfig').mockReturnValue(mockConfig as ReturnType<typeof Config.getConfig>);
 }
 
 describe('Stripe Payment APIs', () => {
@@ -104,6 +107,8 @@ describe('Stripe Payment APIs', () => {
     ctOrderService: jest.fn() as unknown as CommercetoolsOrderService,
   });
 
+  const spiedCustomerService = new StripeCustomerService(jest.fn() as unknown as CommercetoolsCartService);
+
   const spiedStripeHeaderAuthHook = new StripeHeaderAuthHook();
 
   const originalEnv = process.env;
@@ -129,7 +134,7 @@ describe('Stripe Payment APIs', () => {
     await fastifyApp.register(customerRoutes, {
       prefix: '/',
       sessionHeaderAuthHook: spiedSessionHeaderAuthenticationHook,
-      paymentService: spiedPaymentService,
+      customerService: spiedCustomerService,
     });
   });
 
@@ -361,7 +366,7 @@ describe('Stripe Payment APIs', () => {
   describe('GET /payment', () => {
     test('should call /payment and return valid information', async () => {
       //Given
-      jest.spyOn(spiedPaymentService, 'createPaymentIntentStripe').mockResolvedValue(mockRoute__payments_succeed);
+      jest.spyOn(spiedPaymentService, 'handlePaymentCreation').mockResolvedValue(mockRoute__payments_succeed);
 
       //When
       const responseGetConfig = await fastifyApp.inject({
@@ -376,7 +381,7 @@ describe('Stripe Payment APIs', () => {
       //Then
       expect(responseGetConfig.statusCode).toEqual(200);
       expect(responseGetConfig.json()).toEqual(mockRoute__payments_succeed);
-      expect(spiedPaymentService.createPaymentIntentStripe).toHaveBeenCalled();
+      expect(spiedPaymentService.handlePaymentCreation).toHaveBeenCalled();
     });
   });
 
@@ -469,7 +474,7 @@ describe('Stripe Payment APIs', () => {
   describe('GET /customer/session', () => {
     test('should call /customer/session and return valid information', async () => {
       //Given
-      jest.spyOn(spiedPaymentService, 'getCustomerSession').mockResolvedValue(mockRoute__customer_session_succeed);
+      jest.spyOn(spiedCustomerService, 'getCustomerSession').mockResolvedValue(mockRoute__customer_session_succeed);
 
       //When
       const responseGetConfig = await fastifyApp.inject({
@@ -484,7 +489,26 @@ describe('Stripe Payment APIs', () => {
       //Then
       expect(responseGetConfig.statusCode).toEqual(200);
       expect(responseGetConfig.json()).toEqual(mockRoute__customer_session_succeed);
-      expect(spiedPaymentService.getCustomerSession).toHaveBeenCalled();
+      expect(spiedCustomerService.getCustomerSession).toHaveBeenCalled();
+    });
+
+    test('should call /customer/session and return undefined', async () => {
+      //Given
+      jest.spyOn(spiedCustomerService, 'getCustomerSession').mockResolvedValue(undefined);
+
+      //When
+      const responseGetConfig = await fastifyApp.inject({
+        method: 'GET',
+        url: `/customer/session`,
+        headers: {
+          'x-session-id': sessionId,
+          'content-type': 'application/json',
+        },
+      });
+
+      //Then
+      expect(responseGetConfig.statusCode).toEqual(204);
+      expect(spiedCustomerService.getCustomerSession).toHaveBeenCalled();
     });
   });
 });

@@ -1,5 +1,6 @@
 import { describe, test, expect, jest } from '@jest/globals';
-import { parseJSON } from '../../src/utils';
+import { convertPaymentResultCode, parseJSON } from '../../src/utils';
+import { PaymentOutcome } from '../../src/dtos/mock-payment.dto';
 
 describe('parseJSON', () => {
   test('should parse valid JSON string', () => {
@@ -33,5 +34,22 @@ describe('parseJSON', () => {
     const jsonString = undefined as unknown as string;
     const result = parseJSON<{ key: string }>(jsonString);
     expect(result).toEqual({});
+  });
+});
+
+describe('convertPaymentResultCode', () => {
+  test('should convert AUTHORIZED to Success', () => {
+    const result = convertPaymentResultCode(PaymentOutcome.AUTHORIZED);
+    expect(result).toBe('Success');
+  });
+
+  test('should convert REJECTED to Failure', () => {
+    const result = convertPaymentResultCode(PaymentOutcome.REJECTED);
+    expect(result).toBe('Failure');
+  });
+
+  test('should convert other values to Initial', () => {
+    const result = convertPaymentResultCode('test' as PaymentOutcome);
+    expect(result).toBe('Initial');
   });
 });

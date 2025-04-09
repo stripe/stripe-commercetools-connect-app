@@ -30,7 +30,7 @@ export enum PaymentOutcome {
 }
 
 export const PaymentResponseSchema = Type.Object({
-  sClientSecret: Type.String(),
+  clientSecret: Type.String(),
   paymentReference: Type.String(),
   merchantReturnUrl: Type.String(),
   cartId: Type.String(),

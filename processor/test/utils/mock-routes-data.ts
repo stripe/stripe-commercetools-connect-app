@@ -556,7 +556,7 @@ export const mockRoute__customer_session_succeed: CustomerResponseSchemaDTO = {
 };
 
 export const mockRoute__payments_succeed: PaymentResponseSchemaDTO = {
-  sClientSecret: 'mock_paymentReference',
+  clientSecret: 'mock_paymentReference',
   paymentReference: 'mock_paymentReference',
   merchantReturnUrl: 'mock_merchantReturnUrl',
   cartId: 'mockCartId',

@@ -168,6 +168,22 @@ const lineItem: LineItem = {
   },
 };
 
+const lineItemSubscription: LineItem = {
+  ...lineItem,
+  productType: {
+    id: 'product-type-reference-1',
+    typeId: 'product-type',
+    obj: {
+      id: 'product-type-id',
+      version: 1,
+      name: 'subscription-information',
+      createdAt: '2024-01-01T00:00:00Z',
+      lastModifiedAt: '2024-01-01T00:00:00Z',
+      description: 'The product type.',
+    },
+  },
+};
+
 const customLineItem: CustomLineItem = {
   id: 'customLineItem-id-1',
   name: {
@@ -212,4 +228,9 @@ const shippingInfo: ShippingInfo = {
     tiers: [],
   },
   shippingMethodState: 'MatchesCart',
+};
+
+export const mockGetSubscriptionCart: Cart = {
+  ...mockGetCartResult(),
+  lineItems: [lineItemSubscription],
 };

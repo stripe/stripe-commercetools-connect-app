@@ -17,7 +17,7 @@ export const PaymentRequestSchema = Type.Object({
 });
 
 export const PaymentResponseSchema = Type.Object({
-  sClientSecret: Type.String(),
+  clientSecret: Type.String(),
   paymentReference: Type.String(),
   merchantReturnUrl: Type.String(),
   cartId: Type.String(),
@@ -46,9 +46,14 @@ export const CustomerResponseSchema = Type.Object({
   sessionId: Type.String(),
 });
 
+export const ConfirmPaymentRequestSchema = Type.Object({
+  paymentIntentId: Type.String(),
+  paymentReference: Type.String(),
+});
 
 export type PaymentRequestSchemaDTO = Static<typeof PaymentRequestSchema>;
 export type PaymentResponseSchemaDTO = Static<typeof PaymentResponseSchema>;
 export type ConfigElementResponseSchemaDTO = Static<typeof ConfigElementResponseSchema>;
 export type ConfigResponseSchemaDTO = Static<typeof ConfigResponseSchema>;
 export type CustomerResponseSchemaDTO = Static<typeof CustomerResponseSchema>;
+export type ConfirmPaymentRequestSchemaDTO = Static<typeof ConfirmPaymentRequestSchema>;
