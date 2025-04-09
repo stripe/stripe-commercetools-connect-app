@@ -17,7 +17,7 @@ import {
   mockStripeCapturePaymentResult,
 } from '../utils/mock-payment-results';
 import { mockEvent__paymentIntent_succeeded_captureMethodManual } from '../utils/mock-routes-data';
-import { mockCtCustomerId, mockGetCartResult, mockGetCartWithoutCustomerIdResult } from '../utils/mock-cart-data';
+import { mockGetCartResult, mockGetCartWithoutCustomerIdResult } from '../utils/mock-cart-data';
 import * as Config from '../../src/config/config';
 import { PaymentStatus, StripePaymentServiceOptions } from '../../src/services/types/stripe-payment.type';
 import { AbstractPaymentService } from '../../src/services/abstract-payment.service';
@@ -36,6 +36,7 @@ import { ClientResponse } from '@commercetools/platform-sdk/dist/declarations/sr
 import {
   mockCreateSessionResult,
   mockCtCustomerData,
+  mockCtCustomerId,
   mockCustomerData,
   mockEphemeralKeyResult,
   mockEphemeralKeySecret,
@@ -901,7 +902,7 @@ describe('stripe-payment.service', () => {
       expect(mockRetrieveCustomer).toHaveBeenCalled();
     });
 
-    test('should find stripe customer', async () => {
+    test('should fail to find customer', async () => {
       Stripe.prototype.customers = {
         search: jest.fn(),
       } as unknown as Stripe.CustomersResource;
@@ -914,6 +915,12 @@ describe('stripe-payment.service', () => {
       expect(result).toStrictEqual(undefined);
       expect(result).toBeUndefined();
       expect(mockRetrieveCustomer).toHaveBeenCalled();
+    });
+
+    test('should return undefined due to incorrect ctCustomerId', async () => {
+      const result = await stripePaymentService.findStripeCustomer('wrongId');
+      expect(Logger.log.warn).toBeCalled();
+      expect(result).toBeUndefined();
     });
   });
 

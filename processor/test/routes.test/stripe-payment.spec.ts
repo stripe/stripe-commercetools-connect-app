@@ -486,5 +486,24 @@ describe('Stripe Payment APIs', () => {
       expect(responseGetConfig.json()).toEqual(mockRoute__customer_session_succeed);
       expect(spiedPaymentService.getCustomerSession).toHaveBeenCalled();
     });
+
+    test('should call /customer/session and return undefined', async () => {
+      //Given
+      jest.spyOn(spiedPaymentService, 'getCustomerSession').mockResolvedValue(undefined);
+
+      //When
+      const responseGetConfig = await fastifyApp.inject({
+        method: 'GET',
+        url: `/customer/session`,
+        headers: {
+          'x-session-id': sessionId,
+          'content-type': 'application/json',
+        },
+      });
+
+      //Then
+      expect(responseGetConfig.statusCode).toEqual(204);
+      expect(spiedPaymentService.getCustomerSession).toHaveBeenCalled();
+    });
   });
 });
