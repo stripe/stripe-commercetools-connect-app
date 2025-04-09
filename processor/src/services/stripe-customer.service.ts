@@ -14,6 +14,7 @@ import {
   getCustomerCustomType,
   hasField,
 } from '../helpers/customTypeHelper';
+import { isValidUUID } from '../utils';
 
 const stripe = stripeApi();
 
@@ -117,6 +118,10 @@ export class StripeCustomerService {
 
   public async findStripeCustomer(ctCustomerId: string): Promise<Stripe.Customer | undefined> {
     try {
+      if (!isValidUUID(ctCustomerId)) {
+        log.warn('Invalid ctCustomerId: Not a valid UUID:', { ctCustomerId });
+        throw 'Invalid ctCustomerId: Not a valid UUID';
+      }
       const query = `metadata['ct_customer_id']:'${ctCustomerId}'`;
       const customer = await stripe.customers.search({ query });
       return customer.data[0];

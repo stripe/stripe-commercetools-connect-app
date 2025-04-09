@@ -3,10 +3,11 @@ import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globa
 import { DefaultCartService } from '@commercetools/connect-payments-sdk/dist/commercetools/services/ct-cart.service';
 import { Cart, Customer, ClientResponse } from '@commercetools/platform-sdk';
 import { paymentSDK } from '../../src/payment-sdk';
-import { mockCtCustomerId, mockGetCartResult, mockGetCartWithoutCustomerIdResult } from '../utils/mock-cart-data';
+import { mockGetCartResult, mockGetCartWithoutCustomerIdResult } from '../utils/mock-cart-data';
 import {
   mockCreateSessionResult,
   mockCtCustomerData,
+  mockCtCustomerId,
   mockCtCustomTypeData,
   mockCtCustomTypeWithoutFieldData,
   mockCustomerData,
@@ -355,7 +356,7 @@ describe('stripe-customer.service', () => {
       expect(mockRetrieveCustomer).toHaveBeenCalled();
     });
 
-    test('should find stripe customer', async () => {
+    test('should fail to find stripe customer', async () => {
       const mockRetrieveCustomer = jest
         .spyOn(Stripe.prototype.customers, 'search')
         .mockReturnValue(Promise.reject() as Stripe.ApiSearchResultPromise<Stripe.Customer>);
@@ -365,6 +366,12 @@ describe('stripe-customer.service', () => {
       expect(result).toStrictEqual(undefined);
       expect(result).toBeUndefined();
       expect(mockRetrieveCustomer).toHaveBeenCalled();
+    });
+
+    test('should return undefined due to incorrect ctCustomerId', async () => {
+      const result = await stripeCustomerService.findStripeCustomer('wrongId');
+      expect(Logger.log.warn).toBeCalled();
+      expect(result).toBeUndefined();
     });
   });
 

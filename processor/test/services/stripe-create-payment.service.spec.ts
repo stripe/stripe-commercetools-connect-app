@@ -4,8 +4,8 @@ import { DefaultCartService } from '@commercetools/connect-payments-sdk/dist/com
 import { DefaultPaymentService } from '@commercetools/connect-payments-sdk/dist/commercetools/services/ct-payment.service';
 import { Cart, Payment } from '@commercetools/connect-payments-sdk';
 import { paymentSDK } from '../../src/payment-sdk';
-import { mockCtCustomerId, mockGetCartResult } from '../utils/mock-cart-data';
-import { mockCtCustomerData, mockStripeCustomerId } from '../utils/mock-customer-data';
+import { mockGetCartResult } from '../utils/mock-cart-data';
+import { mockCtCustomerData, mockCtCustomerId, mockStripeCustomerId } from '../utils/mock-customer-data';
 import { StripeCustomerService } from '../../src/services/stripe-customer.service';
 import { StripeCreatePaymentService } from '../../src/services/stripe-create-payment.service';
 import { StripePaymentServiceOptions } from '../../src/services/types/stripe-payment.type';

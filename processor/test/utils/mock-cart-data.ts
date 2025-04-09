@@ -1,7 +1,6 @@
 import { Cart, LineItem, CustomLineItem, ShippingInfo } from '@commercetools/connect-payments-sdk';
 import { randomUUID } from 'crypto';
-
-export const mockCtCustomerId = '1234567989-123456789';
+import { mockCtCustomerId } from './mock-customer-data';
 
 export const mockGetCartResult = () => {
   const cartId = randomUUID();
