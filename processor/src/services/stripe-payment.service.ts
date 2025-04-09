@@ -745,7 +745,7 @@ export class StripePaymentService extends AbstractPaymentService {
 
     const getField = (field: keyof Address): string | null => {
       const value = prioritizedAddress?.[field];
-      return typeof value === 'string' ? value : null;
+      return typeof value === 'string' ? value : '';
     };
 
     return JSON.stringify({
