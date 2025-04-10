@@ -61,12 +61,12 @@ export const mockCustomerData: Stripe.Response<Stripe.Customer> = {
   preferred_locales: [],
   shipping: {
     address: {
-      city: 'Los Angeles',
-      country: 'US',
       line1: '123 Test street',
       line2: 'department 1',
+      city: 'Los Angeles',
       postal_code: '12345',
       state: 'CA',
+      country: 'US',
     },
     name: 'John Smith',
     phone: '+312345678',

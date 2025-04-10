@@ -6,8 +6,10 @@ import {
 } from '@commercetools/platform-sdk/dist/declarations/src/generated/models/type';
 import { Customer } from '@commercetools/platform-sdk/dist/declarations/src/generated/models/customer';
 import { stripeCustomerIdCustomType } from '../custom-types/custom-types';
+import { paymentSDK } from '../payment-sdk';
 
-export async function getTypeByKey(apiClient: CommercetoolsClient, key: string): Promise<Type | undefined> {
+export async function getTypeByKey(key: string): Promise<Type | undefined> {
+  const apiClient = paymentSDK.ctAPI.client;
   const res = await apiClient
     .types()
     .get({ queryArgs: { where: `key="${key}"` } })
@@ -42,7 +44,8 @@ export async function addFieldToType(
     .execute();
 }
 
-export async function createCustomerCustomType(apiClient: CommercetoolsClient, stripeCustomerIdCustomType: TypeDraft) {
+export async function createCustomerCustomType(stripeCustomerIdCustomType: TypeDraft) {
+  const apiClient = paymentSDK.ctAPI.client;
   await apiClient
     .types()
     .post({
@@ -56,10 +59,6 @@ export async function assignCustomTypeToCustomer(
   customer: Customer,
 ): Promise<Customer | undefined> {
   if (customer.custom?.type?.id) return;
-  const type = await getTypeByKey(client, stripeCustomerIdCustomType.key);
-  if (!type) {
-    await createCustomerCustomType(client, stripeCustomerIdCustomType as TypeDraft);
-  }
 
   const res = await client
     .customers()

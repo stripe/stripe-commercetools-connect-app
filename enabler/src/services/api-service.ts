@@ -6,12 +6,22 @@ import {
   CustomerResponseSchemaDTO,
   PaymentResponseSchemaDTO,
 } from "../dtos/mock-payment.dto";
+import { parseJSON } from "../utils";
 
 export interface ApiServiceProps {
   baseApi: string;
   sessionId: string;
   stripe: Stripe;
   elements: StripeElements;
+}
+
+export interface BillingAddress {
+  city: string;
+  country: string;
+  line1: string;
+  line2: string;
+  postal_code: string;
+  state: string;
 }
 
 export interface ApiService {
@@ -51,8 +61,7 @@ export const apiService = ({
       return undefined;
     }
 
-    const data: CustomerResponseSchemaDTO = await response.json();
-    return data;
+    return await response.json();
   };
 
   const getConfigData = async (
@@ -125,13 +134,33 @@ export const apiService = ({
     clientSecret,
     paymentReference,
     merchantReturnUrl,
+    billingAddress,
   }: PaymentResponseSchemaDTO): Promise<PaymentIntent> => {
+    const billing = billingAddress
+      ? parseJSON<BillingAddress>(billingAddress)
+      : undefined;
     const returnUrl = new URL(merchantReturnUrl);
     returnUrl.searchParams.append("cartId", cartId);
     returnUrl.searchParams.append("paymentReference", paymentReference);
 
     const { error, paymentIntent } = await stripe.confirmPayment({
-      confirmParams: { return_url: returnUrl.toString() },
+      confirmParams: {
+        return_url: returnUrl.toString(),
+        ...(billing && {
+          payment_method_data: {
+            billing_details: {
+              address: {
+                city: billing.city,
+                country: billing.country,
+                line1: billing.line1,
+                line2: billing.line2,
+                postal_code: billing.postal_code,
+                state: billing.state,
+              },
+            },
+          },
+        }),
+      },
       redirect: "if_required",
       clientSecret,
       elements,

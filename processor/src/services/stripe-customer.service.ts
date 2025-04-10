@@ -34,13 +34,18 @@ export class StripeCustomerService {
   public async getCustomerSession(defaultStripeCustomerId?: string): Promise<CustomerResponseSchemaDTO | undefined> {
     try {
       const cart = await this.ctCartService.getCart({ id: getCartIdFromContext() });
-      const ctCustomerId = cart.customerId || cart.anonymousId;
+      const ctCustomerId = cart.customerId;
       if (!ctCustomerId) {
-        log.warn('Cart does not have a customerId or anonymousId - Skipping customer creation');
+        log.warn('Cart does not have a customerId - Skipping customer creation');
         return;
       }
 
       const customer = await this.getCtCustomer(ctCustomerId);
+      if (!customer) {
+        log.info('Customer not found - Skipping customer creation');
+        return;
+      }
+
       await this.ensureCustomerCustomFields(customer);
       log.info(
         `Customer has a custom field call ${stripeCustomerIdCustomType.fieldDefinitions[0].name} - customer session creation`,
@@ -134,7 +139,7 @@ export class StripeCustomerService {
   public async createStripeCustomer(cart: Cart, customer: Customer): Promise<Stripe.Customer | undefined> {
     const shippingAddress = this.getStripeCustomerAddress(customer.addresses[0], cart.shippingAddress);
     const email = cart.customerEmail || customer.email || cart.shippingAddress?.email;
-    const newCustomer = await stripe.customers.create({
+    return await stripe.customers.create({
       email,
       name: `${customer.firstName} ${customer.lastName}`.trim() || shippingAddress?.name,
       phone: shippingAddress?.phone,
@@ -143,8 +148,6 @@ export class StripeCustomerService {
         ...(cart.customerId ? { ct_customer_id: customer.id } : null),
       },
     });
-
-    return newCustomer;
   }
 
   public async saveStripeCustomerId(stripeCustomerId: string, customer: Customer): Promise<boolean> {
@@ -156,7 +159,7 @@ export class StripeCustomerService {
     // TODO: commercetools insights on how to integrate the Stripe accountId into commercetools:
     // We have plans to support recurring payments and saved payment methods in the next quarters.
     // Not sure if you can wait until that so your implementation would be aligned with ours.
-    const latestCustomer = await this.getCtCustomer(customer.id);
+    const latestCustomer = (await this.getCtCustomer(customer.id))!;
     const response = await paymentSDK.ctAPI.client
       .customers()
       .withId({ ID: latestCustomer.id })
@@ -178,7 +181,7 @@ export class StripeCustomerService {
 
   public async createSession(stripeCustomerId: string): Promise<Stripe.CustomerSession | undefined> {
     const paymentConfig = getConfig().stripeSavedPaymentMethodConfig;
-    const session = await stripe.customerSessions.create({
+    return await stripe.customerSessions.create({
       customer: stripeCustomerId,
       components: {
         payment_element: {
@@ -187,8 +190,6 @@ export class StripeCustomerService {
         },
       },
     });
-
-    return session;
   }
 
   public async createEphemeralKey(stripeCustomerId: string) {
@@ -200,13 +201,17 @@ export class StripeCustomerService {
     return res?.secret;
   }
 
-  public async getCtCustomer(ctCustomerId: string): Promise<Customer> {
-    const response = await paymentSDK.ctAPI.client.customers().withId({ ID: ctCustomerId }).get().execute();
-    if (!response.body) {
-      log.error('Customer not found', { ctCustomerId });
-      throw `Customer with ID ${ctCustomerId} not found`;
-    }
-    return response.body;
+  public async getCtCustomer(ctCustomerId: string): Promise<Customer | void> {
+    return await paymentSDK.ctAPI.client
+      .customers()
+      .withId({ ID: ctCustomerId })
+      .get()
+      .execute()
+      .then((response) => response.body)
+      .catch((err) => {
+        log.warn(`Customer not found ${ctCustomerId}`, { error: err });
+        return;
+      });
   }
 
   public getStripeCustomerAddress(prioritizedAddress: Address | undefined, fallbackAddress: Address | undefined) {
@@ -231,6 +236,26 @@ export class StripeCustomerService {
         country: getField('country'),
       },
     };
+  }
+
+  public getBillingAddress(prioritizedAddress: Address | undefined) {
+    if (!prioritizedAddress) {
+      return undefined;
+    }
+
+    const getField = (field: keyof Address): string | null => {
+      const value = prioritizedAddress?.[field];
+      return typeof value === 'string' ? value : '';
+    };
+
+    return JSON.stringify({
+      line1: `${getField('streetNumber')} ${getField('streetName')}`.trim(),
+      line2: getField('additionalStreetInfo'),
+      city: getField('city'),
+      postal_code: getField('postalCode'),
+      state: getField('state'),
+      country: getField('country'),
+    });
   }
 
   public async ensureCustomerCustomFields(customer: Customer): Promise<boolean> {

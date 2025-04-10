@@ -1,5 +1,6 @@
 import Stripe from 'stripe';
 import {
+  CollectBillingAddressOptions,
   ConfigElementResponseSchemaDTO,
   CustomerResponseSchemaDTO,
   PaymentResponseSchemaDTO,
@@ -592,6 +593,7 @@ export const mockRoute__get_config_element_succeed: ConfigElementResponseSchemaD
   webElements: 'mockWebElement',
   setupFutureUsage: 'on_session',
   layout: '{"type":"accordion","defaultCollapsed":false,"radios":true,"spacedAccordionItems":true}',
+  collectBillingAddress: CollectBillingAddressOptions.AUTO,
 };
 
 export const mockEvent__charge_capture_succeeded_notCaptured: Stripe.Event = {

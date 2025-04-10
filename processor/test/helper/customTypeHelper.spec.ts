@@ -29,7 +29,7 @@ describe('CustomTypeHelper testing', () => {
         })),
       })) as never;
 
-      const result = await getTypeByKey(client, 'type-key');
+      const result = await getTypeByKey('type-key');
       expect(result).toEqual(mock_CustomType_withFieldDefinition);
     });
 
@@ -42,7 +42,7 @@ describe('CustomTypeHelper testing', () => {
         })),
       })) as never;
 
-      const result = await getTypeByKey(client, 'type-key');
+      const result = await getTypeByKey('type-key');
       expect(result).toEqual(undefined);
     });
   });
@@ -99,7 +99,7 @@ describe('CustomTypeHelper testing', () => {
         })),
       })) as never;
 
-      await createCustomerCustomType(client, typeDraft);
+      await createCustomerCustomType(typeDraft);
 
       expect(client.types().post.call).toBeTruthy();
     });

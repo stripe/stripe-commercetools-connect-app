@@ -56,6 +56,10 @@ deployAs:
         - key: MERCHANT_RETURN_URL
           description: Merchant return URL
           required: true
+        - key: STRIPE_COLLECT_BILLING_ADDRESS
+          description: Stripe collect billing address information in Payment Element (example - 'auto' | 'never' | 'if_required').
+          default: 'auto'
+          required: true
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
           description: commercetools client secret.

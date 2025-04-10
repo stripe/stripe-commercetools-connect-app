@@ -11,13 +11,13 @@ import {
   mockGetPaymentAmount,
   mockGetPaymentResult,
   mockStripeCancelPaymentResult,
+  mockStripeCapturePaymentResult,
   mockStripeCreatePaymentResult,
   mockStripeCreateRefundResult,
   mockStripePaymentMethodsList,
   mockStripeRetrievePaymentResult,
   mockStripeUpdatePaymentResult,
   mockUpdatePaymentResult,
-  mockStripeCapturePaymentResult,
   mockPaymentResult,
 } from '../utils/mock-payment-results';
 import { mockEvent__paymentIntent_succeeded_captureMethodManual } from '../utils/mock-routes-data';
@@ -31,7 +31,6 @@ import { PaymentTransactions } from '../../src/dtos/operations/payment-intents.d
 import * as Config from '../../src/config/config';
 import * as Logger from '../../src/libs/logger/index';
 import { StripeCreatePaymentService } from '../../src/services/stripe-create-payment.service';
-import { mockStripeCustomerId } from '../utils/mock-customer-data';
 import * as StripeClient from '../../src/clients/stripe.client';
 
 jest.mock('stripe', () => ({
@@ -501,7 +500,7 @@ describe('stripe-payment.service', () => {
         .spyOn(StripeCreatePaymentService.prototype, 'createSubscription')
         .mockResolvedValue(mockPaymentResult);
 
-      const result = await stripePaymentService.handlePaymentCreation(mockStripeCustomerId);
+      const result = await stripePaymentService.handlePaymentCreation();
 
       expect(result.clientSecret).toStrictEqual(mockPaymentResult.clientSecret);
       expect(result).toBeDefined();
@@ -517,7 +516,7 @@ describe('stripe-payment.service', () => {
         .spyOn(StripeCreatePaymentService.prototype, 'createPaymentIntent')
         .mockResolvedValue(mockPaymentResult);
 
-      const result = await stripePaymentService.handlePaymentCreation(mockStripeCustomerId);
+      const result = await stripePaymentService.handlePaymentCreation();
 
       expect(result.clientSecret).toStrictEqual(mockPaymentResult.clientSecret);
       expect(result).toBeDefined();
@@ -538,7 +537,7 @@ describe('stripe-payment.service', () => {
       const wrapStripeError = jest.spyOn(StripeClient, 'wrapStripeError').mockReturnValue(error);
 
       try {
-        await stripePaymentService.handlePaymentCreation(mockStripeCustomerId);
+        await stripePaymentService.handlePaymentCreation();
       } catch (e) {
         expect(wrapStripeError).toHaveBeenCalledWith(e);
       }

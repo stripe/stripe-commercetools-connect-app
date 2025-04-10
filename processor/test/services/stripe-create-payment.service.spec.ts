@@ -5,7 +5,7 @@ import { DefaultPaymentService } from '@commercetools/connect-payments-sdk/dist/
 import { Cart, Payment } from '@commercetools/connect-payments-sdk';
 import { paymentSDK } from '../../src/payment-sdk';
 import { mockGetCartResult } from '../utils/mock-cart-data';
-import { mockCtCustomerData, mockCtCustomerId, mockStripeCustomerId } from '../utils/mock-customer-data';
+import { mockCtCustomerData, mockCtCustomerId } from '../utils/mock-customer-data';
 import { StripeCustomerService } from '../../src/services/stripe-customer.service';
 import { StripeCreatePaymentService } from '../../src/services/stripe-create-payment.service';
 import { StripePaymentServiceOptions } from '../../src/services/types/stripe-payment.type';
@@ -82,7 +82,7 @@ describe('stripe-create-payment.service', () => {
         .spyOn(StripeCreatePaymentService.prototype, 'handleCtPaymentCreation')
         .mockResolvedValue(mockGetPaymentResult.id);
 
-      const result = await stripeCreatePaymentService.createPaymentIntent(cartMock, mockStripeCustomerId);
+      const result = await stripeCreatePaymentService.createPaymentIntent(cartMock);
 
       expect(result.clientSecret).toStrictEqual(mockStripeCreatePaymentResult.client_secret);
       expect(result).toBeDefined();
@@ -110,7 +110,7 @@ describe('stripe-create-payment.service', () => {
         .spyOn(StripeCreatePaymentService.prototype, 'handleCtPaymentCreation')
         .mockResolvedValue(mockGetPaymentResult.id);
 
-      const result = await stripeCreatePaymentService.createSubscription(cartMock, mockStripeCustomerId);
+      const result = await stripeCreatePaymentService.createSubscription(cartMock);
 
       expect(result.clientSecret).toStrictEqual(mockStripeCreatePaymentResult.client_secret);
       expect(result).toBeDefined();
@@ -134,7 +134,7 @@ describe('stripe-create-payment.service', () => {
         .mockResolvedValue(subscriptionWithoutPaymentResponseMock);
 
       try {
-        await stripeCreatePaymentService.createSubscription(cartMock, mockStripeCustomerId);
+        await stripeCreatePaymentService.createSubscription(cartMock);
       } catch (e) {
         expect(e).toEqual('Failed to create Subscription.');
       }

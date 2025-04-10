@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { DefaultCartService } from '@commercetools/connect-payments-sdk/dist/commercetools/services/ct-cart.service';
-import { Cart, Customer, ClientResponse } from '@commercetools/platform-sdk';
+import { Cart, Customer, ClientResponse, Address } from '@commercetools/platform-sdk';
 import { paymentSDK } from '../../src/payment-sdk';
 import { mockGetCartResult, mockGetCartWithoutCustomerIdResult } from '../utils/mock-cart-data';
 import {
@@ -79,7 +79,6 @@ describe('stripe-customer.service', () => {
         sessionId: mockCreateSessionResult.client_secret,
       });
       expect(result).toBeDefined();
-
       expect(getCartMock).toHaveBeenCalled();
       expect(getCtCustomerMock).toHaveBeenCalled();
       expect(getEnsureCustomerCustomFields).toHaveBeenCalled();
@@ -88,7 +87,7 @@ describe('stripe-customer.service', () => {
       expect(createSessionMock).toHaveBeenCalled();
     });
 
-    test('should return undefined to get found customer id on cart', async () => {
+    test('should return and skip customer creation', async () => {
       const getCartMock = jest
         .spyOn(DefaultCartService.prototype, 'getCart')
         .mockReturnValue(Promise.resolve(mockGetCartWithoutCustomerIdResult()));
@@ -97,6 +96,19 @@ describe('stripe-customer.service', () => {
 
       expect(Logger.log.warn).toBeCalled();
       expect(getCartMock).toHaveBeenCalled();
+    });
+
+    test('should fail to find customer and return', async () => {
+      const getCartMock = jest.spyOn(DefaultCartService.prototype, 'getCart').mockResolvedValue(mockGetCartResult());
+      const getCtCustomerMock = jest
+        .spyOn(StripeCustomerService.prototype, 'getCtCustomer')
+        .mockResolvedValue(undefined);
+
+      await stripeCustomerService.getCustomerSession();
+
+      expect(Logger.log.info).toBeCalled();
+      expect(getCartMock).toHaveBeenCalled();
+      expect(getCtCustomerMock).toHaveBeenCalled();
     });
 
     test('should fail to get stripe customer id', async () => {
@@ -388,41 +400,24 @@ describe('stripe-customer.service', () => {
       expect(mockCreateCustomer).toHaveBeenCalled();
     });
 
-    test('should create stripe customer without cart customerEmail', async () => {
-      const cartMock: Cart = { ...mockGetCartResult(), customerEmail: undefined };
+    test('should create stripe customer with shipping address email and without metadata', async () => {
+      const cart = mockGetCartResult();
+      const mockCart: Cart = {
+        ...cart,
+        customerId: undefined,
+        customerEmail: undefined,
+      };
+      const mockCtCustomer: Customer = {
+        ...mockCtCustomerData,
+        firstName: '',
+        lastName: '',
+        email: '',
+      };
       const mockCreateCustomer = jest
         .spyOn(Stripe.prototype.customers, 'create')
         .mockReturnValue(Promise.resolve(mockCustomerData));
 
-      const result = await stripeCustomerService.createStripeCustomer(cartMock, mockCtCustomerData);
-
-      expect(result).toStrictEqual(mockCustomerData);
-      expect(result).toBeDefined();
-      expect(mockCreateCustomer).toHaveBeenCalled();
-    });
-
-    test('should create stripe customer without customer email', async () => {
-      const cartMock: Cart = { ...mockGetCartResult(), customerEmail: undefined };
-      const mockCtCustomer: Customer = { ...mockCtCustomerData, email: '' };
-
-      const mockCreateCustomer = jest
-        .spyOn(Stripe.prototype.customers, 'create')
-        .mockReturnValue(Promise.resolve(mockCustomerData));
-
-      const result = await stripeCustomerService.createStripeCustomer(cartMock, mockCtCustomer);
-
-      expect(result).toStrictEqual(mockCustomerData);
-      expect(result).toBeDefined();
-      expect(mockCreateCustomer).toHaveBeenCalled();
-    });
-
-    test('should create stripe customer without customer name', async () => {
-      const mockCtCustomer: Customer = { ...mockCtCustomerData, firstName: '', lastName: '' };
-      const mockCreateCustomer = jest
-        .spyOn(Stripe.prototype.customers, 'create')
-        .mockReturnValue(Promise.resolve(mockCustomerData));
-
-      const result = await stripeCustomerService.createStripeCustomer(mockGetCartResult(), mockCtCustomer);
+      const result = await stripeCustomerService.createStripeCustomer(mockCart, mockCtCustomer);
 
       expect(result).toStrictEqual(mockCustomerData);
       expect(result).toBeDefined();
@@ -501,7 +496,7 @@ describe('stripe-customer.service', () => {
         statusCode: 200,
         headers: {},
       };
-      const executeMock = jest.fn().mockReturnValue(mockCtCustomerResponse);
+      const executeMock = jest.fn<() => Promise<ClientResponse<Customer>>>().mockResolvedValue(mockCtCustomerResponse);
       const client = paymentSDK.ctAPI.client;
       client.customers = jest.fn(() => ({
         withId: jest.fn(() => ({
@@ -515,31 +510,6 @@ describe('stripe-customer.service', () => {
 
       expect(executeMock).toHaveBeenCalled();
       expect(result).toEqual(mockCtCustomerData);
-    });
-
-    test('should fail to retrieve customer', async () => {
-      const mockCtCustomerResponse = {
-        body: null,
-        statusCode: 404,
-        headers: {},
-      };
-      const executeMock = jest.fn().mockResolvedValue(mockCtCustomerResponse as never);
-      const client = paymentSDK.ctAPI.client;
-      client.customers = jest.fn(() => ({
-        withId: jest.fn(() => ({
-          get: jest.fn(() => ({
-            execute: executeMock,
-          })),
-        })),
-      })) as never;
-
-      try {
-        await stripeCustomerService.getCtCustomer(mockCtCustomerId);
-      } catch (e) {
-        expect(e).toEqual(`Customer with ID ${mockCtCustomerId} not found`);
-      }
-      expect(Logger.log.error).toBeCalled();
-      expect(executeMock).toHaveBeenCalled();
     });
   });
 
@@ -611,6 +581,26 @@ describe('stripe-customer.service', () => {
       expect(assignCustomTypeToCustomerMock).toHaveBeenCalled();
       expect(getCustomerCustomTypeMock).toHaveBeenCalled();
       expect(addFieldToCustomTypeMock).toHaveBeenCalled();
+    });
+  });
+
+  describe('method getBillingAddress', () => {
+    test('should return billing address successfully', async () => {
+      const shippingAddress = mockGetCartResult().shippingAddress;
+      const stringifiedAddress = JSON.stringify(mockCustomerData.shipping?.address);
+      const result = await stripeCustomerService.getBillingAddress(shippingAddress);
+      expect(result).toStrictEqual(stringifiedAddress);
+    });
+
+    test('should return empty string values', async () => {
+      const shippingAddress = { ...mockGetCartResult().shippingAddress, city: undefined };
+      const result = await stripeCustomerService.getBillingAddress(shippingAddress as Address);
+      expect(result).toBeDefined();
+    });
+
+    test('should return undefined', async () => {
+      const result = await stripeCustomerService.getBillingAddress(undefined);
+      expect(result).toBeUndefined();
     });
   });
 });

@@ -41,6 +41,8 @@ export const config = {
   stripeApplePayWellKnown: process.env.STRIPE_APPLE_PAY_WELL_KNOWN || 'mockWellKnown',
   stripeApiVersion: process.env.STRIPE_API_VERSION || '2025-02-24.acacia',
   stripeSavedPaymentMethodConfig: getSavedPaymentConfig(),
+  stripeCollectBillingAddress: process.env.STRIPE_COLLECT_BILLING_ADDRESS || 'auto',
+
   // Payment Providers config
   merchantReturnUrl: process.env.MERCHANT_RETURN_URL || '',
 };

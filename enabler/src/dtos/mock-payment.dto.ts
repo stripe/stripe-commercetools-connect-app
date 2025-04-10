@@ -21,6 +21,7 @@ export const PaymentResponseSchema = Type.Object({
   paymentReference: Type.String(),
   merchantReturnUrl: Type.String(),
   cartId: Type.String(),
+  billingAddress: Type.Optional(Type.String()),
 });
 
 export const ConfigElementResponseSchema = Type.Object({
@@ -33,6 +34,7 @@ export const ConfigElementResponseSchema = Type.Object({
   webElements: Type.Optional(Type.Union([Type.Literal('paymentElement'), Type.Literal('expressCheckout')]) ),
   setupFutureUsage: Type.Optional(Type.Union([Type.Literal('off_session'), Type.Literal('on_session')]) ),
   layout: Type.String(),
+  collectBillingAddress: Type.Union([Type.Literal('auto'), Type.Literal('never'), Type.Literal('if_required')]),
 });
 
 export const ConfigResponseSchema = Type.Object({

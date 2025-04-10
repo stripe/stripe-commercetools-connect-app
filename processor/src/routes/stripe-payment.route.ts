@@ -74,26 +74,18 @@ export const customerRoutes = async (fastify: FastifyInstance, opts: FastifyPlug
 };
 
 export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPluginOptions & PaymentRoutesOptions) => {
-  fastify.get<{ Querystring: { stripeCustomerId: string }; Reply: PaymentResponseSchemaDTO }>(
+  fastify.get<{ Reply: PaymentResponseSchemaDTO }>(
     '/payments',
     {
       preHandler: [opts.sessionHeaderAuthHook.authenticate()],
       schema: {
-        querystring: {
-          $id: 'querySchema',
-          type: 'object',
-          properties: {
-            stripeCustomerId: Type.String(),
-          },
-        },
         response: {
           200: PaymentResponseSchema,
         },
       },
     },
-    async (request, reply) => {
-      const { stripeCustomerId } = request.query;
-      const resp = await opts.paymentService.handlePaymentCreation(stripeCustomerId);
+    async (_, reply) => {
+      const resp = await opts.paymentService.handlePaymentCreation();
 
       return reply.status(200).send(resp);
     },

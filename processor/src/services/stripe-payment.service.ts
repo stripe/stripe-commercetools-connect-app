@@ -17,7 +17,12 @@ import { AbstractPaymentService } from './abstract-payment.service';
 import { getConfig } from '../config/config';
 import { appLogger, paymentSDK } from '../payment-sdk';
 import { StripeEvent, StripePaymentServiceOptions } from './types/stripe-payment.type';
-import { ConfigElementResponseSchemaDTO, PaymentOutcome, PaymentResponseSchemaDTO } from '../dtos/stripe-payment.dto';
+import {
+  CollectBillingAddressOptions,
+  ConfigElementResponseSchemaDTO,
+  PaymentOutcome,
+  PaymentResponseSchemaDTO,
+} from '../dtos/stripe-payment.dto';
 import { getCartIdFromContext } from '../libs/fastify/context/context';
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
@@ -219,7 +224,7 @@ export class StripePaymentService extends AbstractPaymentService {
    *
    * @return {Promise<PaymentResponseSchemaDTO>} A promise that resolves to a PaymentResponseSchemaDTO object.
    */
-  public async handlePaymentCreation(stripeCustomerId: string): Promise<PaymentResponseSchemaDTO> {
+  public async handlePaymentCreation(): Promise<PaymentResponseSchemaDTO> {
     try {
       const cart = await this.getCartExpanded();
       //TODO: Make sure if the product type name is correct
@@ -228,9 +233,9 @@ export class StripePaymentService extends AbstractPaymentService {
       const isSubscription = productType === subscriptionTypeName;
       if (isSubscription) {
         //TODO: What happens with Subscription if the CT CustomerId is not set?
-        return await this.createPaymentService.createSubscription(cart, stripeCustomerId);
+        return await this.createPaymentService.createSubscription(cart);
       } else {
-        return await this.createPaymentService.createPaymentIntent(cart, stripeCustomerId);
+        return await this.createPaymentService.createPaymentIntent(cart);
       }
     } catch (error) {
       throw wrapStripeError(error);
@@ -283,6 +288,7 @@ export class StripePaymentService extends AbstractPaymentService {
       stripeCaptureMethod,
       stripeSavedPaymentMethodConfig,
       stripeLayout,
+      stripeCollectBillingAddress,
     } = getConfig();
     const ctCart = await this.ctCartService.getCart({ id: getCartIdFromContext() });
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
@@ -302,6 +308,7 @@ export class StripePaymentService extends AbstractPaymentService {
       webElements: webElement,
       stripeSetupFutureUsage: setupFutureUsage,
       layout: stripeLayout,
+      collectBillingAddress: stripeCollectBillingAddress,
     });
 
     return {
@@ -314,6 +321,7 @@ export class StripePaymentService extends AbstractPaymentService {
       webElements: webElement,
       setupFutureUsage: setupFutureUsage,
       layout: stripeLayout,
+      collectBillingAddress: stripeCollectBillingAddress as CollectBillingAddressOptions,
     };
   }
 

@@ -17,6 +17,7 @@ import { stripeApi } from '../clients/stripe.client';
 import { log } from '../libs/logger';
 import { StripeCustomerService } from './stripe-customer.service';
 import { convertPaymentResultCode } from '../utils';
+import { stripeCustomerIdCustomType } from '../custom-types/custom-types';
 
 const stripe = stripeApi();
 
@@ -37,18 +38,22 @@ export class StripeCreatePaymentService {
    * @param cart
    * @return Promise<PaymentResponseSchemaDTO> A Promise that resolves to a PaymentResponseSchemaDTO object containing the client secret and payment reference.
    */
-  public async createPaymentIntent(cart: Cart, stripeCustomerId: string): Promise<PaymentResponseSchemaDTO> {
+  public async createPaymentIntent(cart: Cart): Promise<PaymentResponseSchemaDTO> {
     const config = getConfig();
     const captureMethodConfig = config.stripeCaptureMethod;
     const setupFutureUsage = config.stripeSavedPaymentMethodConfig?.payment_method_save_usage;
     const merchantReturnUrl = getMerchantReturnUrlFromContext() || config.merchantReturnUrl;
     const customer = await this.customerService.getCtCustomer(cart.customerId!);
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart });
-    const shippingAddress = this.customerService.getStripeCustomerAddress(cart.shippingAddress, customer.addresses[0]);
+    const shippingAddress = this.customerService.getStripeCustomerAddress(cart.shippingAddress, customer?.addresses[0]);
+    const stripeCustomerId = customer?.custom?.fields?.[stripeCustomerIdCustomType.fieldDefinitions[0].name];
+
     const paymentIntent = await stripe.paymentIntents.create(
       {
-        customer: stripeCustomerId,
-        setup_future_usage: setupFutureUsage,
+        ...(stripeCustomerId && {
+          customer: stripeCustomerId,
+          setup_future_usage: setupFutureUsage,
+        }),
         amount: amountPlanned.centAmount,
         currency: amountPlanned.currencyCode,
         automatic_payment_methods: {
@@ -79,6 +84,9 @@ export class StripeCreatePaymentService {
       clientSecret: paymentIntent.client_secret!,
       paymentReference,
       merchantReturnUrl,
+      ...(config.stripeCollectBillingAddress !== 'auto' && {
+        billingAddress: this.customerService.getBillingAddress(cart.billingAddress ?? cart.shippingAddress),
+      }),
     };
   }
 
@@ -88,11 +96,13 @@ export class StripeCreatePaymentService {
    * @param cart
    * @returns Promise<PaymentResponseSchemaDTO> A Promise that resolves to a PaymentResponseSchemaDTO object containing the client secret and payment reference.
    */
-  public async createSubscription(cart: Cart, stripeCustomerId: string): Promise<PaymentResponseSchemaDTO> {
+  public async createSubscription(cart: Cart): Promise<PaymentResponseSchemaDTO> {
     const config = getConfig();
     const merchantReturnUrl = getMerchantReturnUrlFromContext() || config.merchantReturnUrl;
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart });
     const priceId = await this.getSubscriptionPriceId(cart, amountPlanned);
+    const customer = await this.customerService.getCtCustomer(cart.customerId!);
+    const stripeCustomerId = customer?.custom?.fields?.[stripeCustomerIdCustomType.fieldDefinitions[0].name];
 
     const subscription = await stripe.subscriptions.create({
       customer: stripeCustomerId,
