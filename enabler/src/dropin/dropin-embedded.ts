@@ -76,9 +76,7 @@ export class DropinComponents implements DropinComponent {
         throw submitError;
       }
 
-      const paymentRes = await this.api.getPayment(
-        this.baseOptions.stripeCustomerId
-      );
+      const paymentRes = await this.api.getPayment();
       const paymentIntent = await this.api.confirmStripePayment(paymentRes);
       await this.api.confirmPaymentIntent({
         paymentIntentId: paymentIntent.id,

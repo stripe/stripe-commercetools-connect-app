@@ -1,5 +1,7 @@
 import { FieldDefinition } from '@commercetools/platform-sdk/dist/declarations/src/generated/models/type';
 
+export const stripeCustomerIdCustomFieldName = 'stripeConnector_stripeCustomerId';
+
 export const launchpadPurchaseOrderCustomType = {
   key: 'payment-launchpad-purchase-order',
   purchaseOrderNumber: 'launchpadPurchaseOrderNumber',
@@ -20,7 +22,7 @@ export const stripeCustomerIdCustomType = {
       type: {
         name: 'String',
       },
-      name: 'stripeConnector_stripeCustomerId',
+      name: stripeCustomerIdCustomFieldName,
       label: {
         en: 'Stripe Customer ID',
       },

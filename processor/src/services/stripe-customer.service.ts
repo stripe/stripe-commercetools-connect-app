@@ -7,7 +7,7 @@ import { CustomerResponseSchemaDTO } from '../dtos/stripe-payment.dto';
 import { getCartIdFromContext } from '../libs/fastify/context/context';
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
-import { stripeCustomerIdCustomType } from '../custom-types/custom-types';
+import { stripeCustomerIdCustomFieldName, stripeCustomerIdCustomType } from '../custom-types/custom-types';
 import {
   addFieldToCustomType,
   assignCustomTypeToCustomer,
@@ -47,9 +47,7 @@ export class StripeCustomerService {
       }
 
       await this.ensureCustomerCustomFields(customer);
-      log.info(
-        `Customer has a custom field call ${stripeCustomerIdCustomType.fieldDefinitions[0].name} - customer session creation`,
-      );
+      log.info(`Customer has a custom field call ${stripeCustomerIdCustomFieldName} - customer session creation`);
       const stripeCustomerId = await this.retrieveOrCreateStripeCustomerId(cart, customer, defaultStripeCustomerId);
       if (!stripeCustomerId) {
         throw 'Failed to get stripe customer id.';
@@ -87,8 +85,7 @@ export class StripeCustomerService {
       }
     }
 
-    const customFieldName = stripeCustomerIdCustomType.fieldDefinitions[0].name;
-    const savedCustomerId = customer?.custom?.fields?.[customFieldName];
+    const savedCustomerId = customer?.custom?.fields?.[stripeCustomerIdCustomFieldName];
     if (savedCustomerId) {
       const isValid = await this.validateStripeCustomerId(savedCustomerId, customer.id);
       if (isValid) {
@@ -151,8 +148,7 @@ export class StripeCustomerService {
   }
 
   public async saveStripeCustomerId(stripeCustomerId: string, customer: Customer): Promise<boolean> {
-    const customFieldName = stripeCustomerIdCustomType.fieldDefinitions[0].name;
-    if (customer.custom?.fields?.[customFieldName] === stripeCustomerId) {
+    if (customer.custom?.fields?.[stripeCustomerIdCustomFieldName] === stripeCustomerId) {
       return true;
     }
 
@@ -169,14 +165,14 @@ export class StripeCustomerService {
           actions: [
             {
               action: 'setCustomField',
-              name: customFieldName,
+              name: stripeCustomerIdCustomFieldName,
               value: stripeCustomerId,
             },
           ],
         },
       })
       .execute();
-    return Boolean(response.body.custom?.fields?.[customFieldName]);
+    return Boolean(response.body.custom?.fields?.[stripeCustomerIdCustomFieldName]);
   }
 
   public async createSession(stripeCustomerId: string): Promise<Stripe.CustomerSession | undefined> {

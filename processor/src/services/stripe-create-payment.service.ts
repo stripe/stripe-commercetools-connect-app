@@ -17,7 +17,7 @@ import { stripeApi } from '../clients/stripe.client';
 import { log } from '../libs/logger';
 import { StripeCustomerService } from './stripe-customer.service';
 import { convertPaymentResultCode } from '../utils';
-import { stripeCustomerIdCustomType } from '../custom-types/custom-types';
+import { stripeCustomerIdCustomFieldName } from '../custom-types/custom-types';
 
 const stripe = stripeApi();
 
@@ -46,7 +46,7 @@ export class StripeCreatePaymentService {
     const customer = await this.customerService.getCtCustomer(cart.customerId!);
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart });
     const shippingAddress = this.customerService.getStripeCustomerAddress(cart.shippingAddress, customer?.addresses[0]);
-    const stripeCustomerId = customer?.custom?.fields?.[stripeCustomerIdCustomType.fieldDefinitions[0].name];
+    const stripeCustomerId = customer?.custom?.fields?.[stripeCustomerIdCustomFieldName];
 
     const paymentIntent = await stripe.paymentIntents.create(
       {
@@ -102,7 +102,7 @@ export class StripeCreatePaymentService {
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart });
     const priceId = await this.getSubscriptionPriceId(cart, amountPlanned);
     const customer = await this.customerService.getCtCustomer(cart.customerId!);
-    const stripeCustomerId = customer?.custom?.fields?.[stripeCustomerIdCustomType.fieldDefinitions[0].name];
+    const stripeCustomerId = customer?.custom?.fields?.[stripeCustomerIdCustomFieldName];
 
     const subscription = await stripe.subscriptions.create({
       customer: stripeCustomerId,
@@ -111,7 +111,7 @@ export class StripeCreatePaymentService {
       payment_settings: { save_default_payment_method: 'on_subscription' },
       expand: ['latest_invoice.payment_intent'],
       metadata: this.getPaymentMetadata(cart),
-      //TODO: Add other additional fields from product attributes
+      //TODO: Add additional fields from product attributes
     });
 
     if (
@@ -338,6 +338,7 @@ export class StripeCreatePaymentService {
       metadata: {
         ct_product_id: product.productId,
       },
+      //TODO: Add additional fields from product attributes?
     });
 
     if (!newProduct.id) {
@@ -376,7 +377,7 @@ export class StripeCreatePaymentService {
         ct_variant_sku: product.variant.sku!,
         ct_price_id: product.price.id,
       },
-      //TODO: Add other additional fields from product attributes?
+      //TODO: Add additional fields from product attributes?
       recurring: {
         interval: 'month',
         interval_count: 1,

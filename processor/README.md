@@ -118,16 +118,16 @@ Afterwards, session ID can be obtained from response, which is necessary to be p
 
 In order to make easy running the application locally, following commands help to build up a jwt mock server:
 
-####Set environment variable to point to the jwksUrl
+#### Set environment variable to point to the jwksUrl
 ```
 export CTP_JWKS_URL="http://localhost:9000/jwt/.well-known/jwks.json"
 ```
-####Run the jwt server
+#### Run the jwt server
 ```
 docker compose up -d
 ```
 
-####Obtain JWT
+#### Obtain JWT
 ```
 # Request token
 curl --location 'http://localhost:9000/jwt/token' \
@@ -196,16 +196,24 @@ N/A
 - **billingAddress**: The billing address provided by the merchant, which will be sent to Stripe during the `confirmPayment` process.
 
 ### Confirm the Payment Intent to commercetools
-This endpoint update the initial payment transaction in commercetools. It is called after the Stripe confirm the payment submit was successful.
+
+This endpoint creates a new [payment intent](https://docs.stripe.com/api/payment_intents) or [subscription](https://docs.stripe.com/api/subscriptions) in Stripe. It is called after the user fills out all the payment information and submits the payment. If the Cart contains a product that has a type of Subscription it will proceed with the subscription payment, if not it will create a normal payment intent.
 
 #### Endpoint
+
 `POST /confirmPayments/:id`
 
 #### Query Parameters
+
 - **id**: The payment reference of the current process.
 
 #### Response Parameters
+
 - **outcome:"approved|rejected"**: The response of the updated confirmation in commercetools payment transaction.
+
+#### Diagram of the current Payment flow
+
+![Stripe Customer Workflow.png](../docs/StripeSubscriptionWorkflow.png)
 
 ### Webhook Listener
 
