@@ -100,6 +100,9 @@ describe('stripe-create-payment.service', () => {
       const getPaymentAmountMock = jest
         .spyOn(DefaultCartService.prototype, 'getPaymentAmount')
         .mockResolvedValue(mockGetPaymentAmount);
+      const getCtCustomerMock = jest
+        .spyOn(StripeCustomerService.prototype, 'getCtCustomer')
+        .mockResolvedValue(mockCtCustomerData);
       const getSubscriptionPriceIdMock = jest
         .spyOn(StripeCreatePaymentService.prototype, 'getSubscriptionPriceId')
         .mockResolvedValue(stripePriceIdMock);
@@ -117,6 +120,7 @@ describe('stripe-create-payment.service', () => {
 
       expect(getSubscriptionPriceIdMock).toHaveBeenCalled();
       expect(getPaymentAmountMock).toHaveBeenCalled();
+      expect(getCtCustomerMock).toHaveBeenCalled();
       expect(stripeCreateSubscriptionMock).toHaveBeenCalled();
       expect(handleCtPaymentCreationMock).toHaveBeenCalled();
     });

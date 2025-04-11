@@ -40,14 +40,11 @@ export class StripeCreatePaymentService {
    */
   public async createPaymentIntent(cart: Cart): Promise<PaymentResponseSchemaDTO> {
     const config = getConfig();
-    const captureMethodConfig = config.stripeCaptureMethod;
     const setupFutureUsage = config.stripeSavedPaymentMethodConfig?.payment_method_save_usage;
-    const merchantReturnUrl = getMerchantReturnUrlFromContext() || config.merchantReturnUrl;
     const customer = await this.customerService.getCtCustomer(cart.customerId!);
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart });
     const shippingAddress = this.customerService.getStripeCustomerAddress(cart.shippingAddress, customer?.addresses[0]);
     const stripeCustomerId = customer?.custom?.fields?.[stripeCustomerIdCustomFieldName];
-
     const paymentIntent = await stripe.paymentIntents.create(
       {
         ...(stripeCustomerId && {
@@ -59,7 +56,7 @@ export class StripeCreatePaymentService {
         automatic_payment_methods: {
           enabled: true,
         },
-        capture_method: captureMethodConfig as CaptureMethod,
+        capture_method: config.stripeCaptureMethod as CaptureMethod,
         metadata: this.getPaymentMetadata(cart),
         shipping: shippingAddress,
       },
@@ -83,7 +80,7 @@ export class StripeCreatePaymentService {
       cartId: cart.id,
       clientSecret: paymentIntent.client_secret!,
       paymentReference,
-      merchantReturnUrl,
+      merchantReturnUrl: getMerchantReturnUrlFromContext() || config.merchantReturnUrl,
       ...(config.stripeCollectBillingAddress !== 'auto' && {
         billingAddress: this.customerService.getBillingAddress(cart.billingAddress ?? cart.shippingAddress),
       }),
@@ -98,14 +95,13 @@ export class StripeCreatePaymentService {
    */
   public async createSubscription(cart: Cart): Promise<PaymentResponseSchemaDTO> {
     const config = getConfig();
-    const merchantReturnUrl = getMerchantReturnUrlFromContext() || config.merchantReturnUrl;
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart });
     const priceId = await this.getSubscriptionPriceId(cart, amountPlanned);
     const customer = await this.customerService.getCtCustomer(cart.customerId!);
     const stripeCustomerId = customer?.custom?.fields?.[stripeCustomerIdCustomFieldName];
 
     const subscription = await stripe.subscriptions.create({
-      customer: stripeCustomerId,
+      customer: stripeCustomerId!,
       items: [{ price: priceId }],
       payment_behavior: 'default_incomplete',
       payment_settings: { save_default_payment_method: 'on_subscription' },
@@ -142,7 +138,10 @@ export class StripeCreatePaymentService {
       cartId: cart.id,
       clientSecret,
       paymentReference,
-      merchantReturnUrl,
+      merchantReturnUrl: getMerchantReturnUrlFromContext() || config.merchantReturnUrl,
+      ...(config.stripeCollectBillingAddress !== 'auto' && {
+        billingAddress: this.customerService.getBillingAddress(cart.billingAddress ?? cart.shippingAddress),
+      }),
     };
   }
 

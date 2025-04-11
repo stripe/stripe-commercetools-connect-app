@@ -26,8 +26,8 @@ export class StripeCustomerService {
   }
 
   /**
-   * Validates if the customer exists in Stripe and creates a new customer if it does not exist, to create a session
-   * for the Stripe customer.
+   * Validates if the customer exists in Stripe and creates a new customer if it does not
+   * exist, to create a session for the Stripe customer.
    * @param {string} defaultStripeCustomerId - The stripe customer id to validate.
    * @returns Promise with the stripeCustomerId, ephemeralKey and sessionId.
    */
@@ -48,6 +48,7 @@ export class StripeCustomerService {
 
       await this.ensureCustomerCustomFields(customer);
       log.info(`Customer has a custom field call ${stripeCustomerIdCustomFieldName} - customer session creation`);
+
       const stripeCustomerId = await this.retrieveOrCreateStripeCustomerId(cart, customer, defaultStripeCustomerId);
       if (!stripeCustomerId) {
         throw 'Failed to get stripe customer id.';
@@ -152,9 +153,11 @@ export class StripeCustomerService {
       return true;
     }
 
-    // TODO: commercetools insights on how to integrate the Stripe accountId into commercetools:
-    // We have plans to support recurring payments and saved payment methods in the next quarters.
-    // Not sure if you can wait until that so your implementation would be aligned with ours.
+    /*
+      TODO: commercetools insights on how to integrate the Stripe accountId into commercetools:
+      We have plans to support recurring payments and saved payment methods in the next quarters.
+      Not sure if you can wait until that so your implementation would be aligned with ours.
+    */
     const latestCustomer = (await this.getCtCustomer(customer.id))!;
     const response = await paymentSDK.ctAPI.client
       .customers()
@@ -239,7 +242,7 @@ export class StripeCustomerService {
       return undefined;
     }
 
-    const getField = (field: keyof Address): string | null => {
+    const getField = (field: keyof Address): string => {
       const value = prioritizedAddress?.[field];
       return typeof value === 'string' ? value : '';
     };

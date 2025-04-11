@@ -319,7 +319,7 @@ describe('stripe-customer.service', () => {
     test('should validate stripe customer successfully', async () => {
       const mockRetrieveCustomer = jest
         .spyOn(Stripe.prototype.customers, 'retrieve')
-        .mockReturnValue(Promise.resolve(mockCustomerData));
+        .mockResolvedValue(mockCustomerData);
 
       const result = await stripeCustomerService.validateStripeCustomerId(mockStripeCustomerId, mockCtCustomerId);
 
@@ -388,7 +388,7 @@ describe('stripe-customer.service', () => {
   });
 
   describe('method createStripeCustomer', () => {
-    test('should create stripe customer', async () => {
+    test('should create stripe customer with Cart info', async () => {
       const mockCreateCustomer = jest
         .spyOn(Stripe.prototype.customers, 'create')
         .mockReturnValue(Promise.resolve(mockCustomerData));
@@ -433,7 +433,7 @@ describe('stripe-customer.service', () => {
         statusCode: 200,
         headers: {},
       };
-      const validateStripeCustomerIdMock = jest
+      const getCtCustomerMock = jest
         .spyOn(StripeCustomerService.prototype, 'getCtCustomer')
         .mockResolvedValue(mockCtCustomerData);
       const executeMock = jest.fn().mockReturnValue(mockUpdatedCustomerResponse);
@@ -450,7 +450,7 @@ describe('stripe-customer.service', () => {
 
       expect(executeMock).toHaveBeenCalled();
       expect(result).toEqual(true);
-      expect(validateStripeCustomerIdMock).toHaveBeenCalled();
+      expect(getCtCustomerMock).toHaveBeenCalled();
     });
 
     test('should not save stripe customer', async () => {
