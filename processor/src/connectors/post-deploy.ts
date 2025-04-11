@@ -21,11 +21,13 @@ async function postDeploy(_properties: Map<string, unknown>) {
 
   if (_properties) {
     if (stripeWebhookId === '') {
-      process.stderr.write(`${msgError} STRIPE_WEBHOOK_ID var is not assigned.\n`);
+      process.stderr.write(
+        `${msgError} STRIPE_WEBHOOK_ID var is not assigned. Add the connector URL manually on the Stripe Webhook Dashboard\n`,
+      );
     } else {
       const we = await retrieveWebhookEndpoint(stripeWebhookId);
       const weAppUrl = `${applicationUrl}${STRIPE_WEBHOOKS_ROUTE}`;
-      if (we.url !== weAppUrl) {
+      if (we?.url !== weAppUrl) {
         await updateWebhookEndpoint(stripeWebhookId, weAppUrl);
       }
     }

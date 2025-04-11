@@ -396,7 +396,7 @@ export class StripePaymentService extends AbstractPaymentService {
       merchantReturnUrl: merchantReturnUrl,
       cartId: ctCart.id,
       ...(config.stripeCollectBillingAddress !== 'auto' && {
-        billingAddress: this.getBillingAddress(ctCart.billingAddress ?? ctCart.shippingAddress),
+        billingAddress: this.getBillingAddress(ctCart),
       }),
     };
   }
@@ -738,7 +738,8 @@ export class StripePaymentService extends AbstractPaymentService {
     };
   }
 
-  public getBillingAddress(prioritizedAddress: Address | undefined) {
+  public getBillingAddress(cart: Cart) {
+    const prioritizedAddress = cart.billingAddress ?? cart.shippingAddress;
     if (!prioritizedAddress) {
       return undefined;
     }
@@ -749,12 +750,17 @@ export class StripePaymentService extends AbstractPaymentService {
     };
 
     return JSON.stringify({
-      line1: `${getField('streetNumber')} ${getField('streetName')}`.trim(),
-      line2: getField('additionalStreetInfo'),
-      city: getField('city'),
-      postal_code: getField('postalCode'),
-      state: getField('state'),
-      country: getField('country'),
+      name: `${getField('firstName')} ${getField('lastName')}`.trim(),
+      phone: getField('phone') || getField('mobile'),
+      email: cart.customerEmail ?? '',
+      address: {
+        line1: `${getField('streetNumber')} ${getField('streetName')}`.trim(),
+        line2: getField('additionalStreetInfo'),
+        city: getField('city'),
+        postal_code: getField('postalCode'),
+        state: getField('state'),
+        country: getField('country'),
+      },
     });
   }
 
