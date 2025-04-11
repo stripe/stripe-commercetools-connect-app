@@ -540,12 +540,8 @@ describe('stripe-customer.service', () => {
       expect(result).toStrictEqual(mockCustomerData.shipping);
     });
 
-    test('should fail to retrieve customer', async () => {
-      const mockCtCustomerWithoutAddress: Customer = { ...mockCtCustomerData, addresses: [] };
-      const result = await stripeCustomerService.getStripeCustomerAddress(
-        undefined,
-        mockCtCustomerWithoutAddress.addresses[0],
-      );
+    test('should return undefined', async () => {
+      const result = await stripeCustomerService.getStripeCustomerAddress(undefined, undefined);
       expect(result).toBeUndefined();
     });
   });
