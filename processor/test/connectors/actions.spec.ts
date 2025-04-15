@@ -4,10 +4,13 @@ import * as Actions from '../../src/connectors/actions';
 import * as Logger from '../../src/libs/logger';
 import {
   mock_CustomType_withFieldDefinition,
+  mock_CustomType_withLaunchpadPurchaseOrderNumber,
   mock_Stripe_retrieveWebhookEnpoints_response,
   mock_Stripe_updateWebhookEnpoints_response,
 } from '../utils/mock-actions-data';
 import * as CustomTypeHelper from '../../src/helpers/customTypeHelper';
+import { paymentSDK } from '../../src/payment-sdk';
+import { createLaunchpadPurchaseOrderNumberCustomType } from '../../src/connectors/actions';
 
 jest.mock('../../src/libs/logger');
 jest.mock('stripe', () => ({
@@ -58,9 +61,8 @@ describe('Actions test', () => {
         throw new Error('error');
       });
 
-      expect(async () => {
-        await Actions.retrieveWebhookEndpoint('we-11111');
-      }).rejects.toThrow();
+      await Actions.retrieveWebhookEndpoint('we-11111');
+
       expect(Logger.log.info).toHaveBeenCalled();
       expect(Logger.log.error).toHaveBeenCalled();
     });
@@ -89,9 +91,8 @@ describe('Actions test', () => {
         throw new Error('error');
       });
 
-      expect(async () => {
-        await Actions.updateWebhookEndpoint('we_11111', 'https://myApp.com/stripe/webhooks');
-      }).rejects.toThrow();
+      await Actions.updateWebhookEndpoint('we_11111', 'https://myApp.com/stripe/webhooks');
+
       expect(Logger.log.info).toHaveBeenCalled();
       expect(Logger.log.error).toHaveBeenCalled();
     });
@@ -102,8 +103,6 @@ describe('Actions test', () => {
       const mockGetTypeByKey = jest
         .spyOn(CustomTypeHelper, 'getTypeByKey')
         .mockResolvedValue(mock_CustomType_withFieldDefinition);
-      //jest.spyOn(CustomTypeHelper, 'createCustomerCustomType').mockImplementation(mockCreateCustomerCustomType);
-      //jest.spyOn(CustomTypeHelper, 'addFieldToType').mockImplementation(mockAddFieldToType);
 
       await Actions.createStripeCustomTypeForCustomer();
 
@@ -136,5 +135,53 @@ describe('Actions test', () => {
       expect(mockGetTypeByKey).toHaveBeenCalled();
       expect(mockCreateCustomerCustomType).toHaveBeenCalled();
     });
+  });
+
+  describe('createLaunchpadPurchaseOrderNumberCustomType', () => {
+    it('should log the founded purchase order number custom type', async () => {
+      const executeMock = jest
+        .fn()
+        .mockReturnValue(Promise.resolve({ body: { results: [mock_CustomType_withLaunchpadPurchaseOrderNumber] } }));
+      const client = paymentSDK.ctAPI.client;
+      client.types = jest.fn(() => ({
+        get: jest.fn(() => ({
+          execute: executeMock,
+        })),
+      })) as never;
+
+      await createLaunchpadPurchaseOrderNumberCustomType();
+      expect(Logger.log.info).toHaveBeenCalledWith(
+        'Launchpad purchase order number custom type already exists. Skipping creation.',
+      );
+    });
+
+    it('should log the founded purchase order number custom type', async () => {
+      const executeMock = jest.fn().mockReturnValue(Promise.resolve({ body: { results: [] } }));
+      const client = paymentSDK.ctAPI.client;
+      client.types = jest.fn(() => ({
+        get: jest.fn(() => ({
+          execute: executeMock,
+        })),
+      })) as never;
+
+      await createLaunchpadPurchaseOrderNumberCustomType();
+
+      expect(Logger.log.info).not.toHaveBeenCalledWith(
+        'Launchpad purchase order number custom type already exists. Skipping creation.',
+      );
+    });
+
+    /*it('should return undefined when not found', async () => {
+      const executeMock = jest.fn().mockReturnValue(Promise.resolve({ body: { results: [undefined] } }));
+      const client = paymentSDK.ctAPI.client;
+      client.types = jest.fn(() => ({
+        get: jest.fn(() => ({
+          execute: executeMock,
+        })),
+      })) as never;
+
+      const result = await getTypeByKey('type-key');
+      expect(result).toEqual(undefined);
+    });*/
   });
 });

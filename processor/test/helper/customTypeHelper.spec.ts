@@ -5,7 +5,15 @@ import {
   mock_CustomTypeDraft,
 } from '../utils/mock-actions-data';
 import { paymentSDK } from '../../src/payment-sdk';
-import { addFieldToType, createCustomerCustomType, getTypeByKey, hasField } from '../../src/helpers/customTypeHelper';
+import {
+  addFieldToType,
+  assignCustomTypeToCustomer,
+  createCustomerCustomType,
+  getCustomerCustomType,
+  getTypeByKey,
+  hasField,
+} from '../../src/helpers/customTypeHelper';
+import { mockCtCustomerData, mockCtCustomerData_withoutType } from '../utils/mock-customer-data';
 
 describe('CustomTypeHelper testing', () => {
   beforeEach(() => {
@@ -102,6 +110,58 @@ describe('CustomTypeHelper testing', () => {
       await createCustomerCustomType(typeDraft);
 
       expect(client.types().post.call).toBeTruthy();
+    });
+  });
+
+  describe('assignCustomTypeToCustomer', () => {
+    it('should assign the custom type to customer', async () => {
+      const executeMock = jest.fn().mockReturnValue(Promise.resolve({ body: mockCtCustomerData }));
+      const client = paymentSDK.ctAPI.client;
+      client.customers = jest.fn(() => ({
+        withId: jest.fn(() => ({
+          post: jest.fn(() => ({
+            execute: executeMock,
+          })),
+        })),
+      })) as never;
+
+      const response = await assignCustomTypeToCustomer(client, mockCtCustomerData_withoutType);
+
+      expect(response).toEqual(mockCtCustomerData);
+    });
+
+    it('should not assign the custom type to customer', async () => {
+      const executeMock = jest.fn().mockReturnValue(Promise.resolve({ body: mockCtCustomerData }));
+      const client = paymentSDK.ctAPI.client;
+      client.customers = jest.fn(() => ({
+        withId: jest.fn(() => ({
+          post: jest.fn(() => ({
+            execute: executeMock,
+          })),
+        })),
+      })) as never;
+
+      const response = await assignCustomTypeToCustomer(client, mockCtCustomerData);
+
+      expect(response).toEqual(undefined);
+    });
+  });
+
+  describe('getCustomerCustomType', () => {
+    it('should return the customer custom type', async () => {
+      const executeMock = jest.fn().mockReturnValue(Promise.resolve({ body: mock_CustomType_withFieldDefinition }));
+      const client = paymentSDK.ctAPI.client;
+      client.types = jest.fn(() => ({
+        withId: jest.fn(() => ({
+          get: jest.fn(() => ({
+            execute: executeMock,
+          })),
+        })),
+      })) as never;
+
+      const response = await getCustomerCustomType(client, mockCtCustomerData);
+
+      expect(response).toEqual(mock_CustomType_withFieldDefinition);
     });
   });
 });
