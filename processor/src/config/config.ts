@@ -1,3 +1,16 @@
+import Stripe from 'stripe';
+import { parseJSON } from '../utils';
+
+type PaymentFeatures = Stripe.CustomerSessionCreateParams.Components.PaymentElement.Features;
+
+const getSavedPaymentConfig = (): PaymentFeatures => {
+  const config = process.env.STRIPE_SAVED_PAYMENT_METHODS_CONFIG;
+  return {
+    //default values disabled {"payment_method_save":"disabled"}
+    ...(config ? parseJSON<PaymentFeatures>(config) : null),
+  };
+};
+
 export const config = {
   // Required by Payment SDK
   projectKey: process.env.CTP_PROJECT_KEY || 'payment-integration',
@@ -23,8 +36,12 @@ export const config = {
   stripeCaptureMethod: process.env.STRIPE_CAPTURE_METHOD || 'automatic',
   stripePaymentElementAppearance: process.env.STRIPE_APPEARANCE_PAYMENT_ELEMENT,
   stripeExpressCheckoutAppearance: process.env.STRIPE_APPEARANCE_EXPRESS_CHECKOUT,
+  stripeLayout: process.env.STRIPE_LAYOUT || '{"type":"tabs","defaultCollapsed":false}',
   stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
   stripeApplePayWellKnown: process.env.STRIPE_APPLE_PAY_WELL_KNOWN || 'mockWellKnown',
+  stripeApiVersion: process.env.STRIPE_API_VERSION || '2025-02-24.acacia',
+  stripeSavedPaymentMethodConfig: getSavedPaymentConfig(),
+  stripeCollectBillingAddress: process.env.STRIPE_COLLECT_BILLING_ADDRESS || 'auto',
 
   // Payment Providers config
   merchantReturnUrl: process.env.MERCHANT_RETURN_URL || '',

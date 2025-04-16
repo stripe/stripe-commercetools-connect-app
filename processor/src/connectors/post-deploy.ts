@@ -4,6 +4,7 @@ dotenv.config();
 import {
   createLaunchpadPurchaseOrderNumberCustomType,
   createProductTypeSubscription,
+  createStripeCustomTypeForCustomer,
   retrieveWebhookEndpoint,
   updateWebhookEndpoint,
 } from './actions';
@@ -36,6 +37,8 @@ async function postDeploy(_properties: Map<string, unknown>) {
   if (stripeIsSubscription) {
     await createProductTypeSubscription();
   }
+
+  await createStripeCustomTypeForCustomer();
 }
 
 export async function runPostDeployScripts() {

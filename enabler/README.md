@@ -40,7 +40,7 @@ To enable Apple Pay, you must ensure the following conditions are satisfied:
    ```text
    {COMMERCETOOLS_PROCESSOR_URL}/applePayConfig
    ```
-   This endpoint retrieves the required merchant ID domain association file. For more details, refer to Stripe’s official [Apple Pay domain association documentation](https://support.stripe.com/questions/enable-apple-pay-on-your-stripe-account).
+   This endpoint retrieves the required merchant ID domain association file declared in the installation configuration `STRIPE_APPLE_PAY_WELL_KNOWN`. For more details, refer to Stripe’s official [Apple Pay domain association documentation](https://support.stripe.com/questions/enable-apple-pay-on-your-stripe-account).
 
 2. The environment and devices must meet Apple Pay testing requirements:
     - You need an **iOS device** running iOS 11.3 or later, or a **Mac** running macOS 11.3 or later with Safari.
