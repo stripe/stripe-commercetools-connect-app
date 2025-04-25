@@ -336,11 +336,11 @@ export class StripePaymentService extends AbstractPaymentService {
       amountPlanned,
       paymentMethodInfo: {
         paymentInterface: getPaymentInterfaceFromContext() || 'stripe',
-        name: {
+        /*name: { // Currently unused fields
           en: 'Stripe Payment Connector',
-        },
+        },*/
       },
-      /*paymentStatus: { //TODO review with client
+      /*paymentStatus: { // Currently unused fields
         interfaceCode: paymentIntent.id, //This is translated to PSP Status Code on the Order->Payment page
         interfaceText: paymentIntent.description || '', //This is translated to Description on the Order->Payment page
       },*/
