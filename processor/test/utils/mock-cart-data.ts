@@ -1,10 +1,12 @@
 import { Cart, LineItem, CustomLineItem, ShippingInfo } from '@commercetools/connect-payments-sdk';
 import { randomUUID } from 'crypto';
+import { mockCtCustomerId } from './mock-customer-data';
 
 export const mockGetCartResult = () => {
   const cartId = randomUUID();
   const mockGetCartResult: Cart = {
     id: cartId,
+    customerId: mockCtCustomerId,
     version: 1,
     lineItems: [lineItem],
     customLineItems: [customLineItem],
@@ -29,6 +31,7 @@ export const mockGetCartResult = () => {
     shippingInfo: shippingInfo,
     createdAt: '2024-01-01T00:00:00Z',
     lastModifiedAt: '2024-01-01T00:00:00Z',
+    customerEmail: 'test@example.com',
     paymentInfo: {
       payments: [
         {
@@ -37,6 +40,90 @@ export const mockGetCartResult = () => {
           obj: undefined,
         },
       ],
+    },
+    shippingAddress: {
+      title: 'Mr.',
+      firstName: 'John',
+      lastName: 'Smith',
+      streetName: 'Test street',
+      streetNumber: '123',
+      postalCode: '12345',
+      city: 'Los Angeles',
+      state: 'CA',
+      country: 'US',
+      phone: '+312345678',
+      mobile: '+312345679',
+      email: 'test@example.com',
+      key: 'address1',
+      additionalStreetInfo: 'department 1',
+    },
+    custom: {
+      type: {
+        typeId: 'type',
+        id: 'xxxxxxxxxxx',
+      },
+      fields: {
+        stripeCustomerId: 'cus_Example',
+      },
+    },
+  };
+  return mockGetCartResult;
+};
+
+export const mockGetCartWithoutCustomerIdResult = () => {
+  const cartId = randomUUID();
+  const mockGetCartResult: Cart = {
+    id: cartId,
+    customerId: '',
+    version: 1,
+    lineItems: [lineItem],
+    customLineItems: [customLineItem],
+    totalPrice: {
+      type: 'centPrecision',
+      currencyCode: 'USD',
+      centAmount: 150000,
+      fractionDigits: 2,
+    },
+    cartState: 'Ordered',
+    origin: 'Customer',
+    taxMode: 'ExternalAmount',
+    taxRoundingMode: 'HalfEven',
+    taxCalculationMode: 'LineItemLevel',
+    shipping: [],
+    discountCodes: [],
+    directDiscounts: [],
+    refusedGifts: [],
+    itemShippingAddresses: [],
+    inventoryMode: 'ReserveOnOrder',
+    shippingMode: 'Single',
+    shippingInfo: shippingInfo,
+    createdAt: '2024-01-01T00:00:00Z',
+    lastModifiedAt: '2024-01-01T00:00:00Z',
+    customerEmail: 'test@example.com',
+    paymentInfo: {
+      payments: [
+        {
+          id: 'paymentId',
+          typeId: 'payment',
+          obj: undefined,
+        },
+      ],
+    },
+    shippingAddress: {
+      title: 'Mr.',
+      firstName: 'John',
+      lastName: 'Smith',
+      streetName: 'Test street',
+      streetNumber: '123',
+      postalCode: '12345',
+      city: 'Los Angeles',
+      state: 'CA',
+      country: 'US',
+      phone: '+312345678',
+      mobile: '+312345679',
+      email: 'test@example.com',
+      key: 'address1',
+      additionalStreetInfo: 'department 1',
     },
   };
   return mockGetCartResult;

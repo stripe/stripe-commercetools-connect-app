@@ -64,7 +64,7 @@ export class StripeEventConverter {
           },
         ];
       case StripeEvent.CHARGE__REFUNDED:
-        if (!(event.data.object as Stripe.Charge).captured) return [];
+        if (!event.data.object.captured) return [];
         return [
           {
             type: PaymentTransactions.REFUND,
@@ -80,7 +80,7 @@ export class StripeEventConverter {
           },
         ];
       case StripeEvent.CHARGE__SUCCEEDED:
-        if ((event.data.object as Stripe.Charge).captured) return [];
+        if (event.data.object.captured) return [];
         return [
           {
             type: PaymentTransactions.AUTHORIZATION,
@@ -89,9 +89,10 @@ export class StripeEventConverter {
             interactionId: paymentIntentId,
           },
         ];
-      default:
+      default: {
         const error = `Unsupported event ${event.type}`;
         throw wrapStripeError(new Error(error));
+      }
     }
   }
 

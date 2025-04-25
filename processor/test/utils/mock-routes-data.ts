@@ -1,5 +1,10 @@
 import Stripe from 'stripe';
-import { ConfigElementResponseSchemaDTO, PaymentResponseSchemaDTO } from '../../src/dtos/stripe-payment.dto';
+import {
+  CollectBillingAddressOptions,
+  ConfigElementResponseSchemaDTO,
+  CustomerResponseSchemaDTO,
+  PaymentResponseSchemaDTO,
+} from '../../src/dtos/stripe-payment.dto';
 import { SupportedPaymentComponentsSchemaDTO } from '../../src/dtos/operations/payment-componets.dto';
 import {
   PaymentIntentResponseSchemaDTO,
@@ -363,6 +368,9 @@ export const mockEvent__charge_refund_captured: Stripe.Event = {
         risk_score: 8,
         seller_message: 'Payment complete.',
         type: 'authorized',
+        advice_code: 'try_again_later',
+        network_advice_code: 'mock_advice_code',
+        network_decline_code: 'mock_decline_code',
       },
       paid: true,
       payment_intent: 'pi_11111',
@@ -439,6 +447,9 @@ export const mockEvent__charge_refund_notCaptured: Stripe.Event = {
         risk_score: 8,
         seller_message: 'Payment complete.',
         type: 'authorized',
+        advice_code: 'try_again_later',
+        network_advice_code: 'mock_advice_code',
+        network_decline_code: 'mock_decline_code',
       },
       paid: true,
       payment_intent: 'pi_11111',
@@ -543,6 +554,12 @@ export const mockEvent__paymentIntent_canceled: Stripe.Event = {
   type: 'payment_intent.canceled',
 };
 
+export const mockRoute__customer_session_succeed: CustomerResponseSchemaDTO = {
+  ephemeralKey: 'mockEphemeralKey',
+  sessionId: 'mockSessionId',
+  stripeCustomerId: 'mockStripeCustomerId',
+};
+
 export const mockRoute__payments_succeed: PaymentResponseSchemaDTO = {
   sClientSecret: 'mock_paymentReference',
   paymentReference: 'mock_paymentReference',
@@ -578,6 +595,9 @@ export const mockRoute__get_config_element_succeed: ConfigElementResponseSchemaD
   appearance: '',
   captureMethod: 'captureMethod',
   webElements: 'mockWebElement',
+  setupFutureUsage: 'on_session',
+  layout: '{"type":"accordion","defaultCollapsed":false,"radios":true,"spacedAccordionItems":true}',
+  collectBillingAddress: CollectBillingAddressOptions.AUTO,
 };
 
 export const mockEvent__charge_capture_succeeded_notCaptured: Stripe.Event = {
@@ -621,6 +641,9 @@ export const mockEvent__charge_capture_succeeded_notCaptured: Stripe.Event = {
         risk_score: 14,
         seller_message: 'Payment complete.',
         type: 'authorized',
+        advice_code: 'try_again_later',
+        network_advice_code: 'mock_advice_code',
+        network_decline_code: 'mock_decline_code',
       },
       paid: true,
       payment_intent: 'pi_11111',
@@ -693,6 +716,9 @@ export const mockEvent__charge_succeeded_notCaptured: Stripe.Event = {
         risk_score: 14,
         seller_message: 'Payment complete.',
         type: 'authorized',
+        advice_code: 'try_again_later',
+        network_advice_code: 'mock_advice_code',
+        network_decline_code: 'mock_decline_code',
       },
       paid: true,
       payment_intent: 'pi_11111',
@@ -764,6 +790,9 @@ export const mockEvent__charge_succeeded_captured: Stripe.Event = {
         risk_score: 14,
         seller_message: 'Payment complete.',
         type: 'authorized',
+        advice_code: 'try_again_later',
+        network_advice_code: 'mock_advice_code',
+        network_decline_code: 'mock_decline_code',
       },
       paid: true,
       payment_intent: 'pi_11111',
