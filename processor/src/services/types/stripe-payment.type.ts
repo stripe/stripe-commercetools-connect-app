@@ -5,6 +5,7 @@ import {
   CommercetoolsPaymentService,
   TransactionData,
 } from '@commercetools/connect-payments-sdk';
+import { PSPInteraction } from '@commercetools/connect-payments-sdk/dist/commercetools/types/payment.type';
 
 export type StripePaymentServiceOptions = {
   ctCartService: CommercetoolsCartService;
@@ -22,6 +23,7 @@ export type StripeEventUpdatePayment = {
   pspReference?: string;
   transactions: TransactionData[];
   paymentMethod?: string;
+  pspInteraction?: PSPInteraction;
 };
 
 export enum StripeEvent {
