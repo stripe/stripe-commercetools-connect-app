@@ -116,6 +116,30 @@ export const mockCtCustomerData: Customer = {
   },
 };
 
+export const mockCtCustomerData_withoutType: Customer = {
+  id: mockCtCustomerId,
+  version: 1,
+  createdAt: '2025-03-19T00:09:28.752Z',
+  lastModifiedAt: '2025-03-19T00:48:46.632Z',
+  email: 'test@example.com',
+  firstName: 'Gildardo',
+  lastName: 'Diaz',
+  addresses: [
+    {
+      id: 'xxxxxx-test-id',
+      country: 'US',
+      city: 'San Francisco',
+      state: 'CA',
+      streetName: 'Main St',
+      streetNumber: '123',
+      postalCode: '94105',
+    },
+  ],
+  isEmailVerified: false,
+  stores: [],
+  authenticationMode: 'Password',
+};
+
 export const mockCtCustomerWithoutCustomFieldsData: Customer = {
   id: mockCtCustomerId,
   version: 1,

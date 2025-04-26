@@ -24,14 +24,13 @@ export async function createLaunchpadPurchaseOrderNumberCustomType(): Promise<vo
   }
 }
 
-export async function retrieveWebhookEndpoint(weId: string): Promise<Stripe.WebhookEndpoint> {
+export async function retrieveWebhookEndpoint(weId: string): Promise<Stripe.WebhookEndpoint | undefined> {
   log.info(`[RETRIEVE_WEBHOOK_ENDPOINT] Starting the process for retrieving webhook endpoint[${weId}].`);
 
   try {
     return await stripeApi().webhookEndpoints.retrieve(weId);
   } catch (error) {
     log.error('[RETRIEVE_WEBHOOK_ENDPOINT]', error);
-    throw new Error(error as string);
   }
 }
 
@@ -55,7 +54,6 @@ export async function updateWebhookEndpoint(weId: string, weAppUrl: string): Pro
     });
   } catch (error) {
     log.error('[UPDATE_WEBHOOK_ENDPOINT]', error);
-    throw new Error(error as string);
   }
 }
 

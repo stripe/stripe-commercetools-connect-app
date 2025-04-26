@@ -336,8 +336,14 @@ export class StripePaymentService extends AbstractPaymentService {
       amountPlanned,
       paymentMethodInfo: {
         paymentInterface: getPaymentInterfaceFromContext() || 'stripe',
-        method: 'payment',
+        /*name: { // Currently unused fields
+          en: 'Stripe Payment Connector',
+        },*/
       },
+      /*paymentStatus: { // Currently unused fields
+        interfaceCode: paymentIntent.id, //This is translated to PSP Status Code on the Order->Payment page
+        interfaceText: paymentIntent.description || '', //This is translated to Description on the Order->Payment page
+      },*/
       ...(ctCart.customerId && {
         customer: {
           typeId: 'customer',
@@ -396,7 +402,7 @@ export class StripePaymentService extends AbstractPaymentService {
       merchantReturnUrl: merchantReturnUrl,
       cartId: ctCart.id,
       ...(config.stripeCollectBillingAddress !== 'auto' && {
-        billingAddress: this.getBillingAddress(ctCart.billingAddress ?? ctCart.shippingAddress),
+        billingAddress: this.getBillingAddress(ctCart),
       }),
     };
   }
@@ -521,8 +527,7 @@ export class StripePaymentService extends AbstractPaymentService {
 
       for (const tx of updateData.transactions) {
         const updatedPayment = await this.ctPaymentService.updatePayment({
-          id: updateData.id,
-          pspReference: updateData.pspReference,
+          ...updateData,
           transaction: tx,
         });
 
@@ -738,7 +743,8 @@ export class StripePaymentService extends AbstractPaymentService {
     };
   }
 
-  public getBillingAddress(prioritizedAddress: Address | undefined) {
+  public getBillingAddress(cart: Cart) {
+    const prioritizedAddress = cart.billingAddress ?? cart.shippingAddress;
     if (!prioritizedAddress) {
       return undefined;
     }
@@ -749,12 +755,17 @@ export class StripePaymentService extends AbstractPaymentService {
     };
 
     return JSON.stringify({
-      line1: `${getField('streetNumber')} ${getField('streetName')}`.trim(),
-      line2: getField('additionalStreetInfo'),
-      city: getField('city'),
-      postal_code: getField('postalCode'),
-      state: getField('state'),
-      country: getField('country'),
+      name: `${getField('firstName')} ${getField('lastName')}`.trim(),
+      phone: getField('phone') || getField('mobile'),
+      email: cart.customerEmail ?? '',
+      address: {
+        line1: `${getField('streetNumber')} ${getField('streetName')}`.trim(),
+        line2: getField('additionalStreetInfo'),
+        city: getField('city'),
+        postal_code: getField('postalCode'),
+        state: getField('state'),
+        country: getField('country'),
+      },
     });
   }
 

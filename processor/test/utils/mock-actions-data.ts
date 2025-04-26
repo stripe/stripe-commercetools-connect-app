@@ -120,3 +120,31 @@ export const mock_CustomTypeDraft: TypeDraft = {
     },
   ],
 };
+
+//mock the get types for fot launchpad purchase order number
+export const mock_CustomType_withLaunchpadPurchaseOrderNumber: Type = {
+  id: 'mock-type-id',
+  key: 'payment-launchpad-purchase-order',
+  version: 1,
+  name: {
+    en: 'Mock Launchpad Purchase Order Number Custom Type',
+  },
+  description: {
+    en: 'Mock description for the custom type.',
+  },
+  fieldDefinitions: [
+    {
+      name: 'mockField',
+      label: {
+        en: 'Mock Field',
+      },
+      type: {
+        name: 'String',
+      },
+      required: false,
+    },
+  ],
+  createdAt: '2023-01-01T00:00:00.000Z',
+  lastModifiedAt: '2023-01-01T00:00:00.000Z',
+  resourceTypeIds: ['customer'],
+};
