@@ -2,9 +2,10 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 
 import {
+  createCustomerCustomType,
   createLaunchpadPurchaseOrderNumberCustomType,
+  createLineItemCustomType,
   createProductTypeSubscription,
-  createStripeCustomTypeForCustomer,
   retrieveWebhookEndpoint,
   updateWebhookEndpoint,
 } from './actions';
@@ -12,17 +13,17 @@ import {
 const STRIPE_WEBHOOKS_ROUTE = 'stripe/webhooks';
 const CONNECT_SERVICE_URL = 'CONNECT_SERVICE_URL';
 const STRIPE_WEBHOOK_ID = 'STRIPE_WEBHOOK_ID';
-const STRIPE_IS_SUBSCRIPTION = 'STRIPE_IS_SUBSCRIPTION'; //TODO define with Vishnu how we are going to enable the subscription functionality by the front, or instalation.
+const STRIPE_IS_SUBSCRIPTION = 'STRIPE_IS_SUBSCRIPTION';
 const msgError = 'Post-deploy failed:';
 
-async function postDeploy(_properties: Map<string, unknown>) {
+async function postDeploy(properties: Map<string, unknown>) {
   await createLaunchpadPurchaseOrderNumberCustomType();
 
-  const applicationUrl = _properties.get(CONNECT_SERVICE_URL) as string;
-  const stripeWebhookId = (_properties.get(STRIPE_WEBHOOK_ID) as string) ?? '';
-  const stripeIsSubscription: boolean = _properties.get(STRIPE_IS_SUBSCRIPTION) as boolean;
+  const applicationUrl = properties.get(CONNECT_SERVICE_URL) as string;
+  const stripeWebhookId = (properties.get(STRIPE_WEBHOOK_ID) as string) ?? '';
+  const stripeIsSubscription: boolean = properties.get(STRIPE_IS_SUBSCRIPTION) as boolean;
 
-  if (_properties) {
+  if (properties) {
     if (stripeWebhookId === '') {
       process.stderr.write(
         `${msgError} STRIPE_WEBHOOK_ID var is not assigned. Add the connector URL manually on the Stripe Webhook Dashboard\n`,
@@ -38,9 +39,10 @@ async function postDeploy(_properties: Map<string, unknown>) {
 
   if (stripeIsSubscription) {
     await createProductTypeSubscription();
+    await createLineItemCustomType();
   }
 
-  await createStripeCustomTypeForCustomer();
+  await createCustomerCustomType();
 }
 
 export async function runPostDeployScripts() {

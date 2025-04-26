@@ -5,21 +5,42 @@ import {
   typeLineItem,
 } from '../custom-types/custom-types';
 import { log } from '../libs/logger';
-import { paymentSDK } from '../payment-sdk';
 import Stripe from 'stripe';
 import { stripeApi } from '../clients/stripe.client';
-import { TypeDraft } from '@commercetools/platform-sdk/dist/declarations/src/generated/models/type';
-import { createCustomerCustomType, getTypeByKey } from '../helpers/customTypeHelper';
+import { getTypeByKey } from '../services/commerce-tools/customTypeClient';
+import {
+  createProductType,
+  deleteProductType,
+  getProductsByProductTypeId,
+  getProductTypeByKey,
+} from '../services/commerce-tools/productTypeClient';
+import { addOrUpdateCustomType, deleteOrUpdateCustomType } from '../services/commerce-tools/customTypeHelper';
+
+export async function handleRequest({
+  loggerId,
+  startMessage,
+  throwError = true,
+  fn,
+}: {
+  loggerId: string;
+  startMessage: string;
+  throwError?: boolean;
+  fn: () => void;
+}): Promise<void> {
+  try {
+    log.info(`${loggerId} ${startMessage}`);
+    await fn();
+  } catch (error) {
+    log.error(loggerId, error);
+    if (throwError) {
+      throw error;
+    }
+  }
+}
 
 export async function createLaunchpadPurchaseOrderNumberCustomType(): Promise<void> {
-  const apiClient = paymentSDK.ctAPI.client;
-
-  const getRes = await apiClient
-    .types()
-    .get({ queryArgs: { where: `key="${launchpadPurchaseOrderCustomType.key}"` } })
-    .execute();
-
-  if (getRes.body.results.length) {
+  const getRes = await getTypeByKey(launchpadPurchaseOrderCustomType.key);
+  if (getRes) {
     log.info('Launchpad purchase order number custom type already exists. Skipping creation.');
   }
 }
@@ -57,73 +78,75 @@ export async function updateWebhookEndpoint(weId: string, weAppUrl: string): Pro
   }
 }
 
-export async function createStripeCustomTypeForCustomer(): Promise<void> {
-  try {
-    log.info('[ENSURE_STRIPE_CUSTOM_TYPE] Starting the process for ensuring Stripe custom type exist.');
+export async function createCustomerCustomType(): Promise<void> {
+  await handleRequest({
+    loggerId: '[CREATE_CUSTOMER_CUSTOM_TYPE]',
+    startMessage: 'Starting the process for creating "Customer" Custom Type.',
+    fn: async () => await addOrUpdateCustomType(stripeCustomerIdCustomType),
+  });
+}
 
-    const existingType = await getTypeByKey(stripeCustomerIdCustomType.key);
+export async function createLineItemCustomType(): Promise<void> {
+  await handleRequest({
+    loggerId: '[CREATE_LINE_ITEM_CUSTOM_TYPE]',
+    startMessage: 'Starting the process for creating "Line Item" Custom Type.',
+    fn: async () => await addOrUpdateCustomType(typeLineItem),
+  });
+}
 
-    if (!existingType) {
-      log.info('[ENSURE_STRIPE_CUSTOM_TYPE] Creating Stripe custom type.');
-      await createCustomerCustomType(stripeCustomerIdCustomType as TypeDraft);
-    }
-  } catch (error) {
-    log.error('[ENSURE_STRIPE_CUSTOM_TYPE] Error occurred while ensuring Stripe custom type.', error);
-    throw new Error(error as string);
-  }
+export async function removeLineItemCustomType(): Promise<void> {
+  await handleRequest({
+    loggerId: '[REMOVE_LINE_ITEM_CUSTOM_TYPE]',
+    startMessage: 'Starting the process for removing "Line Item" Custom Type.',
+    fn: async () => await deleteOrUpdateCustomType(typeLineItem),
+  });
+}
+
+export async function removeCustomerCustomType(): Promise<void> {
+  await handleRequest({
+    loggerId: '[REMOVE_CUSTOMER_CUSTOM_TYPE]',
+    startMessage: 'Starting the process for removing "Customer" Custom Type.',
+    fn: async () => {
+      await deleteOrUpdateCustomType(stripeCustomerIdCustomType);
+    },
+  });
 }
 
 export async function createProductTypeSubscription(): Promise<void> {
-  log.info(`[CREATE_PRODUCT_TYPE_SUBSCRIPTION] Starting the process for creating product type subscription.`);
+  await handleRequest({
+    loggerId: '[CREATE_PRODUCT_TYPE_SUBSCRIPTION]',
+    startMessage: 'Starting the process for creating Product Type "Subscription".',
+    fn: async () => {
+      const productType = await getProductTypeByKey(productTypeSubscription.key!);
+      if (productType) {
+        log.info('Product type subscription already exists. Skipping creation.');
+      } else {
+        const newProductType = await createProductType(productTypeSubscription);
+        log.info(`Product Type "${newProductType.key}" created successfully.`);
+      }
+    },
+  });
+}
 
-  try {
-    const apiClient = paymentSDK.ctAPI.client;
-    const keyLineItem = 'line-item-subscription';
-    const keyProductType = 'subscription-information';
+export async function removeProductTypeSubscription(): Promise<void> {
+  await handleRequest({
+    loggerId: '[REMOVE_PRODUCT_TYPE_SUBSCRIPTION]',
+    startMessage: 'Starting the process for removing Product Type "Subscription".',
+    fn: async () => {
+      const productTypeKey = productTypeSubscription.key!;
+      const productType = await getProductTypeByKey(productTypeKey);
+      if (!productType) {
+        log.info(`Product Type "${productTypeKey}" is already deleted. Skipping deletion.`);
+        return;
+      }
 
-    const getResLineItem = await apiClient
-      .types()
-      .get({
-        queryArgs: {
-          where: `key="${keyLineItem}"`,
-        },
-      })
-      .execute();
-
-    if (getResLineItem.body.results.length) {
-      log.info('Type line item for subscription already exists. Skipping creation.');
-    } else {
-      const createResLineItem = await apiClient
-        .types()
-        .post({
-          body: typeLineItem,
-        })
-        .execute();
-      log.info(`Type line item for subscription created successfully ${createResLineItem.body.id}.`);
-    }
-
-    const getResProductTypeSubscription = await apiClient
-      .productTypes()
-      .get({
-        queryArgs: {
-          where: `key="${keyProductType}"`,
-        },
-      })
-      .execute();
-
-    if (getResProductTypeSubscription.body.results.length) {
-      log.info('Product type subscription already exists. Skipping creation.');
-    } else {
-      const createResProductTypeSubscription = await apiClient
-        .productTypes()
-        .post({
-          body: productTypeSubscription,
-        })
-        .execute();
-      log.info(`Product type subscription created successfully ${createResProductTypeSubscription.body.id}.`);
-    }
-  } catch (error: any) {
-    log.error('[CREATE_PRODUCT_TYPE_SUBSCRIPTION]', error);
-    throw new Error(error);
-  }
+      const products = await getProductsByProductTypeId(productType?.id);
+      if (products.length) {
+        log.warn(`Product Type "${productTypeKey}" is in use. Skipping deletion.`);
+      } else {
+        await deleteProductType({ key: productTypeKey, version: productType.version });
+        log.info(`Product Type "${productTypeKey}" deleted successfully.`);
+      }
+    },
+  });
 }
