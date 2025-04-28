@@ -16,31 +16,46 @@ describe('runPostDeployScripts', () => {
   });
 
   test('should update the webhook endpoint URL when the URLs are different', async () => {
-    process.env = { CONNECT_SERVICE_URL: 'https://yourApp.com/', STRIPE_WEBHOOK_ID: 'we_11111' };
+    process.env = {
+      CONNECT_SERVICE_URL: 'https://yourApp.com/',
+      STRIPE_WEBHOOK_ID: 'we_11111',
+      STRIPE_IS_SUBSCRIPTION: 'true',
+    };
 
     const mockRetrieveWe = jest
       .spyOn(Actions, 'retrieveWebhookEndpoint')
       .mockResolvedValue(mock_Stripe_retrieveWebhookEnpoints_response);
     const mockUpdateWe = jest.spyOn(Actions, 'updateWebhookEndpoint').mockResolvedValue();
+    const createProductTypeSubscriptionMock = jest.spyOn(Actions, 'createProductTypeSubscription').mockResolvedValue();
+    const createLineItemCustomTypeMock = jest.spyOn(Actions, 'createLineItemCustomType').mockResolvedValue();
+    const createCustomerCustomTypeMock = jest.spyOn(Actions, 'createCustomerCustomType').mockResolvedValue();
 
     await PostDeploy.runPostDeployScripts();
 
     expect(mockRetrieveWe).toHaveBeenCalled();
     expect(mockUpdateWe).toHaveBeenCalled();
+    expect(createProductTypeSubscriptionMock).toHaveBeenCalled();
+    expect(createLineItemCustomTypeMock).toHaveBeenCalled();
+    expect(createCustomerCustomTypeMock).toHaveBeenCalled();
   });
 
   test('should not update the webhook endpoint URL when the URLs are the same', async () => {
-    process.env = { CONNECT_SERVICE_URL: 'https://myApp.com/', STRIPE_WEBHOOK_ID: 'we_11111' };
+    process.env = {
+      CONNECT_SERVICE_URL: 'https://myApp.com/',
+      STRIPE_WEBHOOK_ID: 'we_11111',
+    };
 
     const mockRetrieveWe = jest
       .spyOn(Actions, 'retrieveWebhookEndpoint')
       .mockResolvedValue(mock_Stripe_retrieveWebhookEnpoints_response);
     const mockUpdateWe = jest.spyOn(Actions, 'updateWebhookEndpoint').mockResolvedValue();
+    const createCustomerCustomTypeMock = jest.spyOn(Actions, 'createCustomerCustomType').mockResolvedValue();
 
     await PostDeploy.runPostDeployScripts();
 
     expect(mockRetrieveWe).toHaveBeenCalled();
     expect(mockUpdateWe).toHaveBeenCalledTimes(0);
+    expect(createCustomerCustomTypeMock).toHaveBeenCalled();
   });
 
   test('should throw an error when a call to Stripe throws an error', async () => {
@@ -75,9 +90,11 @@ describe('runPostDeployScripts', () => {
 
     const mockErrorMessage = `Post-deploy failed: STRIPE_WEBHOOK_ID var is not assigned. Add the connector URL manually on the Stripe Webhook Dashboard\n`;
     const writeSpy = jest.spyOn(process.stderr, 'write');
+    const createCustomerCustomTypeMock = jest.spyOn(Actions, 'createCustomerCustomType').mockResolvedValue();
 
     await PostDeploy.runPostDeployScripts();
 
+    expect(createCustomerCustomTypeMock).toHaveBeenCalled();
     expect(writeSpy).toHaveBeenCalledWith(mockErrorMessage);
   });
 });
