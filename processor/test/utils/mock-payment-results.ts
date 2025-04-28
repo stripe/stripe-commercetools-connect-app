@@ -5,6 +5,7 @@ import { PaymentProviderModificationResponse } from '../../src/services/types/op
 import { PaymentModificationStatus } from '../../src/dtos/operations/payment-intents.dto';
 import { mockCustomerData } from './mock-customer-data';
 import { PaymentResponseSchemaDTO } from '../../src/dtos/mock-payment.dto';
+import { PaymentFeatures } from '../../src/config/config';
 
 const commonLastResponse = {
   headers: {},
@@ -554,4 +555,31 @@ export const paymentMetadataWithoutCustomerMock = {
 export const paymentMetadataMock = {
   ...paymentMetadataWithoutCustomerMock,
   ct_customer_id: mockCustomerData.id,
+};
+
+export const configDataWithBillingAsNever = {
+  apiUrl: '',
+  authUrl: '',
+  clientId: '',
+  clientSecret: '',
+  healthCheckTimeout: 0,
+  jwksUrl: '',
+  jwtIssuer: '',
+  loggerLevel: '',
+  mockClientKey: '',
+  mockEnvironment: '',
+  sessionUrl: '',
+  stripeApiVersion: '',
+  stripeApplePayWellKnown: '',
+  stripeLayout: '',
+  stripePaymentElementAppearance: '',
+  stripeExpressCheckoutAppearance: '',
+  stripePublishableKey: '',
+  stripeSecretKey: '',
+  stripeWebhookSigningSecret: '',
+  stripeCaptureMethod: 'manual',
+  merchantReturnUrl: 'https://merchant.example.com/return',
+  projectKey: 'your-project-key',
+  stripeSavedPaymentMethodConfig: { payment_method_save: 'disabled' } as PaymentFeatures,
+  stripeCollectBillingAddress: 'never',
 };

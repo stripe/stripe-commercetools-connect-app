@@ -347,8 +347,7 @@ export class StripePaymentService extends AbstractPaymentService {
 
       for (const tx of updateData.transactions) {
         const updatedPayment = await this.ctPaymentService.updatePayment({
-          id: updateData.id,
-          pspReference: updateData.pspReference,
+          ...updateData,
           transaction: tx,
         });
 

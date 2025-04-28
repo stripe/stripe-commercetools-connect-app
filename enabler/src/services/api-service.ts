@@ -16,12 +16,17 @@ export interface ApiServiceProps {
 }
 
 export interface BillingAddress {
-  city: string;
-  country: string;
-  line1: string;
-  line2: string;
-  postal_code: string;
-  state: string;
+  name: string;
+  email: string;
+  phone: string;
+  address: {
+    city: string;
+    country: string;
+    line1: string;
+    line2: string;
+    postal_code: string;
+    state: string;
+  };
 }
 
 export interface ApiService {
@@ -136,7 +141,7 @@ export const apiService = ({
     merchantReturnUrl,
     billingAddress,
   }: PaymentResponseSchemaDTO): Promise<PaymentIntent> => {
-    const billing = billingAddress
+    const address = billingAddress
       ? parseJSON<BillingAddress>(billingAddress)
       : undefined;
     const returnUrl = new URL(merchantReturnUrl);
@@ -146,18 +151,9 @@ export const apiService = ({
     const { error, paymentIntent } = await stripe.confirmPayment({
       confirmParams: {
         return_url: returnUrl.toString(),
-        ...(billing && {
+        ...(address && {
           payment_method_data: {
-            billing_details: {
-              address: {
-                city: billing.city,
-                country: billing.country,
-                line1: billing.line1,
-                line2: billing.line2,
-                postal_code: billing.postal_code,
-                state: billing.state,
-              },
-            },
+            billing_details: address,
           },
         }),
       },

@@ -82,7 +82,7 @@ export class StripeCreatePaymentService {
       paymentReference,
       merchantReturnUrl: getMerchantReturnUrlFromContext() || config.merchantReturnUrl,
       ...(config.stripeCollectBillingAddress !== 'auto' && {
-        billingAddress: this.customerService.getBillingAddress(cart.billingAddress ?? cart.shippingAddress),
+        billingAddress: this.customerService.getBillingAddress(cart),
       }),
     };
   }
@@ -140,7 +140,7 @@ export class StripeCreatePaymentService {
       paymentReference,
       merchantReturnUrl: getMerchantReturnUrlFromContext() || config.merchantReturnUrl,
       ...(config.stripeCollectBillingAddress !== 'auto' && {
-        billingAddress: this.customerService.getBillingAddress(cart.billingAddress ?? cart.shippingAddress),
+        billingAddress: this.customerService.getBillingAddress(cart),
       }),
     };
   }

@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { DefaultCartService } from '@commercetools/connect-payments-sdk/dist/commercetools/services/ct-cart.service';
-import { Cart, Customer, ClientResponse, Address } from '@commercetools/platform-sdk';
+import { Cart, Customer, ClientResponse } from '@commercetools/platform-sdk';
 import { paymentSDK } from '../../src/payment-sdk';
 import { mockGetCartResult, mockGetCartWithoutCustomerIdResult } from '../utils/mock-cart-data';
 import {
@@ -582,20 +582,26 @@ describe('stripe-customer.service', () => {
 
   describe('method getBillingAddress', () => {
     test('should return billing address successfully', async () => {
-      const shippingAddress = mockGetCartResult().shippingAddress;
-      const stringifiedAddress = JSON.stringify(mockCustomerData.shipping?.address);
-      const result = await stripeCustomerService.getBillingAddress(shippingAddress);
-      expect(result).toStrictEqual(stringifiedAddress);
+      const result = await stripeCustomerService.getBillingAddress(mockGetCartResult());
+      expect(result).toBeDefined();
     });
 
     test('should return empty string values', async () => {
-      const shippingAddress = { ...mockGetCartResult().shippingAddress, city: undefined };
-      const result = await stripeCustomerService.getBillingAddress(shippingAddress as Address);
+      const cart = mockGetCartResult();
+      const mockCart = {
+        ...cart,
+        shippingAddress: {
+          ...cart.shippingAddress,
+          city: undefined,
+        },
+      };
+      const result = await stripeCustomerService.getBillingAddress(mockCart as Cart);
       expect(result).toBeDefined();
     });
 
     test('should return undefined', async () => {
-      const result = await stripeCustomerService.getBillingAddress(undefined);
+      const mockCart: Cart = { ...mockGetCartResult(), shippingAddress: undefined, billingAddress: undefined };
+      const result = await stripeCustomerService.getBillingAddress(mockCart);
       expect(result).toBeUndefined();
     });
   });

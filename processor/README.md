@@ -18,6 +18,11 @@ The environment variable `STRIPE_SAVED_PAYMENT_METHODS_CONFIG` configures the sa
 Diagram of the current workflow:
 ![Stripe Customer Workflow.png](../docs/StripeCustomerWorkflow.png)
 
+
+## TODO Considerations for subscription
+TODO subscriptions only work with schedule based auth + auto capture. There isn't a "auth and capture later" scenario / pattern that exists with subscription payments
+
+
 ## Getting Started
 
 These instructions will get you up and running on your local machine for development and testing purposes.

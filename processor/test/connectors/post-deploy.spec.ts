@@ -73,7 +73,7 @@ describe('runPostDeployScripts', () => {
   test('should throw an error when the STRIPE_WEBHOOK_ID var is not assigned', async () => {
     process.env = { CONNECT_SERVICE_URL: 'https://yourApp.com/' };
 
-    const mockErrorMessage = `Post-deploy failed: STRIPE_WEBHOOK_ID var is not assigned.\n`;
+    const mockErrorMessage = `Post-deploy failed: STRIPE_WEBHOOK_ID var is not assigned. Add the connector URL manually on the Stripe Webhook Dashboard\n`;
     const writeSpy = jest.spyOn(process.stderr, 'write');
 
     await PostDeploy.runPostDeployScripts();
