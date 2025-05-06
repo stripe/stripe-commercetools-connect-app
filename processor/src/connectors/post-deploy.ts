@@ -2,8 +2,10 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 
 import {
+  createCustomerCustomType,
   createLaunchpadPurchaseOrderNumberCustomType,
-  createStripeCustomTypeForCustomer,
+  createLineItemCustomType,
+  createProductTypeSubscription,
   retrieveWebhookEndpoint,
   updateWebhookEndpoint,
 } from './actions';
@@ -11,15 +13,17 @@ import {
 const STRIPE_WEBHOOKS_ROUTE = 'stripe/webhooks';
 const CONNECT_SERVICE_URL = 'CONNECT_SERVICE_URL';
 const STRIPE_WEBHOOK_ID = 'STRIPE_WEBHOOK_ID';
+const STRIPE_IS_SUBSCRIPTION = 'STRIPE_IS_SUBSCRIPTION';
 const msgError = 'Post-deploy failed:';
 
-async function postDeploy(_properties: Map<string, unknown>) {
+async function postDeploy(properties: Map<string, unknown>) {
   await createLaunchpadPurchaseOrderNumberCustomType();
 
-  const applicationUrl = _properties.get(CONNECT_SERVICE_URL) as string;
-  const stripeWebhookId = (_properties.get(STRIPE_WEBHOOK_ID) as string) ?? '';
+  const applicationUrl = properties.get(CONNECT_SERVICE_URL) as string;
+  const stripeWebhookId = (properties.get(STRIPE_WEBHOOK_ID) as string) ?? '';
+  const stripeIsSubscription: boolean = properties.get(STRIPE_IS_SUBSCRIPTION) as boolean;
 
-  if (_properties) {
+  if (properties) {
     if (stripeWebhookId === '') {
       process.stderr.write(
         `${msgError} STRIPE_WEBHOOK_ID var is not assigned. Add the connector URL manually on the Stripe Webhook Dashboard\n`,
@@ -33,7 +37,12 @@ async function postDeploy(_properties: Map<string, unknown>) {
     }
   }
 
-  await createStripeCustomTypeForCustomer();
+  if (stripeIsSubscription) {
+    await createProductTypeSubscription();
+    await createLineItemCustomType();
+  }
+
+  await createCustomerCustomType();
 }
 
 export async function runPostDeployScripts() {

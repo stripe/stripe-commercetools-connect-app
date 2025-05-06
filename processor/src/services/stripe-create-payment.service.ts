@@ -17,7 +17,7 @@ import { stripeApi } from '../clients/stripe.client';
 import { log } from '../libs/logger';
 import { StripeCustomerService } from './stripe-customer.service';
 import { convertPaymentResultCode } from '../utils';
-import { stripeCustomerIdCustomFieldName } from '../custom-types/custom-types';
+import { stripeCustomerIdFieldName } from '../custom-types/custom-types';
 
 const stripe = stripeApi();
 
@@ -44,7 +44,7 @@ export class StripeCreatePaymentService {
     const customer = await this.customerService.getCtCustomer(cart.customerId!);
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart });
     const shippingAddress = this.customerService.getStripeCustomerAddress(cart.shippingAddress, customer?.addresses[0]);
-    const stripeCustomerId = customer?.custom?.fields?.[stripeCustomerIdCustomFieldName];
+    const stripeCustomerId = customer?.custom?.fields?.[stripeCustomerIdFieldName];
     const paymentIntent = await stripe.paymentIntents.create(
       {
         ...(stripeCustomerId && {
@@ -98,7 +98,7 @@ export class StripeCreatePaymentService {
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart });
     const priceId = await this.getSubscriptionPriceId(cart, amountPlanned);
     const customer = await this.customerService.getCtCustomer(cart.customerId!);
-    const stripeCustomerId = customer?.custom?.fields?.[stripeCustomerIdCustomFieldName];
+    const stripeCustomerId = customer?.custom?.fields?.[stripeCustomerIdFieldName];
 
     const subscription = await stripe.subscriptions.create({
       customer: stripeCustomerId!,
