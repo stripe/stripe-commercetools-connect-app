@@ -398,4 +398,41 @@ export class StripeCreatePaymentService {
       ...(cart.customerId ? { ct_customer_id: cart.customerId } : null),
     };
   }
+
+  public async getStripeInvoiceExpanded(invoiceId: string): Promise<Stripe.Invoice> {
+    try {
+      return await stripe.invoices.retrieve(invoiceId, {
+        expand: ['payment_intent', 'subscription', 'charge'],
+      });
+    } catch (err) {
+      log.error(`Failed to retrieve invoice: ${err}`);
+      throw new Error(`Failed to retrieve invoice id: ${invoiceId}.`);
+    }
+  }
+
+  public async handleCtPaymentSubscription({
+    cart,
+    amountPlanned,
+    invoiceId,
+  }: {
+    cart: Cart;
+    amountPlanned: Money;
+    invoiceId: string;
+  }): Promise<string> {
+    log.info(`Received invoice id: ${invoiceId}.`);
+    const ctPaymentId = await this.createCtPayment({
+      cart,
+      amountPlanned,
+      paymentIntentId: invoiceId,
+      isSubscription: true,
+    });
+
+    log.info(`Commercetools Subscription Payment transaction initial created.`, {
+      ctCartId: cart.id,
+      ctPaymentId,
+      invoiceId,
+    });
+
+    return ctPaymentId;
+  }
 }

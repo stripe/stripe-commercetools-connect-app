@@ -24,6 +24,7 @@ import {
 } from '../dtos/operations/payment-intents.dto';
 import { StripeEvent } from '../services/types/stripe-payment.type';
 import { StripeCustomerService } from '../services/stripe-customer.service';
+import { isFromSubscriptionInvoice } from '../utils';
 
 type PaymentRoutesOptions = {
   paymentService: StripePaymentService;
@@ -160,7 +161,12 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
           break;
       }
 
-      await opts.paymentService.processStripeEvent(event);
+      if (event.type.startsWith('invoice')) {
+        log.info(`Received: ${event.type} event of event`);
+        opts.paymentService.processSubscriptionEvent(event);
+      } else if (!isFromSubscriptionInvoice(event)) {
+        opts.paymentService.processStripeEvent(event);
+      }
 
       return reply.status(200).send();
     },

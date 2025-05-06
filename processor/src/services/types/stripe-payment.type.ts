@@ -36,6 +36,10 @@ export enum StripeEvent {
   CHARGE__SUCCEEDED = 'charge.succeeded',
 }
 
+export enum StripeSubscriptionEvent {
+  INVOICE_PAID = 'invoice.paid',
+}
+
 export enum PaymentStatus {
   FAILURE = 'Failure',
   SUCCESS = 'Success',

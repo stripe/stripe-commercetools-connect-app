@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import Stripe from 'stripe';
 import { Cart } from '@commercetools/platform-sdk';
-import { healthCheckCommercetoolsPermissions, statusHandler } from '@commercetools/connect-payments-sdk';
+import { healthCheckCommercetoolsPermissions, Money, statusHandler } from '@commercetools/connect-payments-sdk';
 import {
   CancelPaymentRequest,
   CapturePaymentRequest,
@@ -29,15 +29,18 @@ import { log } from '../libs/logger';
 import { StripeEventConverter } from './converters/stripeEventConverter';
 import { convertPaymentResultCode } from '../utils';
 import { StripeCreatePaymentService } from './stripe-create-payment.service';
+import { SubscriptionEventConverter } from './converters/subscriptionEventConverter';
 
 export class StripePaymentService extends AbstractPaymentService {
   private stripeEventConverter: StripeEventConverter;
+  private subscriptionEventConverter: SubscriptionEventConverter;
   private createPaymentService: StripeCreatePaymentService;
 
   constructor(opts: StripePaymentServiceOptions) {
     super(opts.ctCartService, opts.ctPaymentService, opts.ctOrderService);
     this.stripeEventConverter = new StripeEventConverter();
     this.createPaymentService = new StripeCreatePaymentService(opts);
+    this.subscriptionEventConverter = new SubscriptionEventConverter();
   }
 
   /**
@@ -370,6 +373,67 @@ export class StripePaymentService extends AbstractPaymentService {
     }
   }
 
+  /**
+   * Retrieves modified payment data based on the given Stripe event for subscriptions.
+   *
+   * @param {Stripe.Event} event - The Stripe event object to extract data from.
+   * @return {ModifyPayment} - An object containing modified payment data.
+   */
+  public async processSubscriptionEvent(event: Stripe.Event): Promise<void> {
+    log.info('Processing subscription notification', { event: JSON.stringify(event.id) });
+    try {
+      const data = event.data.object as Stripe.Invoice;
+      const invoice = await this.createPaymentService.getStripeInvoiceExpanded(data.id);
+      const subscription = invoice.subscription as Stripe.Subscription;
+      const updateData = this.subscriptionEventConverter.convert(event, invoice);
+
+      if (subscription && subscription.status !== 'trialing') {
+        const eventCartId = data.subscription_details?.metadata?.cart_id;
+        const eventPaymentId = data.subscription_details?.metadata?.ct_payment_id;
+        if (!eventCartId || !eventPaymentId) {
+          throw new Error(
+            `Cannot process invoice with ID: ${data.id}. Missing Cart ID or Payment ID in the event metadata.`,
+          );
+        }
+        const cart = await this.ctCartService.getCart({ id: eventCartId });
+        const amountPlanned: Money = {
+          currencyCode: data.currency.toUpperCase(),
+          centAmount: data.amount_paid * 2,
+        };
+
+        const paymentId = await this.createPaymentService.handleCtPaymentSubscription({
+          cart,
+          amountPlanned,
+          invoiceId: data.id,
+        });
+
+        await this.addPaymentToOrder(eventPaymentId, paymentId);
+
+        //update data of the payment
+        updateData.id = paymentId;
+      }
+
+      for (const tx of updateData.transactions) {
+        const updatedPayment = await this.ctPaymentService.updatePayment({
+          ...updateData,
+          transaction: tx,
+        });
+
+        log.info('Payment updated after processing the notification', {
+          paymentId: updatedPayment.id,
+          version: updatedPayment.version,
+          pspReference: updateData.pspReference,
+          paymentMethod: updateData.paymentMethod,
+          transaction: JSON.stringify(tx),
+        });
+      }
+    } catch (e) {
+      log.error(JSON.stringify(e));
+      log.error('Error processing notification', { error: e });
+      return;
+    }
+  }
+
   public async createOrder(cart: Cart, paymentIntent: string | undefined) {
     const apiClient = paymentSDK.ctAPI.client;
     const order = await apiClient
@@ -409,5 +473,29 @@ export class StripePaymentService extends AbstractPaymentService {
       .get({ queryArgs: { expand: 'lineItems[*].productType' } })
       .execute();
     return cart.body;
+  }
+
+  private async addPaymentToOrder(subscriptionPaymentId: string, paymentId: string) {
+    const order = await this.ctOrderService.getOrderByPaymentId({ paymentId: subscriptionPaymentId });
+    const apiClient = paymentSDK.ctAPI.client;
+
+    return await apiClient
+      .orders()
+      .withId({ ID: order.id })
+      .post({
+        body: {
+          version: order.version,
+          actions: [
+            {
+              action: 'addPayment',
+              payment: {
+                id: paymentId,
+                typeId: 'payment',
+              },
+            },
+          ],
+        },
+      })
+      .execute();
   }
 }
