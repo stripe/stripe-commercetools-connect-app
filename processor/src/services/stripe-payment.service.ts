@@ -16,7 +16,7 @@ import packageJSON from '../../package.json';
 import { AbstractPaymentService } from './abstract-payment.service';
 import { getConfig } from '../config/config';
 import { appLogger, paymentSDK } from '../payment-sdk';
-import { StripeEvent, StripePaymentServiceOptions } from './types/stripe-payment.type';
+import { PaymentStatus, StripeEvent, StripePaymentServiceOptions } from './types/stripe-payment.type';
 import {
   CollectBillingAddressOptions,
   ConfigElementResponseSchemaDTO,
@@ -382,35 +382,67 @@ export class StripePaymentService extends AbstractPaymentService {
   public async processSubscriptionEvent(event: Stripe.Event): Promise<void> {
     log.info('Processing subscription notification', { event: JSON.stringify(event.id) });
     try {
-      const data = event.data.object as Stripe.Invoice;
-      const invoice = await this.createPaymentService.getStripeInvoiceExpanded(data.id);
-      const subscription = invoice.subscription as Stripe.Subscription;
-      const updateData = this.subscriptionEventConverter.convert(event, invoice);
+      const dataInvoice = event.data.object as Stripe.Invoice;
+      const invoiceExpanded = await this.createPaymentService.getStripeInvoiceExpanded(dataInvoice.id);
+      const subscription = invoiceExpanded.subscription as Stripe.Subscription;
+      const invoicePaymentIntent = invoiceExpanded.payment_intent as Stripe.PaymentIntent;
 
-      if (subscription && subscription.status !== 'trialing') {
-        const eventCartId = data.subscription_details?.metadata?.cart_id;
-        const eventPaymentId = data.subscription_details?.metadata?.ct_payment_id;
-        if (!eventCartId || !eventPaymentId) {
-          throw new Error(
-            `Cannot process invoice with ID: ${data.id}. Missing Cart ID or Payment ID in the event metadata.`,
-          );
+      let payment = await this.ctPaymentService.getPayment({
+        id: subscription.metadata?.ct_payment_id ?? '',
+      });
+      if (!payment) {
+        log.error(`Cannot process invoice with ID: ${dataInvoice.id}. Missing Payment can be trial days.`);
+        return;
+      }
+
+      const failedPaymentIntent = await this.ctPaymentService.findPaymentsByInterfaceId({
+        interfaceId: invoicePaymentIntent.id,
+      });
+      const isPaymentFailed = failedPaymentIntent.length > 0;
+      if (failedPaymentIntent.length > 0) {
+        //Update a failed payment if it has a Failed transaction
+        payment = failedPaymentIntent[0];
+      }
+      const isPaymentChargePending = this.ctPaymentService.hasTransactionInState({
+        payment,
+        transactionType: PaymentTransactions.CHARGE,
+        states: [PaymentStatus.PENDING],
+      });
+
+      const updateData = this.subscriptionEventConverter.convert(
+        event,
+        invoiceExpanded,
+        isPaymentChargePending,
+        payment,
+      );
+
+      if (!isPaymentChargePending && !isPaymentFailed) {
+        log.info(`Subscription Payment ${payment} do not have Transaction in pending state`);
+        const eventCartId = dataInvoice.subscription_details?.metadata?.cart_id;
+        if (!eventCartId) {
+          log.error(`Cannot process invoice with ID: ${dataInvoice.id}. Missing cart.`);
+          return;
         }
-        const cart = await this.ctCartService.getCart({ id: eventCartId });
-        const amountPlanned: Money = {
-          currencyCode: data.currency.toUpperCase(),
-          centAmount: data.amount_paid * 2,
-        };
 
-        const paymentId = await this.createPaymentService.handleCtPaymentSubscription({
+        const cart = await this.ctCartService.getCart({ id: eventCartId });
+        //If it is invoice.payment_failed the amount is the amount_due
+        const amountPlanned: Money = event.type.startsWith('invoice.paid')
+          ? {
+              currencyCode: dataInvoice.currency.toUpperCase(),
+              centAmount: dataInvoice.amount_paid,
+            }
+          : {
+              currencyCode: dataInvoice.currency.toUpperCase(),
+              centAmount: dataInvoice.amount_due,
+            };
+        const createdPayment = await this.createPaymentService.handleCtPaymentSubscription({
           cart,
           amountPlanned,
-          invoiceId: data.id,
+          paymentIntentId: updateData.pspReference,
         });
 
-        await this.addPaymentToOrder(eventPaymentId, paymentId);
-
-        //update data of the payment
-        updateData.id = paymentId;
+        await this.addPaymentToOrder(payment.id, createdPayment);
+        updateData.id = createdPayment;
       }
 
       for (const tx of updateData.transactions) {
@@ -419,7 +451,7 @@ export class StripePaymentService extends AbstractPaymentService {
           transaction: tx,
         });
 
-        log.info('Payment updated after processing the notification', {
+        log.info('Subscription payment updated after processing the notification', {
           paymentId: updatedPayment.id,
           version: updatedPayment.version,
           pspReference: updateData.pspReference,
@@ -428,7 +460,6 @@ export class StripePaymentService extends AbstractPaymentService {
         });
       }
     } catch (e) {
-      log.error(JSON.stringify(e));
       log.error('Error processing notification', { error: e });
       return;
     }
@@ -475,27 +506,31 @@ export class StripePaymentService extends AbstractPaymentService {
     return cart.body;
   }
 
-  private async addPaymentToOrder(subscriptionPaymentId: string, paymentId: string) {
-    const order = await this.ctOrderService.getOrderByPaymentId({ paymentId: subscriptionPaymentId });
-    const apiClient = paymentSDK.ctAPI.client;
+  public async addPaymentToOrder(subscriptionPaymentId: string, paymentId: string) {
+    try {
+      const order = await this.ctOrderService.getOrderByPaymentId({ paymentId: subscriptionPaymentId });
+      const apiClient = paymentSDK.ctAPI.client;
 
-    return await apiClient
-      .orders()
-      .withId({ ID: order.id })
-      .post({
-        body: {
-          version: order.version,
-          actions: [
-            {
-              action: 'addPayment',
-              payment: {
-                id: paymentId,
-                typeId: 'payment',
+      await apiClient
+        .orders()
+        .withId({ ID: order.id })
+        .post({
+          body: {
+            version: order.version,
+            actions: [
+              {
+                action: 'addPayment',
+                payment: {
+                  id: paymentId,
+                  typeId: 'payment',
+                },
               },
-            },
-          ],
-        },
-      })
-      .execute();
+            ],
+          },
+        })
+        .execute();
+    } catch (error) {
+      log.error('Error adding payment to order', { error });
+    }
   }
 }

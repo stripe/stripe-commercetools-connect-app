@@ -413,24 +413,23 @@ export class StripeCreatePaymentService {
   public async handleCtPaymentSubscription({
     cart,
     amountPlanned,
-    invoiceId,
+    paymentIntentId,
   }: {
     cart: Cart;
     amountPlanned: Money;
-    invoiceId: string;
+    paymentIntentId: string;
   }): Promise<string> {
-    log.info(`Received invoice id: ${invoiceId}.`);
     const ctPaymentId = await this.createCtPayment({
       cart,
       amountPlanned,
-      paymentIntentId: invoiceId,
+      paymentIntentId,
       isSubscription: true,
     });
 
     log.info(`Commercetools Subscription Payment transaction initial created.`, {
       ctCartId: cart.id,
       ctPaymentId,
-      invoiceId,
+      paymentIntentId,
     });
 
     return ctPaymentId;

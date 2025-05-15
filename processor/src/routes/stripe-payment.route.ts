@@ -162,7 +162,6 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
       }
 
       if (event.type.startsWith('invoice')) {
-        log.info(`Received: ${event.type} event of event`);
         opts.paymentService.processSubscriptionEvent(event);
       } else if (!isFromSubscriptionInvoice(event)) {
         opts.paymentService.processStripeEvent(event);

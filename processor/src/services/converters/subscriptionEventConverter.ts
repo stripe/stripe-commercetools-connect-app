@@ -1,4 +1,4 @@
-import { TransactionData, Money } from '@commercetools/connect-payments-sdk';
+import { TransactionData, Money, Payment } from '@commercetools/connect-payments-sdk';
 
 import Stripe from 'stripe';
 import { PaymentStatus, StripeEventUpdatePayment, StripeSubscriptionEvent } from '../types/stripe-payment.type';
@@ -6,10 +6,14 @@ import { PaymentTransactions } from '../../dtos/operations/payment-intents.dto';
 import { wrapStripeError } from '../../clients/stripe.client';
 
 export class SubscriptionEventConverter {
-  public convert(opts: Stripe.Event, invoice: Stripe.Invoice): StripeEventUpdatePayment {
+  public convert(
+    opts: Stripe.Event,
+    invoice: Stripe.Invoice,
+    isPaymentChargePending: boolean,
+    payment: Payment,
+  ): StripeEventUpdatePayment {
     let paymentIntentId = invoice.id,
       paymentMethod;
-    const data = opts.data.object as Stripe.Invoice;
 
     if (invoice.payment_intent) {
       const invoicePaymentIntent = invoice.payment_intent as Stripe.PaymentIntent;
@@ -18,14 +22,18 @@ export class SubscriptionEventConverter {
       paymentMethod = (invoiceCharge.payment_method_details?.type as string) || '';
     }
 
+    if (isPaymentChargePending) {
+      paymentIntentId = invoice.id;
+    }
+
     return {
-      id: this.getCtPaymentId(data),
+      id: payment.id,
       pspReference: paymentIntentId as string,
       paymentMethod: paymentMethod,
       pspInteraction: {
-        //response: JSON.stringify(opts),
+        response: JSON.stringify(opts),
       },
-      transactions: this.populateTransactions(opts, paymentIntentId, invoice),
+      transactions: this.populateTransactions(opts, paymentIntentId, invoice, isPaymentChargePending),
     };
   }
 
@@ -33,8 +41,61 @@ export class SubscriptionEventConverter {
     event: Stripe.Event,
     paymentIntentId: string,
     invoice: Stripe.Invoice,
+    isPaymentChargePending: boolean,
   ): TransactionData[] {
     switch (event.type) {
+      case StripeSubscriptionEvent.INVOICE_PAID:
+        if (isPaymentChargePending) {
+          return [
+            {
+              type: PaymentTransactions.CHARGE,
+              state: PaymentStatus.SUCCESS,
+              amount: this.populateAmount(invoice),
+              interactionId: paymentIntentId,
+            },
+          ];
+        } else {
+          return [
+            {
+              type: PaymentTransactions.AUTHORIZATION,
+              state: PaymentStatus.SUCCESS,
+              amount: this.populateAmount(invoice),
+              interactionId: paymentIntentId,
+            },
+            {
+              type: PaymentTransactions.CHARGE,
+              state: PaymentStatus.SUCCESS,
+              amount: this.populateAmount(invoice),
+              interactionId: paymentIntentId,
+            },
+          ];
+        }
+      case StripeSubscriptionEvent.INVOICE_PAYMENT_FAILED:
+        if (isPaymentChargePending) {
+          return [
+            {
+              type: PaymentTransactions.CHARGE,
+              state: PaymentStatus.FAILURE,
+              amount: this.populateFailedAmount(invoice),
+              interactionId: paymentIntentId,
+            },
+          ];
+        } else {
+          return [
+            {
+              type: PaymentTransactions.AUTHORIZATION,
+              state: PaymentStatus.FAILURE,
+              amount: this.populateFailedAmount(invoice),
+              interactionId: paymentIntentId,
+            },
+            {
+              type: PaymentTransactions.CHARGE,
+              state: PaymentStatus.FAILURE,
+              amount: this.populateFailedAmount(invoice),
+              interactionId: paymentIntentId,
+            },
+          ];
+        }
       /*case StripeSubscriptionEvent.PAYMENT_INTENT__CANCELED:
         return [
           {
@@ -50,21 +111,6 @@ export class SubscriptionEventConverter {
             interactionId: paymentIntentId,
           },
         ];*/
-      case StripeSubscriptionEvent.INVOICE_PAID:
-        return [
-          {
-            type: PaymentTransactions.AUTHORIZATION,
-            state: PaymentStatus.SUCCESS,
-            amount: this.populateAmount(invoice),
-            interactionId: paymentIntentId,
-          },
-          {
-            type: PaymentTransactions.CHARGE,
-            state: PaymentStatus.SUCCESS,
-            amount: this.populateAmount(invoice),
-            interactionId: paymentIntentId,
-          },
-        ];
 
       /*
       case StripeEvent.PAYMENT_INTENT__PAYMENT_FAILED:
@@ -112,6 +158,13 @@ export class SubscriptionEventConverter {
   private populateAmount(invoice: Stripe.Invoice): Money {
     return {
       centAmount: invoice.amount_paid,
+      currencyCode: invoice.currency.toUpperCase(),
+    };
+  }
+
+  private populateFailedAmount(invoice: Stripe.Invoice): Money {
+    return {
+      centAmount: invoice.amount_due,
       currencyCode: invoice.currency.toUpperCase(),
     };
   }

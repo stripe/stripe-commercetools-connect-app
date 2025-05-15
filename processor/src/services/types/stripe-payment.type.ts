@@ -20,7 +20,7 @@ export type CaptureMethod = 'automatic' | 'automatic_async' | 'manual';
 
 export type StripeEventUpdatePayment = {
   id: string;
-  pspReference?: string;
+  pspReference: string;
   transactions: TransactionData[];
   paymentMethod?: string;
   pspInteraction?: PSPInteraction;
@@ -38,6 +38,8 @@ export enum StripeEvent {
 
 export enum StripeSubscriptionEvent {
   INVOICE_PAID = 'invoice.paid',
+  INVOICE_PAYMENT_FAILED = 'invoice.payment_failed',
+  CUSTOMER_SUBSCRIPTION_DELETED = 'customer.subscription.deleted', //TODO when canceled subsscription
 }
 
 export enum PaymentStatus {
