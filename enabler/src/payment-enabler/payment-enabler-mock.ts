@@ -44,6 +44,7 @@ export interface BaseOptions {
   paymentElement: StripePaymentElement | StripeExpressCheckoutElement; // MVP https://docs.stripe.com/payments/payment-element | https://docs.stripe.com/elements/express-checkout-element
   paymentElementValue: 'paymentElement' | 'expressCheckout';
   elements: StripeElements; // MVP https://docs.stripe.com/js/elements_object
+  isSubscription: boolean;
   stripeCustomerId?: string;
 };
 
@@ -71,14 +72,9 @@ export class MockPaymentEnabler implements PaymentEnabler {
   private static _Setup = async (
     options: EnablerOptions
   ): Promise<{ baseOptions: BaseOptions }> => {
-    const {
-      getCustomerOptions,
-      getConfigData,
-    } = apiService({
+    const { getCustomerOptions, getConfigData } = apiService({
       baseApi: options.processorUrl,
       sessionId: options.sessionId,
-      stripe: null,
-      elements: null,
     });
     const [cartInfoResponse, configEnvResponse] = await getConfigData(options.paymentElementType);
     const customer = await getCustomerOptions();
@@ -97,7 +93,8 @@ export class MockPaymentEnabler implements PaymentEnabler {
         paymentElement: MockPaymentEnabler.getPaymentElement(elementsOptions, options.paymentElementType, elements),
         paymentElementValue: cartInfoResponse.webElements,
         elements: elements,
-        ...(customer && {stripeCustomerId: customer?.stripeCustomerId,})
+        isSubscription: cartInfoResponse.isSubscription,
+        stripeCustomerId: customer ? customer?.stripeCustomerId : undefined,
       },
     });
   };
@@ -155,25 +152,25 @@ export class MockPaymentEnabler implements PaymentEnabler {
   private static getElements(
     stripeSDK: Stripe | null,
     cartInfoResponse: ConfigElementResponseSchemaDTO,
-    customer: CustomerResponseSchemaDTO
+    customer?: CustomerResponseSchemaDTO
   ): StripeElements | null {
     if (!stripeSDK) return null;
     try {
+      const { cartInfo, captureMethod, isSubscription, appearance, setupFutureUsage } = cartInfoResponse;
       return stripeSDK.elements?.({
-        mode: 'payment',
-        amount: cartInfoResponse.cartInfo.amount,
-        currency: cartInfoResponse.cartInfo.currency.toLowerCase(),
-        captureMethod: cartInfoResponse.captureMethod,
+        mode: isSubscription ? "subscription" : "payment",
+        amount: cartInfo.amount,
+        currency: cartInfo.currency.toLowerCase(),
+        appearance: parseJSON(appearance),
+        captureMethod,
         ...(customer && {
           customerOptions: {
             customer: customer.stripeCustomerId,
             ephemeralKey: customer.ephemeralKey,
           },
-          setupFutureUsage: cartInfoResponse.setupFutureUsage,
+          setupFutureUsage,
           customerSessionClientSecret: customer.sessionId,
         }),
-        appearance: parseJSON(cartInfoResponse.appearance),
-        capture_method: cartInfoResponse.captureMethod,
       });
     } catch (error) {
       console.error("Error initializing elements:", error);

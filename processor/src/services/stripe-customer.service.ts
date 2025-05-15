@@ -1,8 +1,13 @@
 import Stripe from 'stripe';
 import { CommercetoolsCartService } from '@commercetools/connect-payments-sdk';
-import { Address, Cart, Customer } from '@commercetools/platform-sdk';
+import {
+  Address,
+  Cart,
+  Customer,
+  CustomerSetCustomFieldAction,
+  CustomerSetCustomTypeAction,
+} from '@commercetools/platform-sdk';
 import { getConfig } from '../config/config';
-import { paymentSDK } from '../payment-sdk';
 import { CustomerResponseSchemaDTO } from '../dtos/stripe-payment.dto';
 import { getCartIdFromContext } from '../libs/fastify/context/context';
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
@@ -10,7 +15,8 @@ import { log } from '../libs/logger';
 import { stripeCustomerIdFieldName, stripeCustomerIdCustomType } from '../custom-types/custom-types';
 import { isValidUUID } from '../utils';
 import { getCustomFieldUpdateActions } from './commerce-tools/customTypeHelper';
-import { updateCustomerById } from './commerce-tools/customerClient';
+import { getCustomerById, updateCustomerById } from './commerce-tools/customerClient';
+import { METADATA_CUSTOMER_ID_FIELD } from '../constants';
 
 const stripe = stripeApi();
 
@@ -106,7 +112,7 @@ export class StripeCustomerService {
   public async validateStripeCustomerId(stripeCustomerId: string, ctCustomerId: string): Promise<boolean> {
     try {
       const customer = await stripe.customers.retrieve(stripeCustomerId);
-      return Boolean(customer && !customer.deleted && customer.metadata?.ct_customer_id === ctCustomerId);
+      return Boolean(customer && !customer.deleted && customer.metadata?.[METADATA_CUSTOMER_ID_FIELD] === ctCustomerId);
     } catch (e) {
       log.warn('Error validating Stripe customer ID', { error: e });
       return false;
@@ -119,7 +125,7 @@ export class StripeCustomerService {
         log.warn('Invalid ctCustomerId: Not a valid UUID:', { ctCustomerId });
         throw 'Invalid ctCustomerId: Not a valid UUID';
       }
-      const query = `metadata['ct_customer_id']:'${ctCustomerId}'`;
+      const query = `metadata['${METADATA_CUSTOMER_ID_FIELD}']:'${ctCustomerId}'`;
       const customer = await stripe.customers.search({ query });
       return customer.data[0];
     } catch (e) {
@@ -137,7 +143,7 @@ export class StripeCustomerService {
       phone: shippingAddress?.phone,
       address: shippingAddress?.address,
       metadata: {
-        ...(cart.customerId ? { ct_customer_id: customer.id } : null),
+        ...(cart.customerId ? { [METADATA_CUSTOMER_ID_FIELD]: customer.id } : null),
       },
     });
   }
@@ -152,7 +158,9 @@ export class StripeCustomerService {
       [stripeCustomerIdFieldName]: stripeCustomerId,
     };
     const { id, version, custom } = customer;
-    const updateFieldActions = await getCustomFieldUpdateActions({
+    const updateFieldActions = await getCustomFieldUpdateActions<
+      CustomerSetCustomTypeAction | CustomerSetCustomFieldAction
+    >({
       fields,
       customFields: custom,
       customType: stripeCustomerIdCustomType,
@@ -183,17 +191,13 @@ export class StripeCustomerService {
     return res?.secret;
   }
 
-  public async getCtCustomer(ctCustomerId: string): Promise<Customer | void> {
-    return await paymentSDK.ctAPI.client
-      .customers()
-      .withId({ ID: ctCustomerId })
-      .get()
-      .execute()
-      .then((response) => response.body)
-      .catch((err) => {
-        log.warn(`Customer not found ${ctCustomerId}`, { error: err });
-        return;
-      });
+  public async getCtCustomer(ctCustomerId: string): Promise<Customer | undefined> {
+    try {
+      return await getCustomerById(ctCustomerId);
+    } catch (error) {
+      log.warn(`Customer not found "${ctCustomerId}"`, { error });
+      return;
+    }
   }
 
   public getStripeCustomerAddress(prioritizedAddress: Address | undefined, fallbackAddress: Address | undefined) {

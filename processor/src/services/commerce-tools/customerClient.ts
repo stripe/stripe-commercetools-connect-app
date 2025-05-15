@@ -3,6 +3,11 @@ import { paymentSDK } from '../../payment-sdk';
 
 const apiClient = paymentSDK.ctAPI.client;
 
+export const getCustomerById = async (id: string) => {
+  const customer = await apiClient.customers().withId({ ID: id }).get().execute();
+  return customer.body;
+};
+
 export async function updateCustomerById({
   id,
   version,

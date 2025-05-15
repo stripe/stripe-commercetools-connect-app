@@ -1,5 +1,6 @@
-import { PaymentOutcome } from './dtos/stripe-payment.dto';
 import Stripe from 'stripe';
+import { Attribute } from '@commercetools/platform-sdk';
+import { PaymentOutcome } from './dtos/stripe-payment.dto';
 
 export const parseJSON = <T extends object | []>(json?: string): T => {
   try {
@@ -26,7 +27,7 @@ export const isValidUUID = (uuid: string): boolean => {
   return uuidRegex.test(uuid);
 };
 
-export function isFromSubscriptionInvoice(event: Stripe.Event): boolean {
+export const isFromSubscriptionInvoice = (event: Stripe.Event): boolean => {
   if (event.type.startsWith('payment')) {
     const paymentIntent = event.data.object as Stripe.PaymentIntent;
     return !!paymentIntent.invoice;
@@ -38,4 +39,31 @@ export function isFromSubscriptionInvoice(event: Stripe.Event): boolean {
   }
 
   return false;
-}
+};
+
+export const transformVariantAttributes = <T>(attributes?: Attribute[]): T => {
+  const result: Record<string, string> = {};
+  for (const { name, value } of attributes ?? []) {
+    result[name] = isObject(value) ? value.key : value;
+  }
+  return result as T;
+};
+
+export const isObject = (value: unknown): value is Record<string, string> => {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+};
+
+export const convertDateToUnixTimestamp = (date: string | number): number => {
+  return Math.floor(new Date(date).getTime() / 1000);
+};
+
+export const parseTimeString = (timeString: string): { hour: number; minute: number; second: number } => {
+  const [hoursStr, minutesStr, rest] = timeString.split(':');
+  const [secondsStr] = rest.split('.');
+
+  return {
+    hour: parseInt(hoursStr, 10),
+    minute: parseInt(minutesStr, 10),
+    second: parseInt(secondsStr, 10),
+  };
+};

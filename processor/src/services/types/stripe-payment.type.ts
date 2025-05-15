@@ -1,5 +1,6 @@
 import { PaymentRequestSchemaDTO } from '../../dtos/stripe-payment.dto';
 import {
+  Cart,
   CommercetoolsCartService,
   CommercetoolsOrderService,
   CommercetoolsPaymentService,
@@ -7,11 +8,16 @@ import {
 } from '@commercetools/connect-payments-sdk';
 import { PSPInteraction } from '@commercetools/connect-payments-sdk/dist/commercetools/types/payment.type';
 
-export type StripePaymentServiceOptions = {
+export interface StripePaymentServiceOptions {
   ctCartService: CommercetoolsCartService;
   ctPaymentService: CommercetoolsPaymentService;
   ctOrderService: CommercetoolsOrderService;
-};
+}
+
+export interface CtPaymentCreationServiceOptions {
+  ctCartService: CommercetoolsCartService;
+  ctPaymentService: CommercetoolsPaymentService;
+}
 
 export type CreatePayment = {
   data: PaymentRequestSchemaDTO;
@@ -47,4 +53,10 @@ export enum PaymentStatus {
   SUCCESS = 'Success',
   PENDING = 'Pending',
   INITIAL = 'Initial',
+}
+
+export interface CreateOrderProps {
+  cart: Cart;
+  subscriptionId?: string;
+  paymentIntentId?: string;
 }

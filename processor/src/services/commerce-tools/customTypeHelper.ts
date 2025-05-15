@@ -4,11 +4,7 @@ import {
   TypeAddFieldDefinitionAction,
   TypeDraft,
   TypeRemoveFieldDefinitionAction,
-} from '@commercetools/platform-sdk/dist/declarations/src/generated/models/type';
-import {
-  CustomerSetCustomFieldAction,
-  CustomerSetCustomTypeAction,
-} from '@commercetools/platform-sdk/dist/declarations/src/generated/models/customer';
+} from '@commercetools/platform-sdk';
 import { log } from '../../libs/logger';
 import {
   createCustomType,
@@ -119,22 +115,34 @@ export async function deleteOrUpdateCustomType(customType: TypeDraft): Promise<v
 }
 
 /**
- * This function is used to get the actions for setting a custom field in a customer.
+ * This function is used to get the actions for setting a custom field in a resource.
  * If the custom type exists and all fields exist, it returns `setCustomField` actions,
  * if not, it returns `setCustomType` action.
+ * You must provide the generic type of the resource actions it should return.
+ * @param fields - The fields to set in the custom type.
+ * @param customType - The custom type to set.
+ * @param customFields - The existing custom fields in the resource.
+ * @param idValue - The ID or Key of the resource to update, only if required.
+ * @param prefix - The prefix to use for the action (e.g., 'LineItem'), defaults to `setCustomField` or `setCustomType`.
  * @returns An array of actions to update the custom field in the customer.
  **/
-export async function getCustomFieldUpdateActions({
-  customFields,
+export async function getCustomFieldUpdateActions<T extends object>({
   fields,
   customType,
+  customFields,
+  idValue,
+  prefix,
 }: {
-  customFields?: CustomFields;
   fields: Record<string, string>;
   customType: TypeDraft;
-}): Promise<(CustomerSetCustomTypeAction | CustomerSetCustomFieldAction)[]> {
+  customFields?: CustomFields;
+  idValue?: Partial<T>;
+  prefix?: 'LineItem' | (string & {});
+}): Promise<T[]> {
+  const actionPrefix = prefix ?? '';
   const resourceTypeId = customType.resourceTypeIds[0];
   const allTypes = await getTypesByResourceTypeId(resourceTypeId);
+
   if (!allTypes.length) {
     throw new Error(`Custom Type not found for resource "${resourceTypeId.toUpperCase()}"`);
   }
@@ -142,24 +150,27 @@ export async function getCustomFieldUpdateActions({
   const typeAssigned = allTypes.find(({ id }) => id === customFields?.type.id);
   const allFieldsExist = !!(typeAssigned && hasAllFields(customType, typeAssigned));
 
-  if (customFields?.type.id && allFieldsExist) {
+  if (customFields?.type?.id && allFieldsExist) {
     return Object.entries(fields).map(([name, value]) => ({
-      action: 'setCustomField',
+      ...idValue,
+      action: `set${actionPrefix}CustomField`,
       name,
       value,
-    }));
+    })) as T[];
   }
 
   const newType = allTypes.find(({ key }) => key === customType.key) ?? findValidCustomType(allTypes, customType);
+
   if (!newType) {
     throw new Error(`A valid Custom Type was not found for resource "${resourceTypeId.toUpperCase()}"`);
   }
 
   return [
     {
-      action: 'setCustomType',
+      ...idValue,
+      action: `set${actionPrefix}CustomType`,
       type: { key: newType.key, typeId: 'type' },
       fields,
     },
-  ];
+  ] as T[];
 }

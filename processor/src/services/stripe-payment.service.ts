@@ -1,6 +1,5 @@
 import crypto from 'crypto';
 import Stripe from 'stripe';
-import { Cart } from '@commercetools/platform-sdk';
 import { healthCheckCommercetoolsPermissions, Money, statusHandler } from '@commercetools/connect-payments-sdk';
 import {
   CancelPaymentRequest,
@@ -16,31 +15,49 @@ import packageJSON from '../../package.json';
 import { AbstractPaymentService } from './abstract-payment.service';
 import { getConfig } from '../config/config';
 import { appLogger, paymentSDK } from '../payment-sdk';
-import { PaymentStatus, StripeEvent, StripePaymentServiceOptions } from './types/stripe-payment.type';
+import {
+  CaptureMethod,
+  CreateOrderProps,
+  PaymentStatus,
+  StripeEvent,
+  StripePaymentServiceOptions,
+} from './types/stripe-payment.type';
 import {
   CollectBillingAddressOptions,
   ConfigElementResponseSchemaDTO,
   PaymentOutcome,
   PaymentResponseSchemaDTO,
 } from '../dtos/stripe-payment.dto';
-import { getCartIdFromContext } from '../libs/fastify/context/context';
+import { getCartIdFromContext, getMerchantReturnUrlFromContext } from '../libs/fastify/context/context';
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
 import { StripeEventConverter } from './converters/stripeEventConverter';
 import { convertPaymentResultCode } from '../utils';
-import { StripeCreatePaymentService } from './stripe-create-payment.service';
 import { SubscriptionEventConverter } from './converters/subscriptionEventConverter';
+import { CtPaymentCreationService } from './ct-payment-creation.service';
+import { productTypeSubscription, stripeCustomerIdFieldName } from '../custom-types/custom-types';
+import { StripeCustomerService } from './stripe-customer.service';
+import { getCartExpanded } from './commerce-tools/cartClient';
+import { METADATA_ORDER_ID_FIELD } from '../constants';
+import { addOrderPayment, createOrderFromCart } from './commerce-tools/orderClient';
+
+const stripe = stripeApi();
 
 export class StripePaymentService extends AbstractPaymentService {
   private stripeEventConverter: StripeEventConverter;
   private subscriptionEventConverter: SubscriptionEventConverter;
-  private createPaymentService: StripeCreatePaymentService;
+  private customerService: StripeCustomerService;
+  private paymentCreationService: CtPaymentCreationService;
 
   constructor(opts: StripePaymentServiceOptions) {
     super(opts.ctCartService, opts.ctPaymentService, opts.ctOrderService);
     this.stripeEventConverter = new StripeEventConverter();
-    this.createPaymentService = new StripeCreatePaymentService(opts);
     this.subscriptionEventConverter = new SubscriptionEventConverter();
+    this.customerService = new StripeCustomerService(opts.ctCartService);
+    this.paymentCreationService = new CtPaymentCreationService({
+      ctCartService: opts.ctCartService,
+      ctPaymentService: opts.ctPaymentService,
+    });
   }
 
   /**
@@ -223,23 +240,63 @@ export class StripePaymentService extends AbstractPaymentService {
   }
 
   /**
-   * Handles the payment process by either creating a subscription or a payment intent.
+   * Creates a payment intent using the Stripe API and create commercetools payment with Initial transaction.
    *
-   * @return {Promise<PaymentResponseSchemaDTO>} A promise that resolves to a PaymentResponseSchemaDTO object.
+   * @param cart
+   * @return Promise<PaymentResponseSchemaDTO> A Promise that resolves to a PaymentResponseSchemaDTO object containing the client secret and payment reference.
    */
-  public async handlePaymentCreation(): Promise<PaymentResponseSchemaDTO> {
+  public async createPaymentIntent(): Promise<PaymentResponseSchemaDTO> {
     try {
-      const cart = await this.getCartExpanded();
-      //TODO: Make sure if the product type name is correct
-      const subscriptionTypeName = 'subscription-information';
-      const productType = cart.lineItems[0].productType.obj?.name;
-      const isSubscription = productType === subscriptionTypeName;
-      if (isSubscription) {
-        //TODO: What happens with Subscription if the CT CustomerId is not set?
-        return await this.createPaymentService.createSubscription(cart);
-      } else {
-        return await this.createPaymentService.createPaymentIntent(cart);
-      }
+      const config = getConfig();
+      const cart = await this.ctCartService.getCart({ id: getCartIdFromContext() });
+      const setupFutureUsage = config.stripeSavedPaymentMethodConfig?.payment_method_save_usage;
+      const customer = await this.customerService.getCtCustomer(cart.customerId!);
+      const amountPlanned = await this.ctCartService.getPaymentAmount({ cart });
+      const shippingAddress = this.customerService.getStripeCustomerAddress(
+        cart.shippingAddress,
+        customer?.addresses[0],
+      );
+      const stripeCustomerId = customer?.custom?.fields?.[stripeCustomerIdFieldName];
+      const paymentIntent = await stripe.paymentIntents.create(
+        {
+          ...(stripeCustomerId && {
+            customer: stripeCustomerId,
+            setup_future_usage: setupFutureUsage,
+          }),
+          amount: amountPlanned.centAmount,
+          currency: amountPlanned.currencyCode,
+          automatic_payment_methods: {
+            enabled: true,
+          },
+          capture_method: config.stripeCaptureMethod as CaptureMethod,
+          metadata: this.paymentCreationService.getPaymentMetadata(cart),
+          shipping: shippingAddress,
+        },
+        {
+          idempotencyKey: crypto.randomUUID(),
+        },
+      );
+
+      log.info(`Stripe PaymentIntent created.`, {
+        ctCartId: cart.id,
+        stripePaymentIntentId: paymentIntent.id,
+      });
+
+      const paymentReference = await this.paymentCreationService.handleCtPaymentCreation({
+        interactionId: paymentIntent.id,
+        amountPlanned,
+        cart,
+      });
+
+      return {
+        cartId: cart.id,
+        clientSecret: paymentIntent.client_secret!,
+        paymentReference,
+        merchantReturnUrl: getMerchantReturnUrlFromContext() || config.merchantReturnUrl,
+        ...(config.stripeCollectBillingAddress !== 'auto' && {
+          billingAddress: this.customerService.getBillingAddress(cart),
+        }),
+      };
     } catch (error) {
       throw wrapStripeError(error);
     }
@@ -293,12 +350,13 @@ export class StripePaymentService extends AbstractPaymentService {
       stripeLayout,
       stripeCollectBillingAddress,
     } = getConfig();
-    const ctCart = await this.ctCartService.getCart({ id: getCartIdFromContext() });
+    const webElement = paymentType;
+    const ctCart = await getCartExpanded();
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
-    const webElement = paymentType; //getConfig().stripeWebElements;
     const appearance =
       webElement === 'paymentElement' ? stripePaymentElementAppearance : stripeExpressCheckoutAppearance;
-    const setupFutureUsage = stripeSavedPaymentMethodConfig.payment_method_save_usage!;
+    const setupFutureUsage = stripeSavedPaymentMethodConfig.payment_method_save_usage;
+    const isSubscription = ctCart.lineItems[0].productType.obj?.name === productTypeSubscription.name;
 
     log.info(`Cart and ${webElement} config retrieved.`, {
       cartId: ctCart.id,
@@ -312,6 +370,7 @@ export class StripePaymentService extends AbstractPaymentService {
       stripeSetupFutureUsage: setupFutureUsage,
       layout: stripeLayout,
       collectBillingAddress: stripeCollectBillingAddress,
+      isSubscription,
     });
 
     return {
@@ -319,12 +378,13 @@ export class StripePaymentService extends AbstractPaymentService {
         amount: amountPlanned.centAmount,
         currency: amountPlanned.currencyCode,
       },
-      appearance: appearance,
+      appearance,
       captureMethod: stripeCaptureMethod,
       webElements: webElement,
-      setupFutureUsage: setupFutureUsage,
+      setupFutureUsage,
       layout: stripeLayout,
       collectBillingAddress: stripeCollectBillingAddress as CollectBillingAddressOptions,
+      isSubscription,
     };
   }
 
@@ -365,7 +425,7 @@ export class StripePaymentService extends AbstractPaymentService {
 
       if (event.type === StripeEvent.PAYMENT_INTENT__SUCCEEDED) {
         const ctCart = await this.ctCartService.getCartByPaymentId({ paymentId: updateData.id });
-        await this.createOrder(ctCart, updateData.pspReference);
+        await this.createOrder({ cart: ctCart, paymentIntentId: updateData.pspReference });
       }
     } catch (e) {
       log.error('Error processing notification', { error: e });
@@ -383,7 +443,7 @@ export class StripePaymentService extends AbstractPaymentService {
     log.info('Processing subscription notification', { event: JSON.stringify(event.id) });
     try {
       const dataInvoice = event.data.object as Stripe.Invoice;
-      const invoiceExpanded = await this.createPaymentService.getStripeInvoiceExpanded(dataInvoice.id);
+      const invoiceExpanded = await this.paymentCreationService.getStripeInvoiceExpanded(dataInvoice.id);
       const subscription = invoiceExpanded.subscription as Stripe.Subscription;
       const invoicePaymentIntent = invoiceExpanded.payment_intent as Stripe.PaymentIntent;
 
@@ -426,19 +486,15 @@ export class StripePaymentService extends AbstractPaymentService {
 
         const cart = await this.ctCartService.getCart({ id: eventCartId });
         //If it is invoice.payment_failed the amount is the amount_due
-        const amountPlanned: Money = event.type.startsWith('invoice.paid')
-          ? {
-              currencyCode: dataInvoice.currency.toUpperCase(),
-              centAmount: dataInvoice.amount_paid,
-            }
-          : {
-              currencyCode: dataInvoice.currency.toUpperCase(),
-              centAmount: dataInvoice.amount_due,
-            };
-        const createdPayment = await this.createPaymentService.handleCtPaymentSubscription({
+        const isInvoicePaid = event.type.startsWith('invoice.paid');
+        const amountPlanned: Money = {
+          currencyCode: dataInvoice.currency.toUpperCase(),
+          centAmount: isInvoicePaid ? dataInvoice.amount_paid : dataInvoice.amount_due,
+        };
+        const createdPayment = await this.paymentCreationService.handleCtPaymentSubscription({
           cart,
           amountPlanned,
-          paymentIntentId: updateData.pspReference,
+          interactionId: updateData.pspReference,
         });
 
         await this.addPaymentToOrder(payment.id, createdPayment);
@@ -465,70 +521,35 @@ export class StripePaymentService extends AbstractPaymentService {
     }
   }
 
-  public async createOrder(cart: Cart, paymentIntent: string | undefined) {
-    const apiClient = paymentSDK.ctAPI.client;
-    const order = await apiClient
-      .orders()
-      .post({
-        body: {
-          cart: {
-            id: cart.id,
-            typeId: 'cart',
-          },
-          shipmentState: 'Pending',
-          orderState: 'Open',
-          version: cart.version,
-          paymentState: 'Paid',
-        },
-      })
-      .execute();
+  public async createOrder({ cart, subscriptionId, paymentIntentId }: CreateOrderProps) {
+    const order = await createOrderFromCart(cart);
+    log.info('Order created successfully', {
+      ctOrderId: order.id,
+      ctCartId: cart.id,
+      stripeSubscriptionId: subscriptionId,
+    });
 
-    const idempotencyKey = crypto.randomUUID();
-
-    if (paymentIntent)
-      await stripeApi().paymentIntents.update(
-        paymentIntent,
-        {
-          metadata: {
-            ct_order_id: order.body.id,
-          },
-        },
-        { idempotencyKey },
+    if (paymentIntentId) {
+      await stripe.paymentIntents.update(
+        paymentIntentId,
+        { metadata: { [METADATA_ORDER_ID_FIELD]: order.id } },
+        { idempotencyKey: crypto.randomUUID() },
       );
-  }
+    }
 
-  public async getCartExpanded(): Promise<Cart> {
-    const cart = await paymentSDK.ctAPI.client
-      .carts()
-      .withId({ ID: getCartIdFromContext() })
-      .get({ queryArgs: { expand: 'lineItems[*].productType' } })
-      .execute();
-    return cart.body;
+    if (subscriptionId) {
+      await stripe.subscriptions.update(
+        subscriptionId,
+        { metadata: { [METADATA_ORDER_ID_FIELD]: order.id } },
+        { idempotencyKey: crypto.randomUUID() },
+      );
+    }
   }
 
   public async addPaymentToOrder(subscriptionPaymentId: string, paymentId: string) {
     try {
       const order = await this.ctOrderService.getOrderByPaymentId({ paymentId: subscriptionPaymentId });
-      const apiClient = paymentSDK.ctAPI.client;
-
-      await apiClient
-        .orders()
-        .withId({ ID: order.id })
-        .post({
-          body: {
-            version: order.version,
-            actions: [
-              {
-                action: 'addPayment',
-                payment: {
-                  id: paymentId,
-                  typeId: 'payment',
-                },
-              },
-            ],
-          },
-        })
-        .execute();
+      await addOrderPayment(order, paymentId);
     } catch (error) {
       log.error('Error adding payment to order', { error });
     }

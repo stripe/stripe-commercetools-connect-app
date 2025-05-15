@@ -1,52 +1,42 @@
-import { PaymentIntent, Stripe, StripeElements } from "@stripe/stripe-js";
 import {
   ConfigElementResponseSchemaDTO,
   ConfigResponseSchemaDTO,
   ConfirmPaymentRequestSchemaDTO,
   CustomerResponseSchemaDTO,
   PaymentResponseSchemaDTO,
+  SubscriptionFromSetupIntentResponseSchemaDTO,
+  SubscriptionResponseSchemaDTO,
 } from "../dtos/mock-payment.dto";
-import { parseJSON } from "../utils";
 
 export interface ApiServiceProps {
   baseApi: string;
   sessionId: string;
-  stripe: Stripe;
-  elements: StripeElements;
 }
 
-export interface BillingAddress {
-  name: string;
-  email: string;
-  phone: string;
-  address: {
-    city: string;
-    country: string;
-    line1: string;
-    line2: string;
-    postal_code: string;
-    state: string;
-  };
+export interface ConfirmSubscriptionProps {
+  subscriptionId: string;
+  paymentReference: string;
+  paymentIntentId?: string;
 }
 
 export interface ApiService {
   getHeadersConfig: () => HeadersInit;
-  getCustomerOptions: () => Promise<CustomerResponseSchemaDTO>;
+  getCustomerOptions: () => Promise<CustomerResponseSchemaDTO | undefined>;
   getConfigData: (
     paymentMethodType: string
   ) => Promise<[ConfigElementResponseSchemaDTO, ConfigResponseSchemaDTO]>;
   getPayment: (stripeCustomerId?: string) => Promise<PaymentResponseSchemaDTO>;
   confirmPaymentIntent: (data: ConfirmPaymentRequestSchemaDTO) => Promise<void>;
-  confirmStripePayment: (
-    data: PaymentResponseSchemaDTO
-  ) => Promise<PaymentIntent>;
+  createSubscription: () => Promise<SubscriptionResponseSchemaDTO>;
+  createSubscriptionFromSetupIntent: (
+    setupIntentId: string
+  ) => Promise<SubscriptionFromSetupIntentResponseSchemaDTO>;
+  confirmSubscriptionPayment: (data: ConfirmSubscriptionProps) => Promise<void>;
 }
 
 export const apiService = ({
   baseApi,
   sessionId,
-  stripe,
-  elements,
 }: ApiServiceProps): ApiService => {
   const getHeadersConfig = (): HeadersInit => {
     return {
@@ -55,7 +45,9 @@ export const apiService = ({
     };
   };
 
-  const getCustomerOptions = async (): Promise<CustomerResponseSchemaDTO> => {
+  const getCustomerOptions = async (): Promise<
+    CustomerResponseSchemaDTO | undefined
+  > => {
     const apiUrl = new URL(`${baseApi}/customer/session`);
     const response = await fetch(apiUrl.toString(), {
       method: "GET",
@@ -77,7 +69,7 @@ export const apiService = ({
       headers: getHeadersConfig(),
     };
     const [configElementResponse, configEnvResponse] = await Promise.all([
-      fetch(`${baseApi}/config-element/${paymentElementType}`, headers), // MVP this could be used by expressCheckout and Subscription
+      fetch(`${baseApi}/config-element/${paymentElementType}`, headers),
       fetch(`${baseApi}/operations/config`, headers),
     ]);
 
@@ -100,11 +92,8 @@ export const apiService = ({
     ]);
   };
 
-  const getPayment = async (
-    stripeCustomerId?: string
-  ): Promise<PaymentResponseSchemaDTO> => {
+  const getPayment = async (): Promise<PaymentResponseSchemaDTO> => {
     const apiUrl = new URL(`${baseApi}/payments`);
-    apiUrl.searchParams.append("stripeCustomerId", stripeCustomerId || "");
     const response = await fetch(apiUrl.toString(), {
       method: "GET",
       headers: getHeadersConfig(),
@@ -130,43 +119,63 @@ export const apiService = ({
     });
 
     if (!response.ok) {
-      throw "Error on /confirmPayments";
+      throw "Error in processor confirming PaymentIntent";
     }
   };
 
-  const confirmStripePayment = async ({
-    cartId,
-    clientSecret,
-    paymentReference,
-    merchantReturnUrl,
-    billingAddress,
-  }: PaymentResponseSchemaDTO): Promise<PaymentIntent> => {
-    const address = billingAddress
-      ? parseJSON<BillingAddress>(billingAddress)
-      : undefined;
-    const returnUrl = new URL(merchantReturnUrl);
-    returnUrl.searchParams.append("cartId", cartId);
-    returnUrl.searchParams.append("paymentReference", paymentReference);
+  const createSubscription = async (): Promise<SubscriptionResponseSchemaDTO> => {
+      const apiUrl = `${baseApi}/subscription`;
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: getHeadersConfig(),
+        body: "{}",
+      });
 
-    const { error, paymentIntent } = await stripe.confirmPayment({
-      confirmParams: {
-        return_url: returnUrl.toString(),
-        ...(address && {
-          payment_method_data: {
-            billing_details: address,
-          },
-        }),
-      },
-      redirect: "if_required",
-      clientSecret,
-      elements,
+      if (!response.ok) {
+        const error = await response.json();
+        console.warn(
+          `Error in processor creating Subscription: ${error.message}`
+        );
+        throw error;
+      }
+      return await response.json();
+    };
+
+  const createSubscriptionFromSetupIntent = async (
+    setupIntentId: string
+  ): Promise<SubscriptionFromSetupIntentResponseSchemaDTO> => {
+    const apiUrl = `${baseApi}/subscription/withSetupIntent`;
+
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: getHeadersConfig(),
+      body: JSON.stringify({ setupIntentId }),
     });
 
-    if (error) {
+    if (!response.ok) {
+      const error = await response.json();
+      console.warn(
+        `Error in processor creating Subscription from Setup Intent: ${error.message}`
+      );
       throw error;
     }
 
-    return paymentIntent;
+    return await response.json();
+  };
+
+  const confirmSubscriptionPayment = async (
+    props: ConfirmSubscriptionProps
+  ): Promise<void> => {
+    const apiUrl = `${baseApi}/subscription/confirm`;
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: getHeadersConfig(),
+      body: JSON.stringify(props),
+    });
+
+    if (!response.ok) {
+      throw "Error in processor confirming Subscription Payment";
+    }
   };
 
   return {
@@ -175,6 +184,8 @@ export const apiService = ({
     getConfigData,
     getPayment,
     confirmPaymentIntent,
-    confirmStripePayment,
+    createSubscription,
+    createSubscriptionFromSetupIntent,
+    confirmSubscriptionPayment,
   };
 };

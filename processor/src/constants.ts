@@ -1,0 +1,9 @@
+export const METADATA_CART_ID_FIELD: string = 'cart_id';
+export const METADATA_SUBSCRIPTION_ID_FIELD: string = 'subscription_id';
+export const METADATA_PROJECT_KEY_FIELD: string = 'ct_project_key';
+export const METADATA_PAYMENT_ID_FIELD: string = 'ct_payment_id';
+export const METADATA_CUSTOMER_ID_FIELD: string = 'ct_customer_id';
+export const METADATA_PRODUCT_ID_FIELD: string = 'ct_product_id';
+export const METADATA_VARIANT_SKU_FIELD: string = 'ct_variant_sku';
+export const METADATA_PRICE_ID_FIELD: string = 'ct_price_id';
+export const METADATA_ORDER_ID_FIELD: string = 'ct_order_id';
