@@ -29,6 +29,7 @@ import { StripeCustomerService } from './stripe-customer.service';
 import { transformVariantAttributes } from '../utils';
 import {
   lineItemStripeSubscriptionIdField,
+  productTypeSubscription,
   stripeCustomerIdFieldName,
   typeLineItem,
 } from '../custom-types/custom-types';
@@ -38,6 +39,7 @@ import { getCartExpanded, updateCartById } from './commerce-tools/cartClient';
 import { getCustomFieldUpdateActions } from './commerce-tools/customTypeHelper';
 import { METADATA_PRICE_ID_FIELD, METADATA_VARIANT_SKU_FIELD, METADATA_PRODUCT_ID_FIELD } from '../constants';
 import { StripePaymentService } from './stripe-payment.service';
+import { StripeCouponService } from './stripe-coupon.service';
 
 const stripe = stripeApi();
 
@@ -47,6 +49,7 @@ export class StripeSubscriptionService {
   private ctPaymentService: CommercetoolsPaymentService;
   private paymentCreationService: CtPaymentCreationService;
   private paymentService: StripePaymentService;
+  private stripeCouponService: StripeCouponService;
 
   constructor(opts: StripeSubscriptionServiceOptions) {
     this.ctCartService = opts.ctCartService;
@@ -57,6 +60,7 @@ export class StripeSubscriptionService {
       ctCartService: opts.ctCartService,
       ctPaymentService: opts.ctPaymentService,
     });
+    this.stripeCouponService = new StripeCouponService();
   }
 
   public async createSubscription(): Promise<SubscriptionResponseSchemaDTO | undefined> {
@@ -82,6 +86,7 @@ export class StripeSubscriptionService {
         payment_settings: { save_default_payment_method: 'on_subscription' },
         expand: ['latest_invoice.payment_intent'],
         metadata: this.paymentCreationService.getPaymentMetadata(cart),
+        discounts: await this.stripeCouponService.getStripeCoupons(cart),
       });
 
       const { clientSecret, paymentIntentId } = this.validateSubscription(subscription);
@@ -175,7 +180,7 @@ export class StripeSubscriptionService {
       throw new Error('Only one line item is allowed in the cart for subscription. Please remove the others.');
     }
 
-    const amountPlanned = await this.ctCartService.getPaymentAmount({ cart });
+    const amountPlanned = await this.getSubscriptionPaymentAmount(cart);
     const priceId = await this.getSubscriptionPriceId(cart, amountPlanned);
     const customer = await this.customerService.getCtCustomer(cart.customerId!);
     const stripeCustomerId: string = customer?.custom?.fields?.[stripeCustomerIdFieldName];
@@ -374,9 +379,7 @@ export class StripeSubscriptionService {
     try {
       const cart = await this.ctCartService.getCart({ id: getCartIdFromContext() });
       const subscriptionParams = getSubscriptionAttributes(cart.lineItems[0].variant.attributes!);
-      const { hasFreeAnchorDays, isSendInvoice, hasTrial } = this.getSubscriptionTypes(subscriptionParams);
-      //Free anchor days doesn't create an invoice
-      const hasNoInvoice = hasFreeAnchorDays;
+      const { hasNoInvoice, isSendInvoice, hasTrial } = this.getSubscriptionTypes(subscriptionParams);
 
       if (hasNoInvoice) {
         const payment = await this.ctPaymentService.getPayment({ id: paymentReference });
@@ -466,6 +469,20 @@ export class StripeSubscriptionService {
       hasFreeAnchorDays,
       hasProrations,
       isSendInvoice,
+      //Free anchor days doesn't create an invoice
+      hasNoInvoice: hasFreeAnchorDays,
     };
+  }
+
+  public getSubscriptionPaymentAmount(cart: Cart): PaymentAmount {
+    const product = cart.lineItems[0];
+    const isSubscription = product.productType.obj?.name === productTypeSubscription.name;
+    const { centAmount, currencyCode, fractionDigits } = product.price.value;
+
+    if (!isSubscription) {
+      throw new Error('Cart is not a subscription.');
+    }
+
+    return { centAmount, currencyCode, fractionDigits };
   }
 }

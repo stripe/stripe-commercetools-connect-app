@@ -37,7 +37,6 @@ export const getSubscriptionAttributes = (productAttributes?: Attribute[]): Stri
     ...billingAnchor,
     ...trialSettings,
     ...cancelAt,
-    //TODO: ADD COUPON LOGIC
   } as Stripe.SubscriptionCreateParams;
 };
 
