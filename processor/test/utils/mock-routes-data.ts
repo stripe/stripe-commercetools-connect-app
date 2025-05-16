@@ -1,5 +1,6 @@
 import Stripe from 'stripe';
 import {
+  CollectBillingAddressOptions,
   ConfigElementResponseSchemaDTO,
   CustomerResponseSchemaDTO,
   PaymentResponseSchemaDTO,
@@ -288,7 +289,9 @@ export const mockEvent__paymentIntent_succeeded_captureMethodAutomatic: Stripe.E
       last_payment_error: null,
       latest_charge: 'ch_11111',
       livemode: false,
-      metadata: {},
+      metadata: {
+        ct_payment_id: 'pi_11111',
+      },
       next_action: null,
       on_behalf_of: null,
       payment_method: 'pm_11111',
@@ -513,7 +516,9 @@ export const mockEvent__paymentIntent_canceled: Stripe.Event = {
       last_payment_error: null,
       latest_charge: 'ch_11111',
       livemode: false,
-      metadata: {},
+      metadata: {
+        ct_payment_id: 'pi_11111',
+      },
       next_action: null,
       on_behalf_of: null,
       payment_method: 'pm_11111',
@@ -592,6 +597,7 @@ export const mockRoute__get_config_element_succeed: ConfigElementResponseSchemaD
   webElements: 'mockWebElement',
   setupFutureUsage: 'on_session',
   layout: '{"type":"accordion","defaultCollapsed":false,"radios":true,"spacedAccordionItems":true}',
+  collectBillingAddress: CollectBillingAddressOptions.AUTO,
 };
 
 export const mockEvent__charge_capture_succeeded_notCaptured: Stripe.Event = {

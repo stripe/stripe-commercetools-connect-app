@@ -16,8 +16,9 @@ import packageJSON from '../../package.json';
 import { AbstractPaymentService } from './abstract-payment.service';
 import { getConfig } from '../config/config';
 import { appLogger, paymentSDK } from '../payment-sdk';
-import { CaptureMethod, StripeEvent, StripePaymentServiceOptions } from './types/stripe-payment.type';
+import { CaptureMethod, PaymentStatus, StripeEvent, StripePaymentServiceOptions } from './types/stripe-payment.type';
 import {
+  CollectBillingAddressOptions,
   ConfigElementResponseSchemaDTO,
   CustomerResponseSchemaDTO,
   PaymentOutcome,
@@ -32,14 +33,11 @@ import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
 import crypto from 'crypto';
 import { StripeEventConverter } from './converters/stripeEventConverter';
-import { Address, Cart, Customer, FieldDefinition } from '@commercetools/platform-sdk';
-import { stripeCustomerIdCustomType } from '../custom-types/custom-types';
-import {
-  addFieldToCustomType,
-  assignCustomTypeToCustomer,
-  getCustomerCustomType,
-  hasField,
-} from '../helpers/customTypeHelper';
+import { Address, Cart, Customer } from '@commercetools/platform-sdk';
+import { stripeCustomerIdCustomType, stripeCustomerIdFieldName } from '../custom-types/custom-types';
+import { isValidUUID } from '../utils';
+import { getCustomFieldUpdateActions } from './commerce-tools/customTypeHelper';
+import { updateCustomerById } from './commerce-tools/customerClient';
 
 export class StripePaymentService extends AbstractPaymentService {
   private stripeEventConverter: StripeEventConverter;
@@ -237,17 +235,18 @@ export class StripePaymentService extends AbstractPaymentService {
   public async getCustomerSession(defaultStripeCustomerId?: string): Promise<CustomerResponseSchemaDTO | undefined> {
     try {
       const cart = await this.ctCartService.getCart({ id: getCartIdFromContext() });
-      const ctCustomerId = cart.customerId || cart.anonymousId;
+      const ctCustomerId = cart.customerId;
       if (!ctCustomerId) {
-        log.warn('Cart does not have a customerId or anonymousId - Skipping customer creation');
+        log.warn('Cart does not have a customerId - Skipping customer creation');
         return;
       }
 
       const customer = await this.getCtCustomer(ctCustomerId);
-      await this.ensureCustomerCustomFields(customer);
-      log.info(
-        `Customer has a custom field call ${stripeCustomerIdCustomType.fieldDefinitions[0].name} - customer session creation`,
-      );
+      if (!customer) {
+        log.info('Customer not found - Skipping Stripe Customer creation');
+        return;
+      }
+
       const stripeCustomerId = await this.retrieveOrCreateStripeCustomerId(cart, customer, defaultStripeCustomerId);
       if (!stripeCustomerId) {
         throw 'Failed to get stripe customer id.';
@@ -278,24 +277,27 @@ export class StripePaymentService extends AbstractPaymentService {
    *
    * @return Promise<PaymentResponseSchemaDTO> A Promise that resolves to a PaymentResponseSchemaDTO object containing the client secret and payment reference.
    */
-  public async createPaymentIntentStripe(stripeId?: string): Promise<PaymentResponseSchemaDTO> {
+  public async createPaymentIntentStripe(): Promise<PaymentResponseSchemaDTO> {
     const config = getConfig();
     const ctCart = await this.ctCartService.getCart({ id: getCartIdFromContext() });
     const customer = await this.getCtCustomer(ctCart.customerId!);
-    const shippingAddress = this.getStripeCustomerAddress(ctCart.shippingAddress, customer.addresses[0]);
+    const shippingAddress = this.getStripeCustomerAddress(ctCart.shippingAddress, customer?.addresses[0]);
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
     const captureMethodConfig = config.stripeCaptureMethod;
     const merchantReturnUrl = getMerchantReturnUrlFromContext() || config.merchantReturnUrl;
     const setupFutureUsage = config.stripeSavedPaymentMethodConfig?.payment_method_save_usage;
+    const stripeCustomerId = customer?.custom?.fields?.[stripeCustomerIdFieldName];
+
     let paymentIntent!: Stripe.PaymentIntent;
 
     try {
-      const stripeCustomerId = await this.retrieveOrCreateStripeCustomerId(ctCart, customer, stripeId);
       const idempotencyKey = crypto.randomUUID();
       paymentIntent = await stripeApi().paymentIntents.create(
         {
-          customer: stripeCustomerId,
-          setup_future_usage: setupFutureUsage,
+          ...(stripeCustomerId && {
+            customer: stripeCustomerId,
+            setup_future_usage: setupFutureUsage,
+          }),
           amount: amountPlanned.centAmount,
           currency: amountPlanned.currencyCode,
           automatic_payment_methods: {
@@ -326,8 +328,14 @@ export class StripePaymentService extends AbstractPaymentService {
       amountPlanned,
       paymentMethodInfo: {
         paymentInterface: getPaymentInterfaceFromContext() || 'stripe',
-        method: 'payment',
+        /*name: { // Currently unused fields
+          en: 'Stripe Payment Connector',
+        },*/
       },
+      /*paymentStatus: { // Currently unused fields
+        interfaceCode: paymentIntent.id, //This is translated to PSP Status Code on the Order->Payment page
+        interfaceText: paymentIntent.description || '', //This is translated to Description on the Order->Payment page
+      },*/
       ...(ctCart.customerId && {
         customer: {
           typeId: 'customer',
@@ -385,6 +393,9 @@ export class StripePaymentService extends AbstractPaymentService {
       paymentReference: ctPayment.id,
       merchantReturnUrl: merchantReturnUrl,
       cartId: ctCart.id,
+      ...(config.stripeCollectBillingAddress !== 'auto' && {
+        billingAddress: this.getBillingAddress(ctCart),
+      }),
     };
   }
 
@@ -438,6 +449,7 @@ export class StripePaymentService extends AbstractPaymentService {
       stripeCaptureMethod,
       stripeSavedPaymentMethodConfig,
       stripeLayout,
+      stripeCollectBillingAddress,
     } = getConfig();
     const ctCart = await this.ctCartService.getCart({ id: getCartIdFromContext() });
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
@@ -457,6 +469,7 @@ export class StripePaymentService extends AbstractPaymentService {
       webElements: webElement,
       stripeSetupFutureUsage: setupFutureUsage,
       layout: stripeLayout,
+      collectBillingAddress: stripeCollectBillingAddress,
     });
 
     return {
@@ -469,6 +482,7 @@ export class StripePaymentService extends AbstractPaymentService {
       webElements: webElement,
       setupFutureUsage: setupFutureUsage,
       layout: stripeLayout,
+      collectBillingAddress: stripeCollectBillingAddress as CollectBillingAddressOptions,
     };
   }
 
@@ -503,20 +517,49 @@ export class StripePaymentService extends AbstractPaymentService {
     try {
       const updateData = this.stripeEventConverter.convert(event);
 
-      for (const tx of updateData.transactions) {
+      if (updateData.transactions.length === 0 && event.type === StripeEvent.CHARGE__SUCCEEDED) {
         const updatedPayment = await this.ctPaymentService.updatePayment({
-          id: updateData.id,
-          pspReference: updateData.pspReference,
-          transaction: tx,
+          ...updateData,
         });
+        const hasAuthInitial = this.ctPaymentService.hasTransactionInState({
+          payment: updatedPayment,
+          transactionType: PaymentTransactions.AUTHORIZATION,
+          states: [PaymentStatus.INITIAL],
+        });
+        if (hasAuthInitial) {
+          await this.ctPaymentService.updatePayment({
+            id: updatedPayment.id,
+            pspReference: updateData.pspReference,
+            transaction: {
+              type: PaymentTransactions.AUTHORIZATION,
+              state: this.convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
+              amount: updatedPayment.amountPlanned,
+              interactionId: updateData.pspReference,
+            },
+          });
+        }
 
-        log.info('Payment updated after processing the notification', {
+        log.info('Payment information updated', {
           paymentId: updatedPayment.id,
           version: updatedPayment.version,
           pspReference: updateData.pspReference,
           paymentMethod: updateData.paymentMethod,
-          transaction: JSON.stringify(tx),
         });
+      } else {
+        for (const tx of updateData.transactions) {
+          const updatedPayment = await this.ctPaymentService.updatePayment({
+            ...updateData,
+            transaction: tx,
+          });
+
+          log.info('Payment transaction updated after processing the notification', {
+            paymentId: updatedPayment.id,
+            version: updatedPayment.version,
+            pspReference: updateData.pspReference,
+            paymentMethod: updateData.paymentMethod,
+            transaction: JSON.stringify(tx),
+          });
+        }
       }
 
       if (event.type === StripeEvent.PAYMENT_INTENT__SUCCEEDED) {
@@ -573,12 +616,11 @@ export class StripePaymentService extends AbstractPaymentService {
       }
     }
 
-    //TODO: Get the stripeCustomer from Customer info, not from cart
-    const customFieldName = stripeCustomerIdCustomType.fieldDefinitions[0].name;
-    const savedCustomerId = customer?.custom?.fields?.[customFieldName];
+    const savedCustomerId = customer?.custom?.fields?.[stripeCustomerIdFieldName];
     if (savedCustomerId) {
       const isValid = await this.validateStripeCustomerId(savedCustomerId, customer.id);
       if (isValid) {
+        log.info('Customer has a valid Stripe Customer ID saved.', { stripeCustomerId: savedCustomerId });
         return savedCustomerId;
       }
     }
@@ -610,6 +652,10 @@ export class StripePaymentService extends AbstractPaymentService {
 
   public async findStripeCustomer(ctCustomerId: string): Promise<Stripe.Customer | undefined> {
     try {
+      if (!isValidUUID(ctCustomerId)) {
+        log.warn('Invalid ctCustomerId: Not a valid UUID:', { ctCustomerId });
+        throw 'Invalid ctCustomerId: Not a valid UUID';
+      }
       const query = `metadata['ct_customer_id']:'${ctCustomerId}'`;
       const customer = await stripeApi().customers.search({ query });
       return customer.data[0];
@@ -622,7 +668,7 @@ export class StripePaymentService extends AbstractPaymentService {
   public async createStripeCustomer(cart: Cart, customer: Customer): Promise<Stripe.Customer | undefined> {
     const shippingAddress = this.getStripeCustomerAddress(customer.addresses[0], cart.shippingAddress);
     const email = cart.customerEmail || customer.email || cart.shippingAddress?.email;
-    const newCustomer = await stripeApi().customers.create({
+    return await stripeApi().customers.create({
       email,
       name: `${customer.firstName} ${customer.lastName}`.trim() || shippingAddress?.name,
       phone: shippingAddress?.phone,
@@ -631,38 +677,28 @@ export class StripePaymentService extends AbstractPaymentService {
       },
       ...(shippingAddress?.address ? { address: shippingAddress.address } : null),
     });
-
-    return newCustomer;
   }
 
-  public async saveStripeCustomerId(stripeCustomerId: string, customer: Customer): Promise<boolean> {
+  public async saveStripeCustomerId(stripeCustomerId: string, customer: Customer): Promise<void> {
     // TODO: commercetools insights on how to integrate the Stripe accountId into commercetools:
     // We have plans to support recurring payments and saved payment methods in the next quarters.
     // Not sure if you can wait until that so your implementation would be aligned with ours.
-    const customFieldName = stripeCustomerIdCustomType.fieldDefinitions[0].name;
-    const latestCustomer = await this.getCtCustomer(customer.id);
-    const response = await paymentSDK.ctAPI.client
-      .customers()
-      .withId({ ID: latestCustomer.id })
-      .post({
-        body: {
-          version: latestCustomer.version,
-          actions: [
-            {
-              action: 'setCustomField',
-              name: customFieldName,
-              value: stripeCustomerId,
-            },
-          ],
-        },
-      })
-      .execute();
-    return Boolean(response.body.custom?.fields?.[customFieldName]);
+    const fields: Record<string, string> = {
+      [stripeCustomerIdFieldName]: stripeCustomerId,
+    };
+    const { id, version, custom } = customer;
+    const updateFieldActions = await getCustomFieldUpdateActions({
+      fields,
+      customFields: custom,
+      customType: stripeCustomerIdCustomType,
+    });
+    await updateCustomerById({ id, version, actions: updateFieldActions });
+    log.info(`Stripe Customer ID "${stripeCustomerId}" saved to customer "${id}".`);
   }
 
   public async createSession(stripeCustomerId: string): Promise<Stripe.CustomerSession | undefined> {
     const paymentConfig = getConfig().stripeSavedPaymentMethodConfig;
-    const session = await stripeApi().customerSessions.create({
+    return await stripeApi().customerSessions.create({
       customer: stripeCustomerId,
       components: {
         payment_element: {
@@ -671,8 +707,6 @@ export class StripePaymentService extends AbstractPaymentService {
         },
       },
     });
-
-    return session;
   }
 
   public async createEphemeralKey(stripeCustomerId: string) {
@@ -685,13 +719,17 @@ export class StripePaymentService extends AbstractPaymentService {
     return res?.secret;
   }
 
-  public async getCtCustomer(ctCustomerId: string): Promise<Customer> {
-    const response = await paymentSDK.ctAPI.client.customers().withId({ ID: ctCustomerId }).get().execute();
-    if (!response.body) {
-      log.error('Customer not found', { ctCustomerId });
-      throw `Customer with ID ${ctCustomerId} not found`;
-    }
-    return response.body;
+  public async getCtCustomer(ctCustomerId: string): Promise<Customer | void> {
+    return await paymentSDK.ctAPI.client
+      .customers()
+      .withId({ ID: ctCustomerId })
+      .get()
+      .execute()
+      .then((response) => response.body)
+      .catch((err) => {
+        log.warn(`Customer not found ${ctCustomerId}`, { error: err });
+        return;
+      });
   }
 
   public getStripeCustomerAddress(prioritizedAddress: Address | undefined, fallbackAddress: Address | undefined) {
@@ -718,21 +756,29 @@ export class StripePaymentService extends AbstractPaymentService {
     };
   }
 
-  public async ensureCustomerCustomFields(customer: Customer): Promise<boolean> {
-    const client = paymentSDK.ctAPI.client;
-    const fieldDef = stripeCustomerIdCustomType.fieldDefinitions[0] as FieldDefinition;
-
-    const updatedCustomer = await assignCustomTypeToCustomer(client, customer);
-    const effectiveCustomer = updatedCustomer || customer;
-
-    const customerType = await getCustomerCustomType(client, effectiveCustomer);
-
-    const fieldExists = hasField(customerType, fieldDef.name);
-    if (!fieldExists) {
-      const updatedType = await addFieldToCustomType(client, customerType, fieldDef);
-      return hasField(updatedType, fieldDef.name);
+  public getBillingAddress(cart: Cart) {
+    const prioritizedAddress = cart.billingAddress ?? cart.shippingAddress;
+    if (!prioritizedAddress) {
+      return undefined;
     }
 
-    return true;
+    const getField = (field: keyof Address): string | null => {
+      const value = prioritizedAddress?.[field];
+      return typeof value === 'string' ? value : '';
+    };
+
+    return JSON.stringify({
+      name: `${getField('firstName')} ${getField('lastName')}`.trim(),
+      phone: getField('phone') || getField('mobile'),
+      email: cart.customerEmail ?? '',
+      address: {
+        line1: `${getField('streetNumber')} ${getField('streetName')}`.trim(),
+        line2: getField('additionalStreetInfo'),
+        city: getField('city'),
+        postal_code: getField('postalCode'),
+        state: getField('state'),
+        country: getField('country'),
+      },
+    });
   }
 }

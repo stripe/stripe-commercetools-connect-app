@@ -1,5 +1,4 @@
 # Payment Integration Processor
-
 This module provides an application based on [commercetools Connect](https://docs.commercetools.com/connect), which is triggered by HTTP requests from Checkout UI for payment operations.
 
 The corresponding payment, cart or order details would be fetched from composable commerce platform, and then be sent to Stripe for various payment operations such as create/capture/cancel/refund payment.
@@ -10,15 +9,19 @@ The module also provides template scripts for post-deployment and pre-undeployme
 
 The Stripe customer session allows you to create a session for a customer, which can be used to manage their payment methods and subscriptions. This feature is particularly useful for businesses that want to provide a seamless checkout experience for their customers.
 
-The Stripe customer session is associated with the customer who owns the cart in the commercetools Checkout session. The cart must have either the `customerId` or `anonymousId` to retrieve and verify if the customer has a Type with the custom field `stripeConnector_stripeCustomerId`. If the Type do not have this field, the connector will create the field to store the Stripe customer ID.
+The Stripe customer session is associated with the customer who owns the cart in the commercetools Checkout session. The cart must have the `customerId` associated to retrieve and verify if the customer has a Type with the custom field `stripeConnector_stripeCustomerId`. If the Type do not have this field, the connector will create the field to store the Stripe customer ID.
 
 If the `stripeConnector_stripeCustomerId` is presented, the connector will try to retrieve the Stripe customer, if the customer do not exist on Stripe, the connector will create a new customer in Stripe using the customer who owns the cart in the session. The commercetools customer ID will be stored in the metadata of the Stripe customer and the `stripeConnector_stripeCustomerId` field in commercetools will be updated with the Stripe customer ID .
 
 The environment variable `STRIPE_SAVED_PAYMENT_METHODS_CONFIG` configures the saved payment methods. The value needs to be a valid stringified JSON. More information about the properties can be found [here](https://docs.stripe.com/api/customer_sessions/object#customer_session_object-components-payment_element-features). This feature is disabled by default.
 
 Diagram of the current workflow:
-
 ![Stripe Customer Workflow.png](../docs/StripeCustomerWorkflow.png)
+
+
+## TODO Considerations for subscription
+TODO subscriptions only work with schedule based auth + auto capture. There isn't a "auth and capture later" scenario / pattern that exists with subscription payments
+
 
 ## Getting Started
 
@@ -27,56 +30,39 @@ Please run following npm commands under `processor` folder.
 
 #### Install PSP Stripe SDK
 In case SDK is provided by payment service provider for communication purpose, you can import the SDK by following commands
-
-```shell
+```
 $ npm install stripe
 ```
-
 #### Install dependencies
-
-```shell
+```
 $ npm install
 ```
-
 #### Build the application in local environment. NodeJS source codes are then generated under dist folder
-
-```shell
+```
 $ npm run build
 ```
-
 #### Run automation test
-
-```shell
+```
 $ npm run test
 ```
-
 #### Run the application in local environment. Remind that the application has been built before it runs
-
-```shell
+```
 $ npm run start
 ```
-
 #### Fix the code style
-
-```shell
+```
 $ npm run lint:fix
 ```
-
 #### Verify the code style
-
-```shell
+```
 $ npm run lint
 ```
-
 #### ==Run post-deploy script in local environment==
-
-```shell
+```
 $ npm run connector:post-deploy
 ```
-
 #### Run pre-undeploy script in local environment
-
-```shell
+```
 $ npm run connector:pre-undeploy
 ```
 
@@ -94,7 +80,7 @@ Make sure commercetools client credential have at least the following permission
 * 'manage_orders'
 * 'manage_types'
 
-```shell
+```
 npm run dev
 ```
 
@@ -107,15 +93,12 @@ Some of the services have authentication mechanism.
 * `jwt`: Relies on the jwt token injected by the merchant center via the forward-to proxy
 
 ### OAuth2
-
 OAuth2 token can be obtained from commercetools OAuth2 server. It requires API Client created beforehand. For details, please refer to [Requesting an access token using the Composable Commerce OAuth 2.0 service](https://docs.commercetools.com/api/authorization#requesting-an-access-token-using-the-composable-commerce-oauth-20-service).
 
 ### Session
-
 Payment connectors relies on session to be able to share information between `enabler` and `processor`.
 To create session before sharing information between these two modules, please execute following request to commercetools session service
-
-```text
+```
 POST https://session.<region>.commercetools.com/<commercetools-project-key>/sessions
 Authorization: Bearer <oauth token with manage_sessions scope>
 
@@ -140,21 +123,17 @@ Afterwards, session ID can be obtained from response, which is necessary to be p
 
 In order to make easy running the application locally, following commands help to build up a jwt mock server:
 
-#### Set environment variable to point to the jwksUrl
-
-```shell
+####Set environment variable to point to the jwksUrl
+```
 export CTP_JWKS_URL="http://localhost:9000/jwt/.well-known/jwks.json"
 ```
-
-#### Run the jwt server
-
-```shell
+####Run the jwt server
+```
 docker compose up -d
 ```
 
-#### Obtain JWT
-
-```shell
+####Obtain JWT
+```
 # Request token
 curl --location 'http://localhost:9000/jwt/token' \
 --header 'Content-Type: application/json' \
@@ -164,10 +143,8 @@ curl --location 'http://localhost:9000/jwt/token' \
     "https://mc-api.europe-west1.gcp.commercetools.com/claims/project_key": "<commercetools-project-key>"
 }'
 ```
-
 Token can be found in response
-
-```json
+```
 {"token":"<token>"}
 ```
 
@@ -186,24 +163,19 @@ For **Buy Now Pay Later (BNPL)** payment methods, Stripe appends the `payment_in
 By implementing this workflow, seamless integration of BNPL payment methods with commercetools Checkout is achieved.
 
 ## APIs
-
 The processor exposes the following endpoints to execute various operations with the Stripe platform:
 
 ### Configurations of collecting payment, appearance and future usage
 This endpoint retrieves the payment information from the cart in session to use the prebuilt Stripe Payment Element UI component. This component simplifies the payment process for a variety of payment methods. The `paymentComponent` is requested in the query parameters to send the correct appearance from the environment variables configuration.
 
 #### Endpoint
-
 `GET /config-element/:paymentComponent`
 
 #### Query Parameters
-
--**paymentComponent**: Used to retrieve the correct appearance of the selected payment method. The appearance can be modified in the environment variables `STRIPE_APPEARANCE_PAYMENT_ELEMENT` and should be in the form of a JSON string with escaped double quotes (e.g. "{\"theme\":\"stripe\",\"variables\":{\"colorPrimary\":\"#0570DE\",\"colorBackground\":\"#FFFFFF\",\"colorText\":\"#30313D\",\"colorDanger\":\"#DF1B41\",\"fontFamily\":\"Ideal Sans,system-ui,sansserif\",\"spacingUnit\":\"2px\",\"borderRadius\":\"4px\"}}"). The correct values will be retrieved by the exposed call ´operations/payment-components´, e.g., 'payment'.
+-**paymentComponent**: Used to retrieve the correct appearance of the selected payment method. The appearance can be modified in the environment variables `STRIPE_APPEARANCE_PAYMENT_ELEMENT` and should be in the form of a JSON string with escaped double quotes (e.g. {"theme":"night","labels":"floating"} ). The correct values will be retrieved by the exposed call ´operations/payment-components´, e.g., 'payment'.
 
 #### Response Parameters
-
 The response will provide the necessary information to populate the payment element:
-
 - **cartInfo**: An object containing two attributes:
   - `amount`: Amount in cents for the cart in session.
   - `currency`: Currency selected for the cart in session.
@@ -211,39 +183,33 @@ The response will provide the necessary information to populate the payment elem
 - **captureMethod**: The current capture method configured in the payment connector.
 - **setupFutureUsage**: The current setup future usage configured in the payment connector.[More information](https://docs.stripe.com/api/customer_sessions/object#customer_session_object-components-payment_element-features).
 - **layout**: This configuration enables the Layout for the payment component. The value needs to be a valid stringified JSON. [More information](https://docs.stripe.com/payments/payment-element#layout).
+- **collectBillingAddress**: This configuration enables the collection of billing address for the Stripe Payment Element component. The default value is 'auto'. [More information](https://docs.stripe.com/payments/payment-element#collecting-billing-address).
 
 ### Create Payment Intent from Stripe
-
-This endpoint creates a new [payment intent](https://docs.stripe.com/api/payment_intents) in Stripe. It is called after the user fills out all the payment information and submits the payment.
-
+This endpoint creates a new [payment intent](https://docs.stripe.com/api/payment_intents) in Stripe. It is called after the user fills out all the payment information and submits the payment. 
 #### Endpoint
-
 `POST /payments`
 
 #### Query Parameters
 N/A
 
 #### Response Parameters
-
-- **sClientSecret**: The client secret is used to complete the payment from your frontend.
+- **sClientSecret**: The client secret is used to complete the payment from your frontend. 
 - **paymentReference**: The payment reference of the current process.
 - **merchantReturnUrl**: The URL used as the `return_url` parameter in Stripe's [confirmPayment](https://docs.stripe.com/js/payment_intents/confirm_payment) process. After the payment confirmation, Stripe appends the `paymentReference` and `cartId` as query parameters to this URL. For Buy Now, Pay Later (BNPL) payment methods, this URL can be used to reinitialize the commercetools Checkout SDK. More information on implementing the return URL for BNPL payment methods can be found in the [commercetools Checkout SDK documentation](https://docs.commercetools.com/checkout/sdk#return-url).
 - **cartId**: The cartId of the current proccess.
+- **billingAddress**: The billing address provided by the merchant, which will be sent to Stripe during the `confirmPayment` process.
 
 ### Confirm the Payment Intent to commercetools
-
 This endpoint update the initial payment transaction in commercetools. It is called after the Stripe confirm the payment submit was successful.
 
 #### Endpoint
-
 `POST /confirmPayments/:id`
 
 #### Query Parameters
-
 - **id**: The payment reference of the current process.
 
 #### Response Parameters
-
 - **outcome:"approved|rejected"**: The response of the updated confirmation in commercetools payment transaction.
 
 ### Webhook Listener
@@ -269,65 +235,50 @@ The order is created during the processing of the `payment_intent.succeeded` web
 In the current implementation, the sample application retrieves shipment and address details from the `last_charge` attribute included in the Stripe event payload. This setup serves as an example and can be adapted or reused based on your specific requirements.
 
 #### Endpoint
-
 `POST /stripe/webhooks`
 
 #### Request Parameters
-
 The [Event object](https://docs.stripe.com/api/events) sent to your webhook endpoint provides a snapshot of the object that changed. These objects might include a `previous_attributes` property indicating the change, when applicable. This event is received as a raw string because Stripe requires the raw body of the request for signature verification.
 
 #### Response Parameters
-
 The endpoint returns a 200 response to indicate the successful processing of the webhook event.
 
 ### Apple pay well-know file
-
 This endpoint return the string of the .well-know call domain [file from Stripe](https://stripe.com/files/apple-pay/apple-developer-merchantid-domain-association).
 
 #### Endpoint
-
 `GET /applePayConfig`
 
 #### Query Parameters
-
 N/A
 
 #### Response Parameters
-
 - **string**: The string value of the well-know domain file.
 
 ### Stripe customer session
-
-Stripe customer session is used to manage the payment methods and subscriptions of a customer. This endpoint creates a new customer session in Stripe. It is called after the user fills out all the payment information and submits the payment. [More information](#considerations-for-stripe-customer-session).
+Stripe customer session is used to manage the payment methods and subscriptions of a customer. This endpoint creates a new customer session in Stripe. It is called after the user fills out all the payment information and submits the payment. [More information](#considerations-for-stripe-customer-session). 
 
 #### Endpoint
-
 `GET /customer/session`
 
 #### Query Parameters
-
 N/A
 
 #### Response Parameters
-
 - **stripeCustomerId**: The ID of the customer in Stripe used for the session.
 - **ephemeralKey**: The ephemeral key used to access the Stripe customer session.
 - **sessionId**: The ID of the customer session in Stripe.
 
 ### Get supported payment components
-
 Private endpoint protected by JSON Web Token that exposes the payment methods supported by the connector so that checkout application can retrieve the available payment components.
 
 #### Endpoint
-
 `GET /operations/payment-components`
 
 #### Request Parameters
-
 N/A
 
 #### Response Parameters
-
 The connector supports payment methods such as [Payment element](https://docs.stripe.com/payments/payment-element) embedded as a drop-in 
 
 ```

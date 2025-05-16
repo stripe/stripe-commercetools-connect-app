@@ -85,8 +85,7 @@ export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPlugi
       },
     },
     async (request, reply) => {
-      const stripeCustomerId = request?.query?.customerId;
-      const resp = await opts.paymentService.createPaymentIntentStripe(stripeCustomerId);
+      const resp = await opts.paymentService.createPaymentIntentStripe();
 
       return reply.status(200).send(resp);
     },

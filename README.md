@@ -42,7 +42,6 @@ Regarding the development of a processor or enabler module, please refer to the 
 - [Development of Enabler](./enabler/README.md)
 
 ![overview.png](docs%2Foverview.png)
-
 ### Components
 
 1. **Composable Commercer**
@@ -64,7 +63,6 @@ Regarding the development of a processor or enabler module, please refer to the 
 # Webhooks
 
 The following webhooks are currently supported, and the payment transactions in commercetools are:
-
 - **payment_intent.canceled**: Modified the payment transaction Authorization to Failure and create a payment transaction CancelAuthorization: Success
 - **payment_intent.succeeded**: Creates a payment transaction Charge: Success.
 - **payment_intent.requires_action**: Logs the information in the connector app inside the Processor logs.
@@ -73,7 +71,9 @@ The following webhooks are currently supported, and the payment transactions in 
 - **charge.succeeded**: Create the payment transaction to 'Authorization:Success' if charge is not capture.
 - **charge.captured**: Logs the information in the connector app inside the Processor logs.
 
+
 ## Prerequisite
+
 
 #### 1. Stripe account credentials and configurations
 
@@ -98,17 +98,22 @@ Before installing the connector, you must create a Stripe account and obtain the
 
 5. **STRIPE_WEBHOOK_ID**: Unique identifier of a Webhook Endpoint in Stripe.
 6. **STRIPE_WEBHOOK_SIGNING_SECRET**: Signing secret of a Webhook Endpoint in Stripe.
-7. **STRIPE_APPLE_PAY_WELL_KNOWN**: Domain association file from Stripe. (example - https://stripe.com/files/apple-pay/apple-developer-merchantid-domain-association)
-8. **STRIPE_LAYOUT**: This configuration enables the Layout for the payment component. The value needs to be a valid stringified JSON. More information about the properties can be found [here](https://docs.stripe.com/payments/payment-element#layout).
+7. **STRIPE_LAYOUT**: This configuration enables the Layout for the payment component. The value needs to be a valid stringified JSON. More information about the properties can be found [here](https://docs.stripe.com/payments/payment-element#layout).
 ```
 //stringified eg.
 {"type":"accordion","defaultCollapsed":false,"radios":true, "spacedAccordionItems":false}
 ```
-9. **STRIPE_SAVED_PAYMENT_METHODS_CONFIG**: The configuration for the saved payment methods. The value needs to be a valid stringified JSON. More information about the properties can be found [here](https://docs.stripe.com/api/customer_sessions/object#customer_session_object-components-payment_element-features). This feature is disabled by default. To enable it, you need to add the expected customer session object.
+8. **STRIPE_SAVED_PAYMENT_METHODS_CONFIG**: The configuration for the saved payment methods. The value needs to be a valid stringified JSON. More information about the properties can be found [here](https://docs.stripe.com/api/customer_sessions/object#customer_session_object-components-payment_element-features). This feature is disabled by default. To enable it, you need to add the expected customer session object.
 ```
 //stringified, eg.
 {"payment_method_save_usage":"off_session","payment_method_redisplay_limit":10}
 ```
+9. **STRIPE_PUBLISHABLE_KEY**: Provided by Stripe. The key is to create the Payment Element component on the front end.
+10. **STRIPE_APPLE_PAY_WELL_KNOWN**: This is the domain association file from Stripe. Use to verify the domain for Apple Pay. More information can be found [here](https://stripe.com/docs/apple-pay/web).
+11. **MERCHANT_RETURN_URL**: This is the return URL used on the confirmPayment return_url parameter. The Buy Now Pay Later payment methods will send the Stripe payment_intent in the URL; the Merchant will need to retrieve the payment intent and look for the metadata ct_payment_id is add in the commercetools Checkout SDK paymentReference.
+12. **STRIPE_CAPTURE_METHOD**: This is the capture method used for the Payment. It can be either `automatic` or `manual`. The default value is `automatic`.
+13. **STRIPE_WEBHOOK_ID**: This is the unique identifier for the Stripe Webhook Endpoint.
+14. **STRIPE_COLLECT_SHIPPING_ADDRESS**: This is the configuration for the Stripe collect shipping address in the payment element. The default value is `auto`. More information can be found [here](https://docs.stripe.com/payments/payment-element/control-billing-details-collection).
 
 #### 2. commercetools
 
@@ -192,7 +197,7 @@ To enable Google Pay, you must ensure the following conditions are satisfied:
 It needs to be published to deploy your customized connector application on commercetools Connect. For details, please refer to [documentation about commercetools Connect](https://docs.commercetools.com/connect/concepts)
 In addition, the tax integration connector template has a folder structure, as listed below, to support Connect.
 
-```text
+```
 ├── enabler
 │   ├── src
 │   ├── test
@@ -206,7 +211,7 @@ In addition, the tax integration connector template has a folder structure, as l
 
 The connect deployment configuration specifie in `connect.yaml`, the information needed to publish the application. Following is the deployment configuration used by the Enabler and Processor modules
 
-```yaml
+```
 deployAs:
   - name: enabler
     applicationType: assets
@@ -265,6 +270,10 @@ deployAs:
         - key: MERCHANT_RETURN_URL
           description: Merchant return URL
           required: true
+        - key: STRIPE_COLLECT_BILLING_ADDRESS
+          description: Stripe collect billing address information (example - 'auto' | 'never' | 'if_required').
+          default: 'auto'
+          required: true
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
           description: commercetools client secret.
@@ -282,7 +291,6 @@ deployAs:
 ```
 
 Here, you can see the details about various variables in the configuration
-
 - `CTP_PROJECT_KEY`: The key to the commercetools composable commerce project.
 - `CTP_SCOPE`: The scope constrains the endpoints to which the commercetools client has access and the read/write access right to an endpoint.
 - `CTP_AUTH_URL`: The URL for authentication in the commercetools platform. Generate the OAuth 2.0 token required in every API call to commercetools composable commerce. The default value is `https://auth.europe-west1.gcp.commercetools.com`. For details, please refer to the documentation [here](https://docs.commercetools.com/tutorials/api-tutorial#authentication).
@@ -303,6 +311,7 @@ Here, you can see the details about various variables in the configuration
 - `STRIPE_WEBHOOK_SIGNING_SECRET`: Stripe Secret key to verify webhook signatures using the official libraries. This key is created in the [Stripe dashboard Webhook](https://docs.stripe.com/webhooks).
 - `MERCHANT_RETURN_URL`: Merchant return URL used on the [confirmPayment](https://docs.stripe.com/js/payment_intents/confirm_payment) return_url parameter. The Buy Now Pay Later payment methods will send the Stripe payment_intent in the URL; the Merchant will need to retrieve the payment intent and look for the metadata `ct_payment_id` to be added in the commercetools Checkout SDK `paymentReference`.
 - `STRIPE_SAVED_PAYMENT_METHODS_CONFIG`: Stripe allows you to configure the saved payment methods in the Payment Element, refer to [docs](https://docs.stripe.com/api/customer_sessions/object#customer_session_object-components-payment_element-features). This feature is disabled by default. To enable it, you need to add the expected customer session object. Default value is `{"payment_method_save":"disabled"}`
+- `STRIPE_COLLECT_SHIPPING_ADDRESS`: Stripe allows you to collect the shipping address in the Payment Element. If you want to collect the shipping address, you need to set this value to `never`. The default value is `auto`. More information can be found [here](https://docs.stripe.com/payments/payment-element/control-billing-details-collection).
 
 ## Development
 

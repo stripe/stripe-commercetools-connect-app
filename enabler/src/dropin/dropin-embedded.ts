@@ -10,11 +10,26 @@ import {
   StripePaymentElement,
 } from "@stripe/stripe-js";
 
+interface BillingAddress {
+  name: string;
+  email: string;
+  phone: string;
+  address: {
+    city: string;
+    country: string;
+    line1: string;
+    line2: string;
+    postal_code: string;
+    state: string;
+  }
+}
+
 interface ConfirmPaymentProps {
   merchantReturnUrl: string;
   cartId: string;
   clientSecret: string;
   paymentReference: string;
+  billingAddress?: BillingAddress;
 }
 
 interface ConfirmPaymentIntentProps {
@@ -81,14 +96,20 @@ export class DropinComponents implements DropinComponent {
         throw submitError;
       }
 
-      const { sClientSecret, paymentReference, merchantReturnUrl, cartId } =
-        await this.getPayment();
+      const {
+        sClientSecret,
+        paymentReference,
+        merchantReturnUrl,
+        cartId,
+        billingAddress
+      } = await this.getPayment();
 
       const { paymentIntent } = await this.confirmStripePayment({
         merchantReturnUrl,
         cartId,
         clientSecret: sClientSecret,
         paymentReference,
+        ...(billingAddress && {billingAddress: JSON.parse(billingAddress) as BillingAddress}),
       });
 
       await this.confirmPaymentIntent({
@@ -123,6 +144,7 @@ export class DropinComponents implements DropinComponent {
     cartId,
     clientSecret,
     paymentReference,
+    billingAddress,
   }: ConfirmPaymentProps) {
     const returnUrl = new URL(merchantReturnUrl);
     returnUrl.searchParams.append("cartId", cartId);
@@ -133,6 +155,11 @@ export class DropinComponents implements DropinComponent {
       clientSecret,
       confirmParams: {
         return_url: returnUrl.toString(),
+        ...(billingAddress &&{
+          payment_method_data: {
+            billing_details: billingAddress
+          }
+        })
       },
       redirect: "if_required",
     });
