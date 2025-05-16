@@ -7,7 +7,7 @@ import {
   getTypeByKey,
   getTypesByResourceTypeId,
   updateCustomTypeByKey,
-} from '../../../src/services/commerce-tools/customTypeClient';
+} from '../../../src/services/commerce-tools/custom-type-client';
 
 describe('ProductTypeHelper testing', () => {
   beforeEach(() => {

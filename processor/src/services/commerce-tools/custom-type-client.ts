@@ -1,5 +1,5 @@
 import { Type, TypeDraft, TypeUpdateAction } from '@commercetools/platform-sdk';
-import { KeyAndVersion } from './customTypeHelper';
+import { KeyAndVersion } from './custom-type-helper';
 import { paymentSDK } from '../../payment-sdk';
 
 const apiClient = paymentSDK.ctAPI.client;

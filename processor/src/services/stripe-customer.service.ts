@@ -14,8 +14,8 @@ import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
 import { stripeCustomerIdFieldName, stripeCustomerIdCustomType } from '../custom-types/custom-types';
 import { isValidUUID } from '../utils';
-import { getCustomFieldUpdateActions } from './commerce-tools/customTypeHelper';
-import { getCustomerById, updateCustomerById } from './commerce-tools/customerClient';
+import { getCustomFieldUpdateActions } from './commerce-tools/custom-type-helper';
+import { getCustomerById, updateCustomerById } from './commerce-tools/customer-client';
 import { METADATA_CUSTOMER_ID_FIELD } from '../constants';
 
 const stripe = stripeApi();

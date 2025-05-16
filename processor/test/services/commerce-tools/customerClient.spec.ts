@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { mock_SetCustomFieldActions } from '../../utils/mock-actions-data';
 import { paymentSDK } from '../../../src/payment-sdk';
 import { mockCtCustomerData } from '../../utils/mock-customer-data';
-import { updateCustomerById } from '../../../src/services/commerce-tools/customerClient';
+import { updateCustomerById } from '../../../src/services/commerce-tools/customer-client';
 
 describe('ProductTypeHelper testing', () => {
   beforeEach(() => {

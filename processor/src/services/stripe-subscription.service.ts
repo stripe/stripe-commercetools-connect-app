@@ -35,8 +35,8 @@ import {
 } from '../custom-types/custom-types';
 import { getSubscriptionAttributes } from '../mappers/subscription-mapper';
 import { CtPaymentCreationService } from './ct-payment-creation.service';
-import { getCartExpanded, updateCartById } from './commerce-tools/cartClient';
-import { getCustomFieldUpdateActions } from './commerce-tools/customTypeHelper';
+import { getCartExpanded, updateCartById } from './commerce-tools/cart-client';
+import { getCustomFieldUpdateActions } from './commerce-tools/custom-type-helper';
 import { METADATA_PRICE_ID_FIELD, METADATA_VARIANT_SKU_FIELD, METADATA_PRODUCT_ID_FIELD } from '../constants';
 import { StripePaymentService } from './stripe-payment.service';
 import { StripeCouponService } from './stripe-coupon.service';

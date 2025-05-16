@@ -11,7 +11,7 @@ import {
   deleteCustomTypeByKey,
   getTypesByResourceTypeId,
   updateCustomTypeByKey,
-} from './customTypeClient';
+} from './custom-type-client';
 
 export interface KeyAndVersion {
   key: string;

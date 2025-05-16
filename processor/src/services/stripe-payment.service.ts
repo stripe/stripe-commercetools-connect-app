@@ -37,9 +37,9 @@ import { SubscriptionEventConverter } from './converters/subscriptionEventConver
 import { CtPaymentCreationService } from './ct-payment-creation.service';
 import { productTypeSubscription, stripeCustomerIdFieldName } from '../custom-types/custom-types';
 import { StripeCustomerService } from './stripe-customer.service';
-import { getCartExpanded } from './commerce-tools/cartClient';
+import { getCartExpanded } from './commerce-tools/cart-client';
 import { METADATA_ORDER_ID_FIELD } from '../constants';
-import { addOrderPayment, createOrderFromCart } from './commerce-tools/orderClient';
+import { addOrderPayment, createOrderFromCart } from './commerce-tools/order-client';
 
 const stripe = stripeApi();
 

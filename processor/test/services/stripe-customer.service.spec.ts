@@ -17,8 +17,8 @@ import {
 import { StripeCustomerService } from '../../src/services/stripe-customer.service';
 import { mock_SetCustomTypeActions } from '../utils/mock-actions-data';
 import * as Logger from '../../src/libs/logger/index';
-import * as CustomerClient from '../../src/services/commerce-tools/customerClient';
-import * as CustomTypeHelper from '../../src/services/commerce-tools/customTypeHelper';
+import * as CustomerClient from '../../src/services/commerce-tools/customer-client';
+import * as CustomTypeHelper from '../../src/services/commerce-tools/custom-type-helper';
 
 jest.mock('stripe', () => ({
   __esModule: true,
