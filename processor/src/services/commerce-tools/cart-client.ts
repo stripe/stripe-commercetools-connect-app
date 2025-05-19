@@ -8,7 +8,11 @@ export const getCartExpanded = async (id?: string): Promise<Cart> => {
   const cart = await apiClient
     .carts()
     .withId({ ID: id ?? getCartIdFromContext() })
-    .get({ queryArgs: { expand: 'lineItems[*].productType' } })
+    .get({
+      queryArgs: {
+        expand: ['lineItems[*].productType', 'discountCodes[*].discountCode.cartDiscounts[*]'],
+      },
+    })
     .execute();
   return cart.body;
 };

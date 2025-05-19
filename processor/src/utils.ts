@@ -1,5 +1,5 @@
 import Stripe from 'stripe';
-import { Attribute } from '@commercetools/platform-sdk';
+import { Attribute, LocalizedString } from '@commercetools/platform-sdk';
 import { PaymentOutcome } from './dtos/stripe-payment.dto';
 
 export const parseJSON = <T extends object | []>(json?: string): T => {
@@ -66,4 +66,13 @@ export const parseTimeString = (timeString: string): { hour: number; minute: num
     minute: parseInt(minutesStr, 10),
     second: parseInt(secondsStr, 10),
   };
+};
+
+export const getLocalizedString = (obj?: LocalizedString): string => {
+  if (!obj) {
+    return '';
+  }
+
+  const locale = Object.keys(obj).find((key) => key.startsWith('en')) || 'en';
+  return obj[locale] || obj['en'] || '';
 };

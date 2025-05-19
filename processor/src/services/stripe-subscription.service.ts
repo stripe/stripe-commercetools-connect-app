@@ -26,7 +26,7 @@ import { getCartIdFromContext, getMerchantReturnUrlFromContext } from '../libs/f
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
 import { StripeCustomerService } from './stripe-customer.service';
-import { transformVariantAttributes } from '../utils';
+import { getLocalizedString, transformVariantAttributes } from '../utils';
 import {
   lineItemStripeSubscriptionIdField,
   productTypeSubscription,
@@ -180,8 +180,9 @@ export class StripeSubscriptionService {
       throw new Error('Only one line item is allowed in the cart for subscription. Please remove the others.');
     }
 
-    const amountPlanned = await this.getSubscriptionPaymentAmount(cart);
-    const priceId = await this.getSubscriptionPriceId(cart, amountPlanned);
+    const amountPlanned = await this.ctCartService.getPaymentAmount({ cart });
+    const lineItemAmount = await this.getSubscriptionPaymentAmount(cart);
+    const priceId = await this.getSubscriptionPriceId(cart, lineItemAmount);
     const customer = await this.customerService.getCtCustomer(cart.customerId!);
     const stripeCustomerId: string = customer?.custom?.fields?.[stripeCustomerIdFieldName];
     const subscriptionParams = getSubscriptionAttributes(cart.lineItems[0].variant.attributes);
@@ -190,6 +191,7 @@ export class StripeSubscriptionService {
 
     return {
       cart,
+      lineItemAmount,
       amountPlanned,
       priceId,
       stripeCustomerId,
@@ -297,7 +299,7 @@ export class StripeSubscriptionService {
 
   public async createStripeProduct(product: LineItem): Promise<string> {
     const newProduct = await stripe.products.create({
-      name: product.name['en-US'] ?? product.name,
+      name: getLocalizedString(product.name),
       metadata: {
         [METADATA_PRODUCT_ID_FIELD]: product.productId,
       },

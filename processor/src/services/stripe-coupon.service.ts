@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 import { DiscountCode, Cart } from '@commercetools/platform-sdk';
 import { stripeApi } from '../clients/stripe.client';
-import { convertDateToUnixTimestamp } from '../utils';
+import { convertDateToUnixTimestamp, getLocalizedString } from '../utils';
 import { log } from '../libs/logger';
 
 const stripe = stripeApi();
@@ -15,31 +15,30 @@ export class StripeCouponService {
     const coupons: Stripe.SubscriptionCreateParams.Discount[] = [];
 
     for (const code of cart.discountCodes) {
-      const discount = code.discountCode.obj;
+      const discountCode = code.discountCode.obj;
 
-      if (!discount) {
+      if (!discountCode) {
         throw new Error(`Discount code "${code.discountCode.id}" not found`);
       }
 
-      if (!(discount.cartDiscounts.length === 1)) {
+      if (!(discountCode.cartDiscounts.length === 1)) {
         throw new Error(`Discount "${code.discountCode.id}" has multiple cart discounts. Not supported by Stripe.`);
       }
 
-      const stripeDiscount = await this.getStripeCouponById(discount.id);
-      const isValidCoupon = this.validateDiscountCode(discount, stripeDiscount);
+      const stripeDiscount = await this.getStripeCouponById(discountCode.id);
+      const isValidCoupon = this.validateDiscountCode(discountCode, stripeDiscount);
 
       if (isValidCoupon && stripeDiscount) {
         coupons.push({ coupon: stripeDiscount.id });
-        log.info(`Stripe discount code "${stripeDiscount.id}" is valid:`);
       } else {
         if (stripeDiscount) {
-          await this.deleteStripeDiscountCode(discount.id);
+          await this.deleteStripeDiscountCode(discountCode.id);
         }
-        const newCode = await this.createStripeDiscountCode(discount);
+        const newCode = await this.createStripeDiscountCode(discountCode);
         coupons.push({ coupon: newCode });
       }
 
-      const stackingMode = discount?.cartDiscounts[0].obj?.stackingMode;
+      const stackingMode = discountCode.cartDiscounts[0].obj?.stackingMode;
       if (stackingMode === 'StopAfterThisDiscount') {
         break;
       }
@@ -58,12 +57,6 @@ export class StripeCouponService {
   }
 
   public async createStripeDiscountCode(discount: DiscountCode): Promise<string> {
-    const cartDiscount = discount.cartDiscounts[0].obj!;
-
-    if (cartDiscount.value.type === 'fixed' || cartDiscount.value.type === 'giftLineItem') {
-      throw new Error('Cart discount type is not supported');
-    }
-
     const { expirationDate, maxRedemptions, currency, amount, name } = this.getDiscountConfig(discount);
 
     const newDiscount = await stripe.coupons.create({
@@ -110,17 +103,20 @@ export class StripeCouponService {
   }
 
   public getDiscountConfig(discount: DiscountCode) {
-    const cartDiscount = discount.cartDiscounts[0].obj!;
-    const discountType = cartDiscount.value.type;
+    const cartDiscount = discount.cartDiscounts[0].obj;
+    if (!cartDiscount) {
+      throw new Error(`Cart discount not found for discount code "${discount.id}"`);
+    }
 
+    const discountType = cartDiscount.value.type;
     if (discountType === 'fixed' || discountType === 'giftLineItem') {
       throw new Error('Cart discount type is not supported');
     }
 
+    const name = getLocalizedString(discount.name);
     const isPercentage = cartDiscount.value.type === 'relative';
     const isAmountOff = cartDiscount.value.type === 'absolute';
     const expirationDate = discount.validUntil ? convertDateToUnixTimestamp(discount.validUntil) : undefined;
-    const name = discount.name?.['en-US'] ?? discount.name?.['en'] ?? undefined;
     const percentOff = isPercentage ? cartDiscount.value.permyriad / 100 : undefined;
     const amountOff = isAmountOff ? cartDiscount.value.money[0].centAmount : undefined;
     const currency = isAmountOff ? cartDiscount.value.money[0].currencyCode : undefined;
