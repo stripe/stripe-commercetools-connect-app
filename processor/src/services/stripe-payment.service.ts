@@ -35,11 +35,12 @@ import { StripeEventConverter } from './converters/stripeEventConverter';
 import { convertPaymentResultCode } from '../utils';
 import { SubscriptionEventConverter } from './converters/subscriptionEventConverter';
 import { CtPaymentCreationService } from './ct-payment-creation.service';
-import { productTypeSubscription, stripeCustomerIdFieldName } from '../custom-types/custom-types';
+import { stripeCustomerIdFieldName } from '../custom-types/custom-types';
 import { StripeCustomerService } from './stripe-customer.service';
 import { getCartExpanded } from './commerce-tools/cart-client';
 import { METADATA_ORDER_ID_FIELD } from '../constants';
 import { addOrderPayment, createOrderFromCart } from './commerce-tools/order-client';
+import { StripeSubscriptionService } from './stripe-subscription.service';
 
 const stripe = stripeApi();
 
@@ -351,15 +352,20 @@ export class StripePaymentService extends AbstractPaymentService {
       stripeCollectBillingAddress,
     } = getConfig();
     const webElement = paymentType;
-    const ctCart = await getCartExpanded();
-    const amountPlanned = await this.ctCartService.getPaymentAmount({ cart: ctCart });
+    const cart = await getCartExpanded();
+    const amountPlanned = await this.ctCartService.getPaymentAmount({ cart });
     const appearance =
       webElement === 'paymentElement' ? stripePaymentElementAppearance : stripeExpressCheckoutAppearance;
     const setupFutureUsage = stripeSavedPaymentMethodConfig.payment_method_save_usage;
-    const isSubscription = ctCart.lineItems[0].productType.obj?.name === productTypeSubscription.name;
+    const subscriptionService = new StripeSubscriptionService({
+      ctCartService: this.ctCartService,
+      ctPaymentService: this.ctPaymentService,
+      ctOrderService: this.ctOrderService,
+    });
+    const paymentMode = await subscriptionService.getPaymentMode(cart);
 
     log.info(`Cart and ${webElement} config retrieved.`, {
-      cartId: ctCart.id,
+      cartId: cart.id,
       cartInfo: {
         amount: amountPlanned.centAmount,
         currency: amountPlanned.currencyCode,
@@ -370,7 +376,7 @@ export class StripePaymentService extends AbstractPaymentService {
       stripeSetupFutureUsage: setupFutureUsage,
       layout: stripeLayout,
       collectBillingAddress: stripeCollectBillingAddress,
-      isSubscription,
+      paymentMode,
     });
 
     return {
@@ -384,7 +390,7 @@ export class StripePaymentService extends AbstractPaymentService {
       setupFutureUsage,
       layout: stripeLayout,
       collectBillingAddress: stripeCollectBillingAddress as CollectBillingAddressOptions,
-      isSubscription,
+      paymentMode,
     };
   }
 

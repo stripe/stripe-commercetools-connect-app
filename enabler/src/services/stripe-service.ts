@@ -5,7 +5,10 @@ import {
   Stripe,
   StripeElements,
 } from "@stripe/stripe-js";
-import { SubscriptionResponseSchemaDTO } from "../dtos/mock-payment.dto";
+import {
+  PaymentResponseSchemaDTO,
+  SetupIntentResponseSchemaDTO,
+} from "../dtos/mock-payment.dto";
 import { parseJSON } from "../utils";
 
 export interface StripeServiceProps {
@@ -15,13 +18,11 @@ export interface StripeServiceProps {
 
 export interface StripeService {
   confirmStripePayment: (
-    data: SubscriptionResponseSchemaDTO
+    data: PaymentResponseSchemaDTO
   ) => Promise<PaymentIntent>;
-  confirmStripeSetupIntent: (data: {
-    clientSecret: string;
-    returnUrl: string;
-    billingAddress?: string;
-  }) => Promise<SetupIntent>;
+  confirmStripeSetupIntent: (
+    data: SetupIntentResponseSchemaDTO
+  ) => Promise<SetupIntent>;
 }
 
 export const stripeService = ({
@@ -34,7 +35,7 @@ export const stripeService = ({
     paymentReference,
     merchantReturnUrl,
     billingAddress,
-  }: SubscriptionResponseSchemaDTO): Promise<PaymentIntent> => {
+  }: PaymentResponseSchemaDTO): Promise<PaymentIntent> => {
     const address = billingAddress
       ? parseJSON<BillingDetails>(billingAddress)
       : undefined;
@@ -65,13 +66,9 @@ export const stripeService = ({
 
   const confirmStripeSetupIntent = async ({
     clientSecret,
-    returnUrl,
+    merchantReturnUrl,
     billingAddress,
-  }: {
-    clientSecret: string;
-    returnUrl: string;
-    billingAddress?: string;
-  }) => {
+  }: SetupIntentResponseSchemaDTO) => {
     const address = billingAddress
       ? parseJSON<BillingDetails>(billingAddress)
       : undefined;
@@ -79,7 +76,7 @@ export const stripeService = ({
       clientSecret: clientSecret,
       elements: elements,
       confirmParams: {
-        return_url: returnUrl,
+        return_url: merchantReturnUrl,
         ...(address
           ? {
               payment_method_data: {

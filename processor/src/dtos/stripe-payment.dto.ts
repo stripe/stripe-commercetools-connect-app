@@ -38,6 +38,12 @@ export const PaymentResponseSchema = Type.Object({
   billingAddress: Type.Optional(Type.String()),
 });
 
+export const SetupIntentResponseSchema = Type.Object({
+  clientSecret: Type.String(),
+  merchantReturnUrl: Type.String(),
+  billingAddress: Type.Optional(Type.String()),
+});
+
 export const SubscriptionResponseSchema = Type.Object({
   subscriptionId: Type.Optional(Type.String()),
   clientSecret: Type.String(),
@@ -64,7 +70,7 @@ export const ConfigElementResponseSchema = Type.Object({
   setupFutureUsage: Type.Optional(Type.String()),
   layout: Type.String(),
   collectBillingAddress: Type.Enum(CollectBillingAddressOptions),
-  isSubscription: Type.Boolean(),
+  paymentMode: Type.Union([Type.Literal('subscription'), Type.Literal('setup'), Type.Literal('payment')]),
 });
 
 export const CtPaymentSchema = Type.Object({
@@ -98,3 +104,4 @@ export type CustomerResponseSchemaDTO = Static<typeof CustomerResponseSchema>;
 export type SubscriptionFromSetupIntentResponseSchemaDTO = Static<typeof SubscriptionFromSetupIntentResponseSchema>;
 export type SubscriptionResponseSchemaDTO = Static<typeof SubscriptionResponseSchema>;
 export type ConfirmSubscriptionRequestSchemaDTO = Static<typeof ConfirmSubscriptionRequestSchema>;
+export type SetupIntentResponseSchemaDTO = Static<typeof SetupIntentResponseSchema>;

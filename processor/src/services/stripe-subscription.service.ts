@@ -10,15 +10,18 @@ import { CartSetLineItemCustomFieldAction, CartSetLineItemCustomTypeAction } fro
 import { PaymentAmount } from '@commercetools/connect-payments-sdk/dist/commercetools/types/payment.type';
 import { getConfig } from '../config/config';
 import {
+  BasicSubscriptionData,
   CreateSetupIntentProps,
   CreateStripePriceProps,
+  FullSubscriptionData,
   GetCurrentPaymentProps,
-  HandleSubscriptionTypeProps,
   StripeSubscriptionServiceOptions,
   SubscriptionAttributes,
 } from './types/stripe-subscription.type';
 import {
+  ConfigElementResponseSchemaDTO,
   ConfirmSubscriptionRequestSchemaDTO,
+  SetupIntentResponseSchemaDTO,
   SubscriptionFromSetupIntentResponseSchemaDTO,
   SubscriptionResponseSchemaDTO,
 } from '../dtos/stripe-payment.dto';
@@ -63,20 +66,32 @@ export class StripeSubscriptionService {
     this.stripeCouponService = new StripeCouponService();
   }
 
-  public async createSubscription(): Promise<SubscriptionResponseSchemaDTO | undefined> {
+  public async createSetupIntent(): Promise<SetupIntentResponseSchemaDTO> {
+    try {
+      const {
+        cart,
+        stripeCustomerId,
+        subscriptionParams: { off_session },
+        billingAddress,
+        merchantReturnUrl,
+      } = await this.prepareSubscriptionData({ basicData: true });
+
+      const setupIntent = await this.createStripeSetupIntent({ stripeCustomerId, cart, offSession: off_session });
+
+      return {
+        clientSecret: setupIntent.clientSecret,
+        merchantReturnUrl,
+        billingAddress,
+      };
+    } catch (error) {
+      throw wrapStripeError(error);
+    }
+  }
+
+  public async createSubscription(): Promise<SubscriptionResponseSchemaDTO> {
     try {
       const { cart, amountPlanned, priceId, stripeCustomerId, subscriptionParams, billingAddress, merchantReturnUrl } =
         await this.prepareSubscriptionData();
-
-      const setupIntentResponse = await this.handleSubscriptionType({
-        cart,
-        stripeCustomerId,
-        subscriptionParams,
-      });
-
-      if (setupIntentResponse) {
-        return { ...setupIntentResponse, billingAddress, merchantReturnUrl };
-      }
 
       const subscription = await stripe.subscriptions.create({
         ...subscriptionParams,
@@ -138,6 +153,7 @@ export class StripeSubscriptionService {
       expand: ['latest_invoice'],
       payment_settings: { save_default_payment_method: 'on_subscription' },
       metadata: this.paymentCreationService.getPaymentMetadata(cart),
+      discounts: await this.stripeCouponService.getStripeCoupons(cart),
     });
 
     log.info(`Stripe Subscription from Setup Intent created.`, {
@@ -171,7 +187,11 @@ export class StripeSubscriptionService {
     return { subscriptionId: subscription.id, paymentReference: ctPaymentId };
   }
 
-  private async prepareSubscriptionData() {
+  prepareSubscriptionData(): Promise<FullSubscriptionData>;
+  prepareSubscriptionData(options: { basicData: true }): Promise<BasicSubscriptionData>;
+  public async prepareSubscriptionData({ basicData }: { basicData?: boolean } = {}): Promise<
+    BasicSubscriptionData | FullSubscriptionData
+  > {
     const config = getConfig();
     const merchantReturnUrl = getMerchantReturnUrlFromContext() || config.merchantReturnUrl;
     const cart = await getCartExpanded();
@@ -180,14 +200,19 @@ export class StripeSubscriptionService {
       throw new Error('Only one line item is allowed in the cart for subscription. Please remove the others.');
     }
 
-    const amountPlanned = await this.ctCartService.getPaymentAmount({ cart });
-    const lineItemAmount = await this.getSubscriptionPaymentAmount(cart);
-    const priceId = await this.getSubscriptionPriceId(cart, lineItemAmount);
     const customer = await this.customerService.getCtCustomer(cart.customerId!);
     const stripeCustomerId: string = customer?.custom?.fields?.[stripeCustomerIdFieldName];
     const subscriptionParams = getSubscriptionAttributes(cart.lineItems[0].variant.attributes);
     const billingAddress =
       config.stripeCollectBillingAddress !== 'auto' ? this.customerService.getBillingAddress(cart) : undefined;
+
+    if (basicData) {
+      return { cart, stripeCustomerId, subscriptionParams, billingAddress, merchantReturnUrl };
+    }
+
+    const amountPlanned = await this.ctCartService.getPaymentAmount({ cart });
+    const lineItemAmount = this.getSubscriptionPaymentAmount(cart);
+    const priceId = await this.getSubscriptionPriceId(cart, lineItemAmount);
 
     return {
       cart,
@@ -198,27 +223,6 @@ export class StripeSubscriptionService {
       subscriptionParams,
       billingAddress,
       merchantReturnUrl,
-    };
-  }
-
-  /**
-   * If the subscription has a trial period or a billing cycle anchor with free days, we need to
-   * create a Setup Intent to save the payment method for future use.
-   */
-  public async handleSubscriptionType({ cart, stripeCustomerId, subscriptionParams }: HandleSubscriptionTypeProps) {
-    const { off_session } = subscriptionParams;
-    const { hasTrial, hasFreeAnchorDays, isSendInvoice } = this.getSubscriptionTypes(subscriptionParams);
-
-    if (!hasTrial && !hasFreeAnchorDays && !isSendInvoice) {
-      return undefined;
-    }
-
-    log.info(`Subscription will be created with Setup Intent.`);
-    const setupIntent = await this.createSetupIntent({ stripeCustomerId, cart, offSession: off_session });
-
-    return {
-      cartId: cart.id,
-      clientSecret: setupIntent.clientSecret,
     };
   }
 
@@ -338,7 +342,7 @@ export class StripeSubscriptionService {
     return price.id;
   }
 
-  public async createSetupIntent({ stripeCustomerId, cart, offSession }: CreateSetupIntentProps) {
+  public async createStripeSetupIntent({ stripeCustomerId, cart, offSession }: CreateSetupIntentProps) {
     const setupIntent = await stripe.setupIntents.create({
       customer: stripeCustomerId,
       usage: offSession ? 'off_session' : 'on_session',
@@ -448,6 +452,22 @@ export class StripeSubscriptionService {
       ...payment,
       amountPlanned: { ...payment.amountPlanned, centAmount: price },
     };
+  }
+
+  public getPaymentMode(cart: Cart): ConfigElementResponseSchemaDTO['paymentMode'] {
+    const isSubscription = cart.lineItems[0].productType.obj?.name === productTypeSubscription.name;
+    if (!isSubscription) {
+      return 'payment';
+    }
+
+    const subscriptionParams = getSubscriptionAttributes(cart.lineItems[0].variant.attributes);
+    const { hasTrial, hasFreeAnchorDays, isSendInvoice } = this.getSubscriptionTypes(subscriptionParams);
+    if (hasTrial || hasFreeAnchorDays || isSendInvoice) {
+      log.info('Subscription type is Setup Intent.');
+      return 'setup';
+    }
+
+    return 'subscription';
   }
 
   public getSubscriptionTypes(attributes: Stripe.SubscriptionCreateParams) {

@@ -4,6 +4,7 @@ import {
   ConfirmPaymentRequestSchemaDTO,
   CustomerResponseSchemaDTO,
   PaymentResponseSchemaDTO,
+  SetupIntentResponseSchemaDTO,
   SubscriptionFromSetupIntentResponseSchemaDTO,
   SubscriptionResponseSchemaDTO,
 } from "../dtos/mock-payment.dto";
@@ -27,6 +28,7 @@ export interface ApiService {
   ) => Promise<[ConfigElementResponseSchemaDTO, ConfigResponseSchemaDTO]>;
   getPayment: (stripeCustomerId?: string) => Promise<PaymentResponseSchemaDTO>;
   confirmPaymentIntent: (data: ConfirmPaymentRequestSchemaDTO) => Promise<void>;
+  createSetupIntent: () => Promise<SetupIntentResponseSchemaDTO>;
   createSubscription: () => Promise<SubscriptionResponseSchemaDTO>;
   createSubscriptionFromSetupIntent: (
     setupIntentId: string
@@ -123,23 +125,41 @@ export const apiService = ({
     }
   };
 
-  const createSubscription = async (): Promise<SubscriptionResponseSchemaDTO> => {
-      const apiUrl = `${baseApi}/subscription`;
-      const response = await fetch(apiUrl, {
-        method: "POST",
-        headers: getHeadersConfig(),
-        body: "{}",
-      });
+  const createSetupIntent = async (): Promise<SetupIntentResponseSchemaDTO> => {
+    const apiUrl = `${baseApi}/setupIntent`;
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: getHeadersConfig(),
+      body: "{}",
+    });
 
-      if (!response.ok) {
-        const error = await response.json();
-        console.warn(
-          `Error in processor creating Subscription: ${error.message}`
-        );
-        throw error;
-      }
-      return await response.json();
-    };
+    if (!response.ok) {
+      const error = await response.json();
+      console.warn(
+        `Error in processor creating Setup Intent: ${error.message}`
+      );
+      throw error;
+    }
+    return await response.json();
+  }
+
+  const createSubscription = async (): Promise<SubscriptionResponseSchemaDTO> => {
+    const apiUrl = `${baseApi}/subscription`;
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: getHeadersConfig(),
+      body: "{}",
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.warn(
+        `Error in processor creating Subscription: ${error.message}`
+      );
+      throw error;
+    }
+    return await response.json();
+  };
 
   const createSubscriptionFromSetupIntent = async (
     setupIntentId: string
@@ -184,6 +204,7 @@ export const apiService = ({
     getConfigData,
     getPayment,
     confirmPaymentIntent,
+    createSetupIntent,
     createSubscription,
     createSubscriptionFromSetupIntent,
     confirmSubscriptionPayment,

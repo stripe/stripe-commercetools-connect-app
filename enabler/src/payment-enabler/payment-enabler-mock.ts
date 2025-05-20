@@ -13,6 +13,7 @@ import {
   loadStripe,
   Stripe,
   StripeElements,
+  StripeElementsOptionsMode,
   StripeExpressCheckoutElement,
   StripeExpressCheckoutElementOptions,
   StripePaymentElement,
@@ -44,7 +45,7 @@ export interface BaseOptions {
   paymentElement: StripePaymentElement | StripeExpressCheckoutElement; // MVP https://docs.stripe.com/payments/payment-element | https://docs.stripe.com/elements/express-checkout-element
   paymentElementValue: 'paymentElement' | 'expressCheckout';
   elements: StripeElements; // MVP https://docs.stripe.com/js/elements_object
-  isSubscription: boolean;
+  paymentMode: StripeElementsOptionsMode['mode']
   stripeCustomerId?: string;
 };
 
@@ -93,7 +94,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
         paymentElement: MockPaymentEnabler.getPaymentElement(elementsOptions, options.paymentElementType, elements),
         paymentElementValue: cartInfoResponse.webElements,
         elements: elements,
-        isSubscription: cartInfoResponse.isSubscription,
+        paymentMode: cartInfoResponse.paymentMode,
         stripeCustomerId: customer ? customer?.stripeCustomerId : undefined,
       },
     });
@@ -156,10 +157,16 @@ export class MockPaymentEnabler implements PaymentEnabler {
   ): StripeElements | null {
     if (!stripeSDK) return null;
     try {
-      const { cartInfo, captureMethod, isSubscription, appearance, setupFutureUsage } = cartInfoResponse;
+      const {
+        cartInfo,
+        captureMethod,
+        appearance,
+        setupFutureUsage,
+        paymentMode,
+      } = cartInfoResponse;
       return stripeSDK.elements?.({
-        mode: isSubscription ? "subscription" : "payment",
-        amount: cartInfo.amount,
+        mode: paymentMode,
+        amount: paymentMode !== "setup" ? cartInfo.amount : undefined,
         currency: cartInfo.currency.toLowerCase(),
         appearance: parseJSON(appearance),
         captureMethod,

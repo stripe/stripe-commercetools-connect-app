@@ -10,7 +10,6 @@ import {
 } from "@stripe/stripe-js";
 import { apiService, ApiService } from "../services/api-service";
 import { StripeService, stripeService } from "../services/stripe-service";
-import { SubscriptionResponseSchemaDTO } from "../dtos/mock-payment.dto";
 
 export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
   public dropinHasSubmit = true;
@@ -81,10 +80,18 @@ export class DropinComponents implements DropinComponent {
         throw submitError;
       }
 
-      if (this.baseOptions.isSubscription) {
-        await this.createSubscription();
-      } else {
-        await this.createPayment();
+      switch (this.baseOptions.paymentMode) {
+        case "payment":
+          await this.createPayment();
+          break;
+        case "subscription":
+          await this.createSubscription();
+          break;
+        case "setup":
+          await this.createSetupIntent();
+          break;
+        default:
+          throw new Error("Invalid payment mode");
       }
     } catch (error) {
       this.baseOptions.onError?.(error);
@@ -106,47 +113,21 @@ export class DropinComponents implements DropinComponent {
     });
   }
 
-  private async createSubscription(): Promise<void> {
-    const res = await this.api.createSubscription();
+  private async createSetupIntent(): Promise<void> {
+    const { clientSecret, merchantReturnUrl, billingAddress } =
+      await this.api.createSetupIntent();
 
-    if (res.subscriptionId && res.paymentReference) {
-      await this.confirmSubscriptionPayment(res);
-    } else {
-      await this.createSubscriptionWithSetupIntent(res);
-    }
-  }
-
-  private async confirmSubscriptionPayment(
-    payment: SubscriptionResponseSchemaDTO
-  ): Promise<void> {
-    const paymentIntent = await this.stripe.confirmStripePayment(payment);
-
-    await this.api.confirmSubscriptionPayment({
-      subscriptionId: payment.subscriptionId,
-      paymentReference: payment.paymentReference,
-      paymentIntentId: paymentIntent.id,
-    });
-
-    this.baseOptions.onComplete?.({
-      isSuccess: true,
-      paymentReference: payment.paymentReference,
-      paymentIntent: paymentIntent.id,
-    });
-  }
-
-  private async createSubscriptionWithSetupIntent({
-    clientSecret,
-    merchantReturnUrl,
-    billingAddress,
-  }: SubscriptionResponseSchemaDTO): Promise<void> {
     const { id: setupIntentId } = await this.stripe.confirmStripeSetupIntent({
-      returnUrl: merchantReturnUrl,
+      merchantReturnUrl,
       clientSecret,
       billingAddress,
     });
 
-    const subscription = await this.api.createSubscriptionFromSetupIntent(setupIntentId);
+    const subscription = await this.api.createSubscriptionFromSetupIntent(
+      setupIntentId
+    );
 
+    //TODO: Execute logic directly from the processor and remove this call
     await this.api.confirmSubscriptionPayment({
       subscriptionId: subscription.subscriptionId,
       paymentReference: subscription.paymentReference,
@@ -156,6 +137,37 @@ export class DropinComponents implements DropinComponent {
       isSuccess: true,
       paymentReference: subscription.paymentReference,
       paymentIntent: setupIntentId,
+    });
+  }
+
+  private async createSubscription(): Promise<void> {
+    const {
+      cartId,
+      clientSecret,
+      billingAddress,
+      merchantReturnUrl,
+      paymentReference,
+      subscriptionId,
+    } = await this.api.createSubscription();
+
+    const { id: paymentIntentId } = await this.stripe.confirmStripePayment({
+      cartId,
+      clientSecret,
+      billingAddress,
+      merchantReturnUrl,
+      paymentReference,
+    });
+
+    await this.api.confirmSubscriptionPayment({
+      subscriptionId,
+      paymentReference,
+      paymentIntentId,
+    });
+
+    this.baseOptions.onComplete?.({
+      isSuccess: true,
+      paymentReference,
+      paymentIntent: paymentIntentId,
     });
   }
 }

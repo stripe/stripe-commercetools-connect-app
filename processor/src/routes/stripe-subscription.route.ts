@@ -2,7 +2,13 @@ import { SessionHeaderAuthenticationHook } from '@commercetools/connect-payments
 import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import { Type } from '@sinclair/typebox';
 import { StripeSubscriptionService } from '../services/stripe-subscription.service';
-import { ConfirmSubscriptionRequestSchema, ConfirmSubscriptionRequestSchemaDTO } from '../dtos/stripe-payment.dto';
+import {
+  ConfirmSubscriptionRequestSchema,
+  ConfirmSubscriptionRequestSchemaDTO,
+  SetupIntentResponseSchemaDTO,
+  SubscriptionFromSetupIntentResponseSchemaDTO,
+  SubscriptionResponseSchemaDTO,
+} from '../dtos/stripe-payment.dto';
 
 type SubscriptionRoutesOptions = {
   subscriptionService: StripeSubscriptionService;
@@ -13,7 +19,17 @@ export const subscriptionRoutes = async (
   fastify: FastifyInstance,
   opts: FastifyPluginOptions & SubscriptionRoutesOptions,
 ) => {
-  fastify.post<{ Reply: void }>(
+  fastify.post<{ Reply: SetupIntentResponseSchemaDTO }>(
+    '/setupIntent',
+    {
+      preHandler: [opts.sessionHeaderAuthHook.authenticate()],
+    },
+    async (_, reply) => {
+      const res = await opts.subscriptionService.createSetupIntent();
+      return reply.status(200).send(res);
+    },
+  );
+  fastify.post<{ Reply: SubscriptionResponseSchemaDTO }>(
     '/subscription',
     {
       preHandler: [opts.sessionHeaderAuthHook.authenticate()],
@@ -23,7 +39,7 @@ export const subscriptionRoutes = async (
       return reply.status(200).send(res);
     },
   );
-  fastify.post<{ Reply: void; Body: { setupIntentId: string } }>(
+  fastify.post<{ Reply: SubscriptionFromSetupIntentResponseSchemaDTO; Body: { setupIntentId: string } }>(
     '/subscription/withSetupIntent',
     {
       preHandler: [opts.sessionHeaderAuthHook.authenticate()],
@@ -59,8 +75,8 @@ export const subscriptionRoutes = async (
       },
     },
     async (req, reply) => {
-      const res = await opts.subscriptionService.confirmSubscriptionPayment(req.body);
-      return reply.status(200).send(res);
+      await opts.subscriptionService.confirmSubscriptionPayment(req.body);
+      return reply.status(200).send();
     },
   );
 };

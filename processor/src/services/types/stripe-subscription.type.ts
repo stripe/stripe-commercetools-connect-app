@@ -32,12 +32,6 @@ export interface SubscriptionAttributes {
   proration_behavior?: Stripe.SubscriptionCreateParams.ProrationBehavior;
 }
 
-export interface HandleSubscriptionTypeProps {
-  cart: Cart;
-  stripeCustomerId: string;
-  subscriptionParams: Stripe.SubscriptionCreateParams;
-}
-
 export interface CreateStripePriceProps {
   amount: PaymentAmount;
   product: LineItem;
@@ -55,4 +49,18 @@ export interface GetCurrentPaymentProps {
   paymentReference: string;
   invoice: Stripe.Invoice;
   subscriptionParams: Stripe.SubscriptionCreateParams;
+}
+
+export interface BasicSubscriptionData {
+  cart: Cart;
+  stripeCustomerId: string;
+  subscriptionParams: Stripe.SubscriptionCreateParams;
+  billingAddress?: string;
+  merchantReturnUrl: string;
+}
+
+export interface FullSubscriptionData extends BasicSubscriptionData {
+  lineItemAmount: PaymentAmount;
+  amountPlanned: PaymentAmount;
+  priceId: string;
 }
