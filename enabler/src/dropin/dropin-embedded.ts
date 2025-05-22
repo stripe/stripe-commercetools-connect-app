@@ -127,7 +127,6 @@ export class DropinComponents implements DropinComponent {
       setupIntentId
     );
 
-    //TODO: Execute logic directly from the processor and remove this call
     await this.api.confirmSubscriptionPayment({
       subscriptionId: subscription.subscriptionId,
       paymentReference: subscription.paymentReference,

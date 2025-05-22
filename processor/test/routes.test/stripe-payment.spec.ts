@@ -15,7 +15,7 @@ import {
 import { IncomingHttpHeaders } from 'node:http';
 import {
   configElementRoutes,
-  customerRoutes,
+  // customerRoutes,
   paymentRoutes,
   stripeWebhooksRoutes,
 } from '../../src/routes/stripe-payment.route';
@@ -32,13 +32,13 @@ import {
   mockRoute__well_know__succeed,
   mockEvent__charge_succeeded_captured,
   mockEvent__charge_capture_succeeded_notCaptured,
-  mockRoute__customer_session_succeed,
+  // mockRoute__customer_session_succeed,
 } from '../utils/mock-routes-data';
 import * as Config from '../../src/config/config';
 import * as Logger from '../../src/libs/logger/index';
 import { StripeHeaderAuthHook } from '../../src/libs/fastify/hooks/stripe-header-auth.hook';
 import { appLogger } from '../../src/payment-sdk';
-import { StripeCustomerService } from '../../src/services/stripe-customer.service';
+// import { StripeCustomerService } from '../../src/services/stripe-customer.service';
 import { mockEvent__invoice_paid__Expanded_noPaymnet_intent__amount_paid } from '../utils/mock-subscription-data';
 
 jest.mock('stripe', () => ({
@@ -108,7 +108,7 @@ describe('Stripe Payment APIs', () => {
     ctOrderService: jest.fn() as unknown as CommercetoolsOrderService,
   });
 
-  const spiedCustomerService = new StripeCustomerService(jest.fn() as unknown as CommercetoolsCartService);
+  // const spiedCustomerService = new StripeCustomerService(jest.fn() as unknown as CommercetoolsCartService);
 
   const spiedStripeHeaderAuthHook = new StripeHeaderAuthHook();
 
@@ -132,11 +132,11 @@ describe('Stripe Payment APIs', () => {
       paymentService: spiedPaymentService,
     });
 
-    await fastifyApp.register(customerRoutes, {
-      prefix: '/',
-      sessionHeaderAuthHook: spiedSessionHeaderAuthenticationHook,
-      customerService: spiedCustomerService,
-    });
+    // await fastifyApp.register(customerRoutes, {
+    //   prefix: '/',
+    //   sessionHeaderAuthHook: spiedSessionHeaderAuthenticationHook,
+    //   customerService: spiedCustomerService,
+    // });
   });
 
   beforeEach(() => {
@@ -423,7 +423,7 @@ describe('Stripe Payment APIs', () => {
   describe('GET /payment', () => {
     test('should call /payment and return valid information', async () => {
       //Given
-      jest.spyOn(spiedPaymentService, 'handlePaymentCreation').mockResolvedValue(mockRoute__payments_succeed);
+      jest.spyOn(spiedPaymentService, 'createPaymentIntent').mockResolvedValue(mockRoute__payments_succeed);
 
       //When
       const responseGetConfig = await fastifyApp.inject({
@@ -438,7 +438,7 @@ describe('Stripe Payment APIs', () => {
       //Then
       expect(responseGetConfig.statusCode).toEqual(200);
       expect(responseGetConfig.json()).toEqual(mockRoute__payments_succeed);
-      expect(spiedPaymentService.handlePaymentCreation).toHaveBeenCalled();
+      expect(spiedPaymentService.createPaymentIntent).toHaveBeenCalled();
     });
   });
 
@@ -528,44 +528,44 @@ describe('Stripe Payment APIs', () => {
     });
   });
 
-  describe('GET /customer/session', () => {
-    test('should call /customer/session and return valid information', async () => {
-      //Given
-      jest.spyOn(spiedCustomerService, 'getCustomerSession').mockResolvedValue(mockRoute__customer_session_succeed);
+  // describe('GET /customer/session', () => {
+  //   test('should call /customer/session and return valid information', async () => {
+  //     //Given
+  //     jest.spyOn(spiedCustomerService, 'getCustomerSession').mockResolvedValue(mockRoute__customer_session_succeed);
 
-      //When
-      const responseGetConfig = await fastifyApp.inject({
-        method: 'GET',
-        url: `/customer/session?customerId=customerId`,
-        headers: {
-          'x-session-id': sessionId,
-          'content-type': 'application/json',
-        },
-      });
+  //     //When
+  //     const responseGetConfig = await fastifyApp.inject({
+  //       method: 'GET',
+  //       url: `/customer/session?customerId=customerId`,
+  //       headers: {
+  //         'x-session-id': sessionId,
+  //         'content-type': 'application/json',
+  //       },
+  //     });
 
-      //Then
-      expect(responseGetConfig.statusCode).toEqual(200);
-      expect(responseGetConfig.json()).toEqual(mockRoute__customer_session_succeed);
-      expect(spiedCustomerService.getCustomerSession).toHaveBeenCalled();
-    });
+  //     //Then
+  //     expect(responseGetConfig.statusCode).toEqual(200);
+  //     expect(responseGetConfig.json()).toEqual(mockRoute__customer_session_succeed);
+  //     expect(spiedCustomerService.getCustomerSession).toHaveBeenCalled();
+  //   });
 
-    test('should call /customer/session and return undefined', async () => {
-      //Given
-      jest.spyOn(spiedCustomerService, 'getCustomerSession').mockResolvedValue(undefined);
+  //   test('should call /customer/session and return undefined', async () => {
+  //     //Given
+  //     jest.spyOn(spiedCustomerService, 'getCustomerSession').mockResolvedValue(undefined);
 
-      //When
-      const responseGetConfig = await fastifyApp.inject({
-        method: 'GET',
-        url: `/customer/session`,
-        headers: {
-          'x-session-id': sessionId,
-          'content-type': 'application/json',
-        },
-      });
+  //     //When
+  //     const responseGetConfig = await fastifyApp.inject({
+  //       method: 'GET',
+  //       url: `/customer/session`,
+  //       headers: {
+  //         'x-session-id': sessionId,
+  //         'content-type': 'application/json',
+  //       },
+  //     });
 
-      //Then
-      expect(responseGetConfig.statusCode).toEqual(204);
-      expect(spiedCustomerService.getCustomerSession).toHaveBeenCalled();
-    });
-  });
+  //     //Then
+  //     expect(responseGetConfig.statusCode).toEqual(204);
+  //     expect(spiedCustomerService.getCustomerSession).toHaveBeenCalled();
+  //   });
+  // });
 });

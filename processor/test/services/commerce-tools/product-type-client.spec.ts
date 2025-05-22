@@ -8,7 +8,7 @@ import {
   getProductTypeByKey,
 } from '../../../src/services/commerce-tools/product-type-client';
 
-describe('ProductTypeHelper testing', () => {
+describe('ProductTypeClient testing', () => {
   beforeEach(() => {
     jest.setTimeout(10000);
     jest.resetAllMocks();

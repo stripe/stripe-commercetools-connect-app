@@ -41,5 +41,5 @@ export const addOrderPayment = async (order: Order, paymentId: string) => {
       },
     })
     .execute();
-  return response;
+  return response.body;
 };

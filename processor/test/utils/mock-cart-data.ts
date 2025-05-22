@@ -1,4 +1,5 @@
-import { Cart, LineItem, CustomLineItem, ShippingInfo } from '@commercetools/connect-payments-sdk';
+import { Cart, LineItem, CustomLineItem, ShippingInfo, Order } from '@commercetools/connect-payments-sdk';
+import { ProductVariant } from '@commercetools/platform-sdk';
 import { randomUUID } from 'crypto';
 import { mockCtCustomerId } from './mock-customer-data';
 
@@ -129,7 +130,112 @@ export const mockGetCartWithoutCustomerIdResult = () => {
   return mockGetCartResult;
 };
 
-const lineItem: LineItem = {
+export const variantOne: ProductVariant = {
+  id: 1,
+  sku: 'variant-sku-1',
+  attributes: [
+    { name: 'cancel_at_period_end', value: false },
+    {
+      name: 'collection_method',
+      value: {
+        key: 'charge_automatically',
+        label: 'charge_automatically',
+      },
+    },
+    { name: 'off_session', value: true },
+    { name: 'recurring_interval_count', value: 1 },
+    {
+      name: 'recurring_interval',
+      value: {
+        key: 'month',
+        label: 'month',
+      },
+    },
+    {
+      name: 'missing_payment_method_at_trial_end',
+      value: {
+        key: 'create_invoice',
+        label: 'create_invoice',
+      },
+    },
+    { name: 'description', value: 'Weekly Subscription with trial days' },
+    { name: 'trial_period_days', value: 3 },
+  ],
+};
+
+export const variantSix: ProductVariant = {
+  id: 6,
+  sku: 'variant-sku-6',
+  attributes: [
+    { name: 'recurring_interval_count', value: 1 },
+    { name: 'off_session', value: true },
+    { name: 'billing_cycle_anchor_date', value: '2025-05-20T21:00:00.000Z' },
+    { name: 'description', value: 'Monthly Subscription with Anchor Days, no proration and send invoice' },
+    { name: 'days_until_due', value: 3 },
+    {
+      name: 'recurring_interval',
+      value: {
+        key: 'month',
+        label: 'month',
+      },
+    },
+    {
+      name: 'collection_method',
+      value: {
+        key: 'send_invoice',
+        label: 'send_invoice',
+      },
+    },
+    {
+      name: 'proration_behavior',
+      value: {
+        key: 'none',
+        label: 'none',
+      },
+    },
+  ],
+};
+
+export const variantEight: ProductVariant = {
+  id: 8,
+  sku: 'variant-sku-8',
+  attributes: [
+    { name: 'recurring_interval_count', value: 1 },
+    { name: 'off_session', value: true },
+    { name: 'billing_cycle_anchor_date', value: '2025-09-30T07:00:00.000Z' },
+    { name: 'description', value: 'Monthly Subscription with Anchor Days, proration and send invoice' },
+    { name: 'days_until_due', value: 1 },
+    {
+      name: 'recurring_interval',
+      value: {
+        key: 'month',
+        label: 'month',
+      },
+    },
+    {
+      name: 'collection_method',
+      value: {
+        key: 'send_invoice',
+        label: 'send_invoice',
+      },
+    },
+    {
+      name: 'proration_behavior',
+      value: {
+        key: 'create_prorations',
+        label: 'create_prorations',
+      },
+    },
+  ],
+};
+
+const variants = {
+  1: variantOne,
+  6: variantSix,
+  8: variantEight,
+};
+
+export const lineItem: LineItem = {
   id: 'lineitem-id-1',
   productId: 'product-id-1',
   name: {
@@ -162,12 +268,12 @@ const lineItem: LineItem = {
   priceMode: 'Platform',
   lineItemMode: 'Standard',
   variant: {
-    id: 1,
-    sku: 'variant-sku-1',
+    id: 6,
+    sku: 'variant-sku-6',
   },
 };
 
-const lineItemSubscription: LineItem = {
+export const lineItemSubscription: LineItem = {
   ...lineItem,
   productType: {
     id: 'product-type-reference-1',
@@ -183,7 +289,7 @@ const lineItemSubscription: LineItem = {
   },
 };
 
-const customLineItem: CustomLineItem = {
+export const customLineItem: CustomLineItem = {
   id: 'customLineItem-id-1',
   name: {
     en: 'customLineItem-name-1',
@@ -209,7 +315,7 @@ const customLineItem: CustomLineItem = {
   priceMode: 'Platform',
 };
 
-const shippingInfo: ShippingInfo = {
+export const shippingInfo: ShippingInfo = {
   shippingMethodName: 'shippingMethodName1',
   price: {
     type: 'centPrecision',
@@ -233,3 +339,27 @@ export const mockGetSubscriptionCart: Cart = {
   ...mockGetCartResult(),
   lineItems: [lineItemSubscription],
 };
+
+const getVariant = (num: keyof typeof variants): ProductVariant => {
+  return variants[num];
+};
+
+export const mockGetSubscriptionCartWithVariant = (num: keyof typeof variants): Cart => ({
+  ...mockGetCartResult(),
+  lineItems: [{ ...lineItemSubscription, variant: getVariant(num) }],
+});
+
+export const mockGetSubscriptionCartWithTwoItems: Cart = {
+  ...mockGetCartResult(),
+  lineItems: [
+    { ...lineItemSubscription, variant: getVariant(1), quantity: 2 },
+    { ...lineItemSubscription, variant: getVariant(6) },
+  ],
+};
+
+export const orderMock = {
+  id: 'mock-order-id',
+  version: 1,
+  orderState: 'Open',
+  paymentState: 'Paid',
+} as Order;

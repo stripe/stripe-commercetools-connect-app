@@ -3,11 +3,8 @@ import { Payment, Transaction } from '@commercetools/connect-payments-sdk';
 import { PaymentAmount } from '@commercetools/connect-payments-sdk/dist/commercetools/types/payment.type';
 import { PaymentProviderModificationResponse } from '../../src/services/types/operation.type';
 import { PaymentModificationStatus } from '../../src/dtos/operations/payment-intents.dto';
-import { mockCustomerData } from './mock-customer-data';
 import { PaymentResponseSchemaDTO } from '../../src/dtos/mock-payment.dto';
-import { PaymentFeatures } from '../../src/config/config';
-
-const commonLastResponse = {
+export const commonLastResponse = {
   headers: {},
   requestId: '11111',
   statusCode: 200,
@@ -16,7 +13,7 @@ const commonLastResponse = {
   stripeAccount: '',
 };
 
-const commonMethodOptions = {
+export const commonMethodOptions = {
   card: {
     installments: null,
     mandate_options: null,
@@ -28,7 +25,7 @@ const commonMethodOptions = {
   },
 } as Stripe.PaymentIntent.PaymentMethodOptions;
 
-const commonPaymentResult = {
+export const commonPaymentResult = {
   lastResponse: commonLastResponse,
   id: 'pi_create_3MtwBwLkdIwHu7ix28a3tqPa',
   object: 'payment_intent',
@@ -414,172 +411,39 @@ export const mockPaymentResult: PaymentResponseSchemaDTO = {
   cartId: 'xxxx-xxxx-xxxx',
 };
 
-export const stripePriceIdMock = 'price_mock_1234567890';
-export const stripeProductIdMock = 'prod_mock_id';
+// export const paymentMetadataWithoutCustomerMock = {
+//   cart_id: 'test_cart_id',
+//   ct_project_key: 'test_project_key',
+// };
 
-export const subscriptionResponseMock = {
-  id: 'sub_mock_id',
-  latest_invoice: {
-    payment_intent: commonPaymentResult,
-  },
-} as unknown as Stripe.Response<Stripe.Subscription>;
+// export const paymentMetadataMock = {
+//   ...paymentMetadataWithoutCustomerMock,
+//   ct_customer_id: mockCustomerData.id,
+// };
 
-export const subscriptionWithoutPaymentResponseMock = {
-  id: 'sub_mock_id',
-  latest_invoice: '',
-} as unknown as Stripe.Response<Stripe.Subscription>;
-
-export const stripeProductDataMock: Stripe.Response<Stripe.Product> = {
-  id: stripeProductIdMock,
-  object: 'product',
-  active: true,
-  created: 1678833149,
-  default_price: null,
-  description: null,
-  images: [],
-  marketing_features: [],
-  livemode: false,
-  metadata: {},
-  name: 'Test product',
-  package_dimensions: null,
-  shippable: null,
-  statement_descriptor: null,
-  tax_code: null,
-  unit_label: null,
-  updated: 1678833149,
-  url: null,
-  type: 'service',
-  lastResponse: commonLastResponse,
-};
-
-export const stripeProductResponseMock: Stripe.Response<Stripe.ApiSearchResult<Stripe.Product>> = {
-  data: [stripeProductDataMock],
-  has_more: false,
-  object: 'search_result',
-  lastResponse: commonLastResponse,
-  next_page: null,
-  url: '',
-};
-
-export const stripeProductEmptyResponseMock: Stripe.Response<Stripe.ApiSearchResult<Stripe.Product>> = {
-  data: [],
-  has_more: false,
-  object: 'search_result',
-  lastResponse: commonLastResponse,
-  next_page: null,
-  url: '',
-};
-
-export const stripePriceDataMock: Stripe.Response<Stripe.Price> = {
-  id: stripePriceIdMock,
-  object: 'price',
-  active: true,
-  billing_scheme: 'per_unit',
-  created: 1679431181,
-  currency: 'usd',
-  custom_unit_amount: null,
-  livemode: false,
-  lookup_key: null,
-  metadata: {},
-  nickname: null,
-  product: stripeProductIdMock,
-  recurring: {
-    interval: 'month',
-    interval_count: 1,
-    trial_period_days: null,
-    usage_type: 'licensed',
-    aggregate_usage: null,
-    meter: null,
-  },
-  tax_behavior: 'unspecified',
-  tiers_mode: null,
-  transform_quantity: null,
-  type: 'recurring',
-  unit_amount: 1000,
-  unit_amount_decimal: '1000',
-  lastResponse: commonLastResponse,
-};
-
-export const stripePriceResponseMock: Stripe.Response<Stripe.ApiSearchResult<Stripe.Price>> = {
-  data: [
-    {
-      id: stripePriceIdMock,
-      object: 'price',
-      active: true,
-      billing_scheme: 'per_unit',
-      created: 1679431181,
-      currency: 'usd',
-      custom_unit_amount: null,
-      livemode: false,
-      lookup_key: null,
-      metadata: {},
-      nickname: null,
-      product: stripeProductIdMock,
-      recurring: {
-        interval: 'month',
-        interval_count: 1,
-        trial_period_days: null,
-        usage_type: 'licensed',
-        aggregate_usage: null,
-        meter: null,
-      },
-      tax_behavior: 'unspecified',
-      tiers_mode: null,
-      transform_quantity: null,
-      type: 'recurring',
-      unit_amount: 1000,
-      unit_amount_decimal: '1000',
-    },
-  ],
-  has_more: false,
-  object: 'search_result',
-  lastResponse: commonLastResponse,
-  next_page: null,
-  url: '',
-};
-
-export const stripePriceEmptyResponseMock: Stripe.Response<Stripe.ApiSearchResult<Stripe.Price>> = {
-  data: [],
-  has_more: false,
-  object: 'search_result',
-  lastResponse: commonLastResponse,
-  next_page: null,
-  url: '',
-};
-
-export const paymentMetadataWithoutCustomerMock = {
-  cart_id: 'test_cart_id',
-  ct_project_key: 'test_project_key',
-};
-
-export const paymentMetadataMock = {
-  ...paymentMetadataWithoutCustomerMock,
-  ct_customer_id: mockCustomerData.id,
-};
-
-export const configDataWithBillingAsNever = {
-  apiUrl: '',
-  authUrl: '',
-  clientId: '',
-  clientSecret: '',
-  healthCheckTimeout: 0,
-  jwksUrl: '',
-  jwtIssuer: '',
-  loggerLevel: '',
-  mockClientKey: '',
-  mockEnvironment: '',
-  sessionUrl: '',
-  stripeApiVersion: '',
-  stripeApplePayWellKnown: '',
-  stripeLayout: '',
-  stripePaymentElementAppearance: '',
-  stripeExpressCheckoutAppearance: '',
-  stripePublishableKey: '',
-  stripeSecretKey: '',
-  stripeWebhookSigningSecret: '',
-  stripeCaptureMethod: 'manual',
-  merchantReturnUrl: 'https://merchant.example.com/return',
-  projectKey: 'your-project-key',
-  stripeSavedPaymentMethodConfig: { payment_method_save: 'disabled' } as PaymentFeatures,
-  stripeCollectBillingAddress: 'never',
-};
+// export const configDataWithBillingAsNever = {
+//   apiUrl: '',
+//   authUrl: '',
+//   clientId: '',
+//   clientSecret: '',
+//   healthCheckTimeout: 0,
+//   jwksUrl: '',
+//   jwtIssuer: '',
+//   loggerLevel: '',
+//   mockClientKey: '',
+//   mockEnvironment: '',
+//   sessionUrl: '',
+//   stripeApiVersion: '',
+//   stripeApplePayWellKnown: '',
+//   stripeLayout: '',
+//   stripePaymentElementAppearance: '',
+//   stripeExpressCheckoutAppearance: '',
+//   stripePublishableKey: '',
+//   stripeSecretKey: '',
+//   stripeWebhookSigningSecret: '',
+//   stripeCaptureMethod: 'manual',
+//   merchantReturnUrl: 'https://merchant.example.com/return',
+//   projectKey: 'your-project-key',
+//   stripeSavedPaymentMethodConfig: { payment_method_save: 'disabled' } as PaymentFeatures,
+//   stripeCollectBillingAddress: 'never',
+// };

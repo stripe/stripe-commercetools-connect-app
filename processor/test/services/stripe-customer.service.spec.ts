@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { DefaultCartService } from '@commercetools/connect-payments-sdk/dist/commercetools/services/ct-cart.service';
-import { Cart, Customer, ClientResponse } from '@commercetools/platform-sdk';
+import { Cart, Customer } from '@commercetools/platform-sdk';
 import { paymentSDK } from '../../src/payment-sdk';
 import { mockGetCartResult, mockGetCartWithoutCustomerIdResult } from '../utils/mock-cart-data';
 import {
@@ -451,25 +451,20 @@ describe('stripe-customer.service', () => {
 
   describe('method getCtCustomer', () => {
     test('should return ct customer successfully', async () => {
-      const mockCtCustomerResponse: ClientResponse<Customer> = {
-        body: mockCtCustomerData,
-        statusCode: 200,
-        headers: {},
-      };
-      const executeMock = jest.fn<() => Promise<ClientResponse<Customer>>>().mockResolvedValue(mockCtCustomerResponse);
-      const client = paymentSDK.ctAPI.client;
-      client.customers = jest.fn(() => ({
-        withId: jest.fn(() => ({
-          get: jest.fn(() => ({
-            execute: executeMock,
-          })),
-        })),
-      })) as never;
-
+      const getCtCustomerMock = jest.spyOn(CustomerClient, 'getCustomerById').mockResolvedValue(mockCtCustomerData);
       const result = await stripeCustomerService.getCtCustomer(mockCtCustomerId);
 
-      expect(executeMock).toHaveBeenCalled();
+      expect(getCtCustomerMock).toHaveBeenCalled();
       expect(result).toEqual(mockCtCustomerData);
+    });
+
+    test('should fail to find customer', async () => {
+      const getCtCustomerMock = jest.spyOn(CustomerClient, 'getCustomerById').mockReturnValue(Promise.reject());
+      const result = await stripeCustomerService.getCtCustomer(mockCtCustomerId);
+
+      expect(getCtCustomerMock).toHaveBeenCalled();
+      expect(Logger.log.warn).toBeCalled();
+      expect(result).toBeUndefined();
     });
   });
 

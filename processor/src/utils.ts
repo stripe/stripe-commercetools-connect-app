@@ -73,6 +73,6 @@ export const getLocalizedString = (obj?: LocalizedString): string => {
     return '';
   }
 
-  const locale = Object.keys(obj).find((key) => key.startsWith('en')) || 'en';
-  return obj[locale] || obj['en'] || '';
+  const locale = Object.keys(obj).find((key) => key.startsWith('en'));
+  return locale ? obj[locale] : '';
 };

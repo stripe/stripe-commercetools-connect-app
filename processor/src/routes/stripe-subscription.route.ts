@@ -9,6 +9,7 @@ import {
   SubscriptionFromSetupIntentResponseSchemaDTO,
   SubscriptionResponseSchemaDTO,
 } from '../dtos/stripe-payment.dto';
+import { PaymentModificationStatus } from '../dtos/operations/payment-intents.dto';
 
 type SubscriptionRoutesOptions = {
   subscriptionService: StripeSubscriptionService;
@@ -75,8 +76,12 @@ export const subscriptionRoutes = async (
       },
     },
     async (req, reply) => {
-      await opts.subscriptionService.confirmSubscriptionPayment(req.body);
-      return reply.status(200).send();
+      try {
+        await opts.subscriptionService.confirmSubscriptionPayment(req.body);
+        return reply.status(200).send({ outcome: PaymentModificationStatus.APPROVED });
+      } catch (error) {
+        return reply.status(400).send({ outcome: PaymentModificationStatus.REJECTED, error: JSON.stringify(error) });
+      }
     },
   );
 };

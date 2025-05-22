@@ -42,8 +42,6 @@ import { METADATA_ORDER_ID_FIELD } from '../constants';
 import { addOrderPayment, createOrderFromCart } from './commerce-tools/order-client';
 import { StripeSubscriptionService } from './stripe-subscription.service';
 
-const stripe = stripeApi();
-
 export class StripePaymentService extends AbstractPaymentService {
   private stripeEventConverter: StripeEventConverter;
   private subscriptionEventConverter: SubscriptionEventConverter;
@@ -258,7 +256,7 @@ export class StripePaymentService extends AbstractPaymentService {
         customer?.addresses[0],
       );
       const stripeCustomerId = customer?.custom?.fields?.[stripeCustomerIdFieldName];
-      const paymentIntent = await stripe.paymentIntents.create(
+      const paymentIntent = await stripeApi().paymentIntents.create(
         {
           ...(stripeCustomerId && {
             customer: stripeCustomerId,
@@ -536,7 +534,7 @@ export class StripePaymentService extends AbstractPaymentService {
     });
 
     if (paymentIntentId) {
-      await stripe.paymentIntents.update(
+      await stripeApi().paymentIntents.update(
         paymentIntentId,
         { metadata: { [METADATA_ORDER_ID_FIELD]: order.id } },
         { idempotencyKey: crypto.randomUUID() },
@@ -544,7 +542,7 @@ export class StripePaymentService extends AbstractPaymentService {
     }
 
     if (subscriptionId) {
-      await stripe.subscriptions.update(
+      await stripeApi().subscriptions.update(
         subscriptionId,
         { metadata: { [METADATA_ORDER_ID_FIELD]: order.id } },
         { idempotencyKey: crypto.randomUUID() },

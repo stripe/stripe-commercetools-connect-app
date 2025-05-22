@@ -31,9 +31,9 @@ export const SetupIntentResponseSchema = Type.Object({
 });
 
 export const SubscriptionResponseSchema = Type.Object({
-  subscriptionId: Type.Optional(Type.String()),
+  subscriptionId: Type.String(),
   clientSecret: Type.String(),
-  paymentReference: Type.Optional(Type.String()),
+  paymentReference: Type.String(),
   merchantReturnUrl: Type.String(),
   cartId: Type.String(),
   billingAddress: Type.Optional(Type.String()),

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { mock_SetCustomFieldActions } from '../../utils/mock-actions-data';
 import { paymentSDK } from '../../../src/payment-sdk';
-import { mockCtCustomerData } from '../../utils/mock-customer-data';
-import { updateCustomerById } from '../../../src/services/commerce-tools/customer-client';
+import { mockCtCustomerData, mockCtCustomerId } from '../../utils/mock-customer-data';
+import { getCustomerById, updateCustomerById } from '../../../src/services/commerce-tools/customer-client';
 
-describe('ProductTypeHelper testing', () => {
+describe('CustomerClient testing', () => {
   beforeEach(() => {
     jest.setTimeout(10000);
     jest.resetAllMocks();
@@ -12,6 +12,22 @@ describe('ProductTypeHelper testing', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+  });
+
+  describe('getCustomerById', () => {
+    it('should return ct customer successfully', async () => {
+      const executeMock = jest.fn().mockReturnValue(Promise.resolve({ body: mockCtCustomerData }));
+      const client = paymentSDK.ctAPI.client;
+      client.customers = jest.fn(() => ({
+        withId: jest.fn(() => ({
+          get: jest.fn(() => ({
+            execute: executeMock,
+          })),
+        })),
+      })) as never;
+      const result = await getCustomerById(mockCtCustomerId);
+      expect(result).toEqual(mockCtCustomerData);
+    });
   });
 
   describe('updateCustomerById', () => {

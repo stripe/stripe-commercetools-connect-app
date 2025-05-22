@@ -137,54 +137,59 @@ export class StripeSubscriptionService {
   public async createSubscriptionFromSetupIntent(
     setupIntentId: string,
   ): Promise<SubscriptionFromSetupIntentResponseSchemaDTO> {
-    const { cart, priceId, stripeCustomerId, subscriptionParams, amountPlanned } = await this.prepareSubscriptionData();
-    const { payment_method: paymentMethodId } = await stripe.setupIntents.retrieve(setupIntentId);
-    const { hasFreeAnchorDays, isSendInvoice } = this.getSubscriptionTypes(subscriptionParams);
+    try {
+      const { cart, priceId, stripeCustomerId, subscriptionParams, amountPlanned } =
+        await this.prepareSubscriptionData();
+      const { payment_method: paymentMethodId } = await stripe.setupIntents.retrieve(setupIntentId);
+      const { hasFreeAnchorDays, isSendInvoice } = this.getSubscriptionTypes(subscriptionParams);
 
-    if (!paymentMethodId || typeof paymentMethodId !== 'string') {
-      throw new Error('Failed to create Subscription. Invalid setup intent.');
-    }
-
-    const subscription = await stripe.subscriptions.create({
-      ...subscriptionParams,
-      customer: stripeCustomerId,
-      default_payment_method: paymentMethodId,
-      items: [{ price: priceId }],
-      expand: ['latest_invoice'],
-      payment_settings: { save_default_payment_method: 'on_subscription' },
-      metadata: this.paymentCreationService.getPaymentMetadata(cart),
-      discounts: await this.stripeCouponService.getStripeCoupons(cart),
-    });
-
-    log.info(`Stripe Subscription from Setup Intent created.`, {
-      ctCartId: cart.id,
-      stripeSubscriptionId: subscription.id,
-      stripeSetupIntentId: setupIntentId,
-    });
-
-    const invoiceId = (subscription.latest_invoice as Stripe.Invoice)?.id;
-
-    if (isSendInvoice && invoiceId) {
-      const invoiceSent = await stripe.invoices.sendInvoice(invoiceId);
-      if (invoiceSent.status === 'open') {
-        log.info('Stripe Subscription invoice was sent.');
-      } else if (invoiceSent.status === 'paid') {
-        log.info(`Stripe Subscription invoice was paid.`);
-      } else {
-        log.warn('Stripe Subscription invoice was not sent.');
+      if (!paymentMethodId || typeof paymentMethodId !== 'string') {
+        throw new Error('Failed to create Subscription. Invalid setup intent.');
       }
+
+      const subscription = await stripe.subscriptions.create({
+        ...subscriptionParams,
+        customer: stripeCustomerId,
+        default_payment_method: paymentMethodId,
+        items: [{ price: priceId }],
+        expand: ['latest_invoice'],
+        payment_settings: { save_default_payment_method: 'on_subscription' },
+        metadata: this.paymentCreationService.getPaymentMetadata(cart),
+        discounts: await this.stripeCouponService.getStripeCoupons(cart),
+      });
+
+      log.info('Stripe Subscription from Setup Intent created.', {
+        ctCartId: cart.id,
+        stripeSubscriptionId: subscription.id,
+        stripeSetupIntentId: setupIntentId,
+      });
+
+      const invoiceId = (subscription.latest_invoice as Stripe.Invoice)?.id;
+
+      if (isSendInvoice && invoiceId) {
+        const invoiceSent = await stripe.invoices.sendInvoice(invoiceId);
+        if (invoiceSent.status === 'open') {
+          log.info('Stripe Subscription invoice was sent.');
+        } else if (invoiceSent.status === 'paid') {
+          log.info('Stripe Subscription invoice is paid.');
+        } else {
+          log.warn('Stripe Subscription invoice was not sent.');
+        }
+      }
+
+      await this.saveSubscriptionId(cart, subscription.id);
+
+      const ctPaymentId = await this.paymentCreationService.handleCtPaymentCreation({
+        cart,
+        amountPlanned,
+        subscriptionId: subscription.id,
+        interactionId: !hasFreeAnchorDays ? invoiceId : subscription.id,
+      });
+
+      return { subscriptionId: subscription.id, paymentReference: ctPaymentId };
+    } catch (error) {
+      throw wrapStripeError(error);
     }
-
-    await this.saveSubscriptionId(cart, subscription.id);
-
-    const ctPaymentId = await this.paymentCreationService.handleCtPaymentCreation({
-      cart,
-      amountPlanned,
-      subscriptionId: subscription.id,
-      interactionId: !hasFreeAnchorDays ? invoiceId : subscription.id,
-    });
-
-    return { subscriptionId: subscription.id, paymentReference: ctPaymentId };
   }
 
   prepareSubscriptionData(): Promise<FullSubscriptionData>;
@@ -395,11 +400,11 @@ export class StripeSubscriptionService {
           subscriptionId,
         });
       } else {
-        const { invoice } = await this.getSubscriptionWithInvoice(subscriptionId);
+        const invoice = await this.getInvoiceFromSubscription(subscriptionId);
         const payment = await this.getCurrentPayment({ paymentReference, invoice, subscriptionParams });
 
         await this.paymentCreationService.updateSubscriptionPaymentTransactions({
-          interactionId: paymentIntentId || invoice.id || subscriptionId,
+          interactionId: paymentIntentId || invoice?.id || subscriptionId,
           payment,
           subscriptionId,
           isPending: isSendInvoice && !hasTrial ? true : false,
@@ -411,7 +416,7 @@ export class StripeSubscriptionService {
     }
   }
 
-  public async getSubscriptionWithInvoice(subscriptionId: string) {
+  public async getInvoiceFromSubscription(subscriptionId: string) {
     const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
       expand: ['latest_invoice.payment_intent'],
     });
@@ -420,10 +425,7 @@ export class StripeSubscriptionService {
       throw new Error(`Subscription with ID "${subscriptionId}" does not have an invoice.`);
     }
 
-    return {
-      subscription,
-      invoice: subscription.latest_invoice,
-    };
+    return subscription.latest_invoice;
   }
 
   public async getCurrentPayment({

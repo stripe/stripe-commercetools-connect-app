@@ -2,6 +2,7 @@ import Stripe from 'stripe';
 import { Payment } from '@commercetools/connect-payments-sdk';
 import { PaymentTransactions } from '../../src/dtos/operations/payment-intents.dto';
 import { PaymentStatus } from '../../src/services/types/stripe-payment.type';
+import { mockStripeCustomerId } from './mock-customer-data';
 
 export const mockEvent__invoice_paid__Expanded_noPaymnet_intent__amount_paid: Stripe.Event = {
   id: 'evt_1RO4tYI1uSMp8YbXbPwUOcN3',
@@ -1777,3 +1778,48 @@ export const mockFindPaymentsByInterfaceId__Charge_Failure: Payment[] = [
     lastModifiedAt: '2024-02-13T00:00:00.000Z',
   },
 ];
+
+export const mockSubscriptionId = 'sub_test_id';
+
+export const mockInvoiceId = 'in_test_id';
+
+export const mockSubscription = {
+  id: mockSubscriptionId,
+  billing_cycle_anchor: 1747767225,
+  billing_cycle_anchor_config: null,
+  collection_method: 'send_invoice',
+  customer: mockStripeCustomerId,
+  days_until_due: 2,
+  default_payment_method: 'pm_1RQv5NI1uSMp8YbXnkX3pIAR',
+  description: 'Monthly Subscription with Invoice',
+  discounts: [],
+  latest_invoice: mockInvoiceId,
+  metadata: {
+    cart_id: 'test_card_id',
+    ct_customer_id: 'test_customer_id',
+    ct_order_id: 'test_order_id',
+    ct_payment_id: 'test_payment_id',
+    ct_project_key: 'test_project_key',
+  },
+  trial_settings: {
+    end_behavior: {
+      missing_payment_method: 'create_invoice',
+    },
+  },
+} as unknown as Stripe.Subscription;
+
+export const mockInvoice: Stripe.Response<Stripe.Invoice> = {
+  id: mockInvoiceId,
+  object: 'invoice',
+  status: 'paid',
+  amount_paid: 120000,
+  amount_due: 0,
+} as unknown as Stripe.Response<Stripe.Invoice>;
+
+export const mockInvoiceWithAmountDue: Stripe.Response<Stripe.Invoice> = {
+  id: mockInvoiceId,
+  object: 'invoice',
+  status: 'open',
+  amount_due: 120000,
+  amount_paid: 0,
+} as unknown as Stripe.Response<Stripe.Invoice>;
