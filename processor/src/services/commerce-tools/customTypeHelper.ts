@@ -48,7 +48,10 @@ export async function addOrUpdateCustomType(customType: TypeDraft): Promise<void
   const resourceTypeId = customType.resourceTypeIds[0];
   const types = await getTypesByResourceTypeId(resourceTypeId);
 
-  if (!types.length) {
+  // Check if the specific custom type (by key) already exists
+  const existingType = types.find((type) => type.key === customType.key);
+
+  if (!existingType) {
     await createCustomType(customType);
     log.info(`Custom Type "${customType.key}" created successfully.`);
     return;
