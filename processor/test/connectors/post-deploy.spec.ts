@@ -19,7 +19,6 @@ describe('runPostDeployScripts', () => {
     process.env = {
       CONNECT_SERVICE_URL: 'https://yourApp.com/',
       STRIPE_WEBHOOK_ID: 'we_11111',
-      STRIPE_IS_SUBSCRIPTION: 'true',
     };
 
     const mockRetrieveWe = jest
