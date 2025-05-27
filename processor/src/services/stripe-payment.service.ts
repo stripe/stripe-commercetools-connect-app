@@ -241,7 +241,6 @@ export class StripePaymentService extends AbstractPaymentService {
   /**
    * Creates a payment intent using the Stripe API and create commercetools payment with Initial transaction.
    *
-   * @param cart
    * @return Promise<PaymentResponseSchemaDTO> A Promise that resolves to a PaymentResponseSchemaDTO object containing the client secret and payment reference.
    */
   public async createPaymentIntent(): Promise<PaymentResponseSchemaDTO> {
@@ -412,19 +411,49 @@ export class StripePaymentService extends AbstractPaymentService {
     try {
       const updateData = this.stripeEventConverter.convert(event);
 
-      for (const tx of updateData.transactions) {
+      if (updateData.transactions.length === 0 && event.type === StripeEvent.CHARGE__SUCCEEDED) {
         const updatedPayment = await this.ctPaymentService.updatePayment({
           ...updateData,
-          transaction: tx,
         });
+        const hasAuthInitial = this.ctPaymentService.hasTransactionInState({
+          payment: updatedPayment,
+          transactionType: PaymentTransactions.AUTHORIZATION,
+          states: [PaymentStatus.INITIAL],
+        });
+        if (hasAuthInitial) {
+          await this.ctPaymentService.updatePayment({
+            id: updatedPayment.id,
+            pspReference: updateData.pspReference,
+            transaction: {
+              type: PaymentTransactions.AUTHORIZATION,
+              state: convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
+              amount: updatedPayment.amountPlanned,
+              interactionId: updateData.pspReference,
+            },
+          });
+        }
 
-        log.info('Payment updated after processing the notification', {
+        log.info('Payment information updated', {
           paymentId: updatedPayment.id,
           version: updatedPayment.version,
           pspReference: updateData.pspReference,
           paymentMethod: updateData.paymentMethod,
-          transaction: JSON.stringify(tx),
         });
+      } else {
+        for (const tx of updateData.transactions) {
+          const updatedPayment = await this.ctPaymentService.updatePayment({
+            ...updateData,
+            transaction: tx,
+          });
+
+          log.info('Payment transaction updated after processing the notification', {
+            paymentId: updatedPayment.id,
+            version: updatedPayment.version,
+            pspReference: updateData.pspReference,
+            paymentMethod: updateData.paymentMethod,
+            transaction: JSON.stringify(tx),
+          });
+        }
       }
 
       if (event.type === StripeEvent.PAYMENT_INTENT__SUCCEEDED) {

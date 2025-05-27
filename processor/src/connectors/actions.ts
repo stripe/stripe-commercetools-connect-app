@@ -29,7 +29,7 @@ export async function handleRequest({
 }): Promise<void> {
   try {
     log.info(`${loggerId} ${startMessage}`);
-    await fn();
+    fn();
   } catch (error) {
     log.error(loggerId, error);
     if (throwError) {
