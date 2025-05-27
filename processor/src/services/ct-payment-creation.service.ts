@@ -44,7 +44,7 @@ export class CtPaymentCreationService {
       amountPlanned,
       paymentMethodInfo: {
         paymentInterface: getPaymentInterfaceFromContext() || 'stripe',
-        method: isSubscription ? 'subscription' : 'payment',
+        ...(isSubscription && { method: 'subscription' }), //remove this line if you want to update the payment method for subscriptions with the payment method used in the Stripe webhook event charge.succeeded
       },
       ...(cart.customerId
         ? { customer: { typeId: 'customer', id: cart.customerId } }
