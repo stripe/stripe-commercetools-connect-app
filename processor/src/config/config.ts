@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 import { parseJSON } from '../utils';
 
-type PaymentFeatures = Stripe.CustomerSessionCreateParams.Components.PaymentElement.Features;
+export type PaymentFeatures = Stripe.CustomerSessionCreateParams.Components.PaymentElement.Features;
 
 const getSavedPaymentConfig = (): PaymentFeatures => {
   const config = process.env.STRIPE_SAVED_PAYMENT_METHODS_CONFIG;

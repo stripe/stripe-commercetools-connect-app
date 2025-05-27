@@ -3,8 +3,8 @@ import { Payment, Transaction } from '@commercetools/connect-payments-sdk';
 import { PaymentAmount } from '@commercetools/connect-payments-sdk/dist/commercetools/types/payment.type';
 import { PaymentProviderModificationResponse } from '../../src/services/types/operation.type';
 import { PaymentModificationStatus } from '../../src/dtos/operations/payment-intents.dto';
-
-const commonLastResponse = {
+import { PaymentResponseSchemaDTO } from '../../src/dtos/mock-payment.dto';
+export const commonLastResponse = {
   headers: {},
   requestId: '11111',
   statusCode: 200,
@@ -13,7 +13,7 @@ const commonLastResponse = {
   stripeAccount: '',
 };
 
-const commonMethodOptions = {
+export const commonMethodOptions = {
   card: {
     installments: null,
     mandate_options: null,
@@ -25,7 +25,7 @@ const commonMethodOptions = {
   },
 } as Stripe.PaymentIntent.PaymentMethodOptions;
 
-const commonPaymentResult = {
+export const commonPaymentResult = {
   lastResponse: commonLastResponse,
   id: 'pi_create_3MtwBwLkdIwHu7ix28a3tqPa',
   object: 'payment_intent',
@@ -403,3 +403,47 @@ export const mockCapturePaymentResult: PaymentProviderModificationResponse = {
   outcome: PaymentModificationStatus.APPROVED,
   pspReference: 'mockPspReference',
 };
+
+export const mockPaymentResult: PaymentResponseSchemaDTO = {
+  clientSecret: 'pi_3MtwBwLkdIwHu7ix28a3tqPa_secret_YrKJUKribcBjcG8HVhfZluoGH',
+  paymentReference: 'mockPspReference',
+  merchantReturnUrl: 'https://example.com/return',
+  cartId: 'xxxx-xxxx-xxxx',
+};
+
+// export const paymentMetadataWithoutCustomerMock = {
+//   cart_id: 'test_cart_id',
+//   ct_project_key: 'test_project_key',
+// };
+
+// export const paymentMetadataMock = {
+//   ...paymentMetadataWithoutCustomerMock,
+//   ct_customer_id: mockCustomerData.id,
+// };
+
+// export const configDataWithBillingAsNever = {
+//   apiUrl: '',
+//   authUrl: '',
+//   clientId: '',
+//   clientSecret: '',
+//   healthCheckTimeout: 0,
+//   jwksUrl: '',
+//   jwtIssuer: '',
+//   loggerLevel: '',
+//   mockClientKey: '',
+//   mockEnvironment: '',
+//   sessionUrl: '',
+//   stripeApiVersion: '',
+//   stripeApplePayWellKnown: '',
+//   stripeLayout: '',
+//   stripePaymentElementAppearance: '',
+//   stripeExpressCheckoutAppearance: '',
+//   stripePublishableKey: '',
+//   stripeSecretKey: '',
+//   stripeWebhookSigningSecret: '',
+//   stripeCaptureMethod: 'manual',
+//   merchantReturnUrl: 'https://merchant.example.com/return',
+//   projectKey: 'your-project-key',
+//   stripeSavedPaymentMethodConfig: { payment_method_save: 'disabled' } as PaymentFeatures,
+//   stripeCollectBillingAddress: 'never',
+// };

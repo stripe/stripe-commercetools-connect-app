@@ -5,6 +5,7 @@ import {
   TypeDraft,
 } from '@commercetools/platform-sdk/dist/declarations/src/generated/models/type';
 import {
+  CartSetLineItemCustomFieldAction,
   CustomerSetCustomFieldAction,
   CustomerSetCustomTypeAction,
   Product,
@@ -245,6 +246,15 @@ export const mock_SetCustomFieldActions: CustomerSetCustomFieldAction[] = [
     action: 'setCustomField',
     name: 'stripeConnector_stripeCustomerId',
     value: mockStripeCustomerId,
+  },
+];
+
+export const mock_SetLineItemCustomFieldActions: CartSetLineItemCustomFieldAction[] = [
+  {
+    action: 'setLineItemCustomField',
+    name: 'stripeConnector_stripeSubscriptionId',
+    value: 'stripe-subscription-id',
+    lineItemId: 'line-item-id',
   },
 ];
 

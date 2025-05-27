@@ -7,8 +7,8 @@ import {
   mock_SetCustomFieldActions,
   mock_SetCustomTypeActions,
 } from '../../utils/mock-actions-data';
-import * as CustomTypeHelper from '../../../src/services/commerce-tools/customTypeHelper';
-import * as CustomTypeClient from '../../../src/services/commerce-tools/customTypeClient';
+import * as CustomTypeHelper from '../../../src/services/commerce-tools/custom-type-helper';
+import * as CustomTypeClient from '../../../src/services/commerce-tools/custom-type-client';
 import * as Logger from '../../../src/libs/logger';
 import {
   mockCtCustomerData_withoutType,

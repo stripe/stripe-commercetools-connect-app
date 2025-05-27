@@ -4,6 +4,7 @@ import Stripe from 'stripe';
 import { PaymentStatus, StripeEvent, StripeEventUpdatePayment } from '../types/stripe-payment.type';
 import { PaymentTransactions } from '../../dtos/operations/payment-intents.dto';
 import { wrapStripeError } from '../../clients/stripe.client';
+import { METADATA_PAYMENT_ID_FIELD } from '../../constants';
 
 export class StripeEventConverter {
   public convert(opts: Stripe.Event): StripeEventUpdatePayment {
@@ -113,6 +114,6 @@ export class StripeEventConverter {
   }
 
   private getCtPaymentId(event: Stripe.PaymentIntent | Stripe.Charge): string {
-    return event.metadata.ct_payment_id;
+    return event.metadata[METADATA_PAYMENT_ID_FIELD];
   }
 }
