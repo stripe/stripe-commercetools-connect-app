@@ -27,10 +27,26 @@ export enum PaymentOutcome {
   AUTHORIZED = 'Authorized',
   REJECTED = 'Rejected',
   INITIAL = 'Initial',
+  PENDING = 'Pending',
 }
 
 export const PaymentResponseSchema = Type.Object({
-  sClientSecret: Type.String(),
+  clientSecret: Type.String(),
+  paymentReference: Type.Optional(Type.String()),
+  merchantReturnUrl: Type.String(),
+  cartId: Type.String(),
+  billingAddress: Type.Optional(Type.String()),
+});
+
+export const SetupIntentResponseSchema = Type.Object({
+  clientSecret: Type.String(),
+  merchantReturnUrl: Type.String(),
+  billingAddress: Type.Optional(Type.String()),
+});
+
+export const SubscriptionResponseSchema = Type.Object({
+  subscriptionId: Type.String(),
+  clientSecret: Type.String(),
   paymentReference: Type.String(),
   merchantReturnUrl: Type.String(),
   cartId: Type.String(),
@@ -54,6 +70,7 @@ export const ConfigElementResponseSchema = Type.Object({
   setupFutureUsage: Type.Optional(Type.String()),
   layout: Type.String(),
   collectBillingAddress: Type.Enum(CollectBillingAddressOptions),
+  paymentMode: Type.Union([Type.Literal('subscription'), Type.Literal('setup'), Type.Literal('payment')]),
 });
 
 export const CtPaymentSchema = Type.Object({
@@ -68,8 +85,23 @@ export const CustomerResponseSchema = Type.Optional(
   }),
 );
 
+export const SubscriptionFromSetupIntentResponseSchema = Type.Object({
+  subscriptionId: Type.String(),
+  paymentReference: Type.String(),
+});
+
+export const ConfirmSubscriptionRequestSchema = Type.Object({
+  subscriptionId: Type.String(),
+  paymentReference: Type.String(),
+  paymentIntentId: Type.Optional(Type.String()),
+});
+
 export type PaymentRequestSchemaDTO = Static<typeof PaymentRequestSchema>;
 export type PaymentResponseSchemaDTO = Static<typeof PaymentResponseSchema>;
 export type ConfigElementResponseSchemaDTO = Static<typeof ConfigElementResponseSchema>;
 export type CtPaymentSchemaDTO = Static<typeof CtPaymentSchema>;
 export type CustomerResponseSchemaDTO = Static<typeof CustomerResponseSchema>;
+export type SubscriptionFromSetupIntentResponseSchemaDTO = Static<typeof SubscriptionFromSetupIntentResponseSchema>;
+export type SubscriptionResponseSchemaDTO = Static<typeof SubscriptionResponseSchema>;
+export type ConfirmSubscriptionRequestSchemaDTO = Static<typeof ConfirmSubscriptionRequestSchema>;
+export type SetupIntentResponseSchemaDTO = Static<typeof SetupIntentResponseSchema>;

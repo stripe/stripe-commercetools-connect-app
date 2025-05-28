@@ -7,14 +7,14 @@ import {
 import { log } from '../libs/logger';
 import Stripe from 'stripe';
 import { stripeApi } from '../clients/stripe.client';
-import { getTypeByKey } from '../services/commerce-tools/customTypeClient';
+import { getTypeByKey } from '../services/commerce-tools/custom-type-client';
 import {
   createProductType,
   deleteProductType,
   getProductsByProductTypeId,
   getProductTypeByKey,
-} from '../services/commerce-tools/productTypeClient';
-import { addOrUpdateCustomType, deleteOrUpdateCustomType } from '../services/commerce-tools/customTypeHelper';
+} from '../services/commerce-tools/product-type-client';
+import { addOrUpdateCustomType, deleteOrUpdateCustomType } from '../services/commerce-tools/custom-type-helper';
 
 export async function handleRequest({
   loggerId,

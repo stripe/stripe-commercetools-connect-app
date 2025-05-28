@@ -4,8 +4,6 @@ import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import {
   ConfigElementResponseSchema,
   ConfigElementResponseSchemaDTO,
-  CustomerResponseSchema,
-  CustomerResponseSchemaDTO,
   PaymentResponseSchema,
   PaymentResponseSchemaDTO,
 } from '../dtos/stripe-payment.dto';
@@ -23,6 +21,7 @@ import {
   PaymentModificationStatus,
 } from '../dtos/operations/payment-intents.dto';
 import { StripeEvent } from '../services/types/stripe-payment.type';
+import { isFromSubscriptionInvoice } from '../utils';
 
 type PaymentRoutesOptions = {
   paymentService: StripePaymentService;
@@ -34,59 +33,19 @@ type StripeRoutesOptions = {
   stripeHeaderAuthHook: StripeHeaderAuthHook;
 };
 
-/**
- * MVP if additional information needs to be included in the payment intent, this method should be supplied with the necessary data.
- *
- */
-export const customerRoutes = async (fastify: FastifyInstance, opts: FastifyPluginOptions & PaymentRoutesOptions) => {
-  fastify.get<{ Querystring: { customerId?: string }; Reply: CustomerResponseSchemaDTO }>(
-    '/customer/session',
-    {
-      preHandler: [opts.sessionHeaderAuthHook.authenticate()],
-      schema: {
-        querystring: {
-          type: 'object',
-          properties: {
-            customerId: Type.Optional(Type.String()),
-          },
-        },
-        response: {
-          200: CustomerResponseSchema,
-          204: Type.Null(),
-        },
-      },
-    },
-    async (request, reply) => {
-      const stripeCustomerId = request?.query?.customerId;
-      const resp = await opts.paymentService.getCustomerSession(stripeCustomerId);
-      if (!resp) {
-        return reply.status(204).send(resp);
-      }
-      return reply.status(200).send(resp);
-    },
-  );
-};
-
 export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPluginOptions & PaymentRoutesOptions) => {
-  fastify.get<{ Querystring: { customerId?: string }; Reply: PaymentResponseSchemaDTO }>(
+  fastify.get<{ Reply: PaymentResponseSchemaDTO }>(
     '/payments',
     {
       preHandler: [opts.sessionHeaderAuthHook.authenticate()],
       schema: {
-        querystring: {
-          type: 'object',
-          properties: {
-            customerId: Type.Optional(Type.String()),
-          },
-        },
         response: {
           200: PaymentResponseSchema,
         },
       },
     },
-    async (request, reply) => {
-      const resp = await opts.paymentService.createPaymentIntentStripe();
-
+    async (_, reply) => {
+      const resp = await opts.paymentService.createPaymentIntent();
       return reply.status(200).send(resp);
     },
   );
@@ -160,7 +119,11 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
           break;
       }
 
-      await opts.paymentService.processStripeEvent(event);
+      if (event.type.startsWith('invoice')) {
+        await opts.paymentService.processSubscriptionEvent(event);
+      } else if (!isFromSubscriptionInvoice(event)) {
+        await opts.paymentService.processStripeEvent(event);
+      }
 
       return reply.status(200).send();
     },

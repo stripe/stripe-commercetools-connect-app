@@ -33,6 +33,10 @@ export const stripeCustomerIdCustomType: TypeDraft = {
   ],
 };
 
+export const lineItemProductSubscriptionIdField = 'stripeConnector_productSubscriptionId';
+export const lineItemStripeSubscriptionIdField = 'stripeConnector_stripeSubscriptionId';
+export const lineItemStripeSubscriptionErrorField = 'stripeConnector_stripeSubscriptionError';
+
 export const typeLineItem: TypeDraft = {
   key: 'payment-connector-subscription-line-item-type',
   name: {
@@ -47,19 +51,9 @@ export const typeLineItem: TypeDraft = {
       type: {
         name: 'String',
       },
-      name: 'stripeConnector_productSubscriptionId',
+      name: lineItemProductSubscriptionIdField,
       label: {
         'en-US': 'Product Subscription ID',
-      },
-      required: true,
-    },
-    {
-      type: {
-        name: 'String',
-      },
-      name: 'stripeConnector_stripeSubscriptionId',
-      label: {
-        'en-US': 'Stripe Subscription ID',
       },
       required: false,
     },
@@ -67,7 +61,17 @@ export const typeLineItem: TypeDraft = {
       type: {
         name: 'String',
       },
-      name: 'stripeConnector_stripeSubscriptionError',
+      name: lineItemStripeSubscriptionIdField,
+      label: {
+        'en-US': 'Stripe Subscription ID',
+      },
+      required: true,
+    },
+    {
+      type: {
+        name: 'String',
+      },
+      name: lineItemStripeSubscriptionErrorField,
       label: {
         'en-US': 'Stripe Subscription Error',
       },
@@ -82,58 +86,6 @@ export const productTypeSubscription: ProductTypeDraft = {
   description: 'The subscription-information product type.',
   attributes: [
     {
-      name: 'billing_cycle_anchor',
-      label: {
-        'en-US': 'Billing Cycle Anchor',
-      },
-      type: {
-        name: 'number',
-      },
-      isRequired: false,
-      attributeConstraint: 'None',
-      isSearchable: false,
-      inputHint: 'SingleLine',
-    },
-    {
-      name: 'cancel_at',
-      label: {
-        'en-US': 'Cancel At',
-      },
-      isRequired: false,
-      type: {
-        name: 'number',
-      },
-      attributeConstraint: 'None',
-      isSearchable: false,
-      inputHint: 'SingleLine',
-    },
-    {
-      name: 'cancel_at_period_end',
-      label: {
-        'en-US': 'Cancel At Period End',
-      },
-      isRequired: false,
-      type: {
-        name: 'boolean',
-      },
-      attributeConstraint: 'None',
-      isSearchable: false,
-      inputHint: 'SingleLine',
-    },
-    {
-      name: 'days_until_due',
-      label: {
-        'en-US': 'Days Until Due',
-      },
-      isRequired: false,
-      type: {
-        name: 'number',
-      },
-      attributeConstraint: 'None',
-      isSearchable: false,
-      inputHint: 'SingleLine',
-    },
-    {
       name: 'description',
       label: {
         'en-US': 'Description',
@@ -147,156 +99,9 @@ export const productTypeSubscription: ProductTypeDraft = {
       inputHint: 'SingleLine',
     },
     {
-      name: 'off_session',
-      label: {
-        'en-US': 'Off Session',
-      },
-      isRequired: true,
-      type: {
-        name: 'boolean',
-      },
-      attributeConstraint: 'None',
-      isSearchable: false,
-      inputHint: 'SingleLine',
-    },
-    {
-      name: 'trial_end',
-      label: {
-        'en-US': 'Trial End',
-      },
-      isRequired: false,
-      type: {
-        name: 'number',
-      },
-      attributeConstraint: 'None',
-      isSearchable: false,
-      inputHint: 'SingleLine',
-    },
-    {
-      name: 'trial_period_days',
-      label: {
-        'en-US': 'Trial Period Days',
-      },
-      isRequired: false,
-      type: {
-        name: 'number',
-      },
-      attributeConstraint: 'None',
-      isSearchable: false,
-      inputHint: 'SingleLine',
-    },
-    {
-      name: 'collection_method',
-      label: {
-        'en-US': 'collection method',
-      },
-      isRequired: true,
-      type: {
-        name: 'enum',
-        values: [
-          {
-            key: 'charge_automatically',
-            label: 'charge_automatically',
-          },
-          {
-            key: 'send_invoice',
-            label: 'send_invoice',
-          },
-        ],
-      },
-      attributeConstraint: 'None',
-      isSearchable: false,
-      inputHint: 'SingleLine',
-    },
-    {
-      name: 'proration_behavior',
-      label: {
-        'en-US': 'proration_behavior',
-      },
-      isRequired: false,
-      type: {
-        name: 'enum',
-        values: [
-          {
-            key: 'none',
-            label: 'none',
-          },
-          {
-            key: 'create_prorations',
-            label: 'create_prorations',
-          },
-          {
-            key: 'always_invoice',
-            label: 'always_invoice',
-          },
-        ],
-      },
-      attributeConstraint: 'None',
-      isSearchable: false,
-      inputHint: 'SingleLine',
-    },
-    {
-      name: 'missing_payment_method_at_trial_end',
-      label: {
-        'en-US': 'missing_payment_method',
-      },
-      isRequired: false,
-      type: {
-        name: 'enum',
-        values: [
-          {
-            key: 'cancel',
-            label: 'cancel',
-          },
-          {
-            key: 'create_invoice',
-            label: 'create_invoice',
-          },
-          {
-            key: 'pause',
-            label: 'pause',
-          },
-        ],
-      },
-      attributeConstraint: 'None',
-      isSearchable: false,
-      inputHint: 'SingleLine',
-    },
-    {
-      name: 'payment_behavior',
-      label: {
-        'en-US': 'payment_behavior',
-      },
-      isRequired: true,
-      type: {
-        name: 'enum',
-        values: [
-          {
-            key: 'default_incomplete',
-            label: 'default_incomplete',
-          },
-          {
-            key: 'allow_incomplete',
-            label: 'allow_incomplete',
-          },
-          {
-            key: 'error_if_incomplete',
-            label: 'error_if_incomplete',
-          },
-          {
-            key: 'pending_if_incomplete',
-            label: 'pending_if_incomplete',
-          },
-        ],
-      },
-      attributeConstraint: 'None',
-      isSearchable: false,
-      inputHint: 'SingleLine',
-    },
-    {
       name: 'recurring_interval',
       label: {
-        'en-US': 'recurring_interval',
+        'en-US': 'Recurring Interval',
       },
       isRequired: true,
       type: {
@@ -327,11 +132,233 @@ export const productTypeSubscription: ProductTypeDraft = {
     {
       name: 'recurring_interval_count',
       label: {
-        'en-US': 'recurring_interval',
+        'en-US': 'Recurring Interval Count',
       },
       isRequired: true,
       type: {
         name: 'number',
+      },
+      attributeConstraint: 'None',
+      isSearchable: false,
+      inputHint: 'SingleLine',
+    },
+    {
+      name: 'off_session',
+      label: {
+        'en-US': 'Off Session',
+      },
+      isRequired: true,
+      type: {
+        name: 'boolean',
+      },
+      attributeConstraint: 'None',
+      isSearchable: false,
+      inputHint: 'SingleLine',
+    },
+    {
+      name: 'collection_method',
+      label: {
+        'en-US': 'Collection Method',
+      },
+      isRequired: true,
+      type: {
+        name: 'enum',
+        values: [
+          {
+            key: 'charge_automatically',
+            label: 'charge_automatically',
+          },
+          {
+            key: 'send_invoice',
+            label: 'send_invoice',
+          },
+        ],
+      },
+      attributeConstraint: 'None',
+      isSearchable: false,
+      inputHint: 'SingleLine',
+    },
+    {
+      name: 'days_until_due',
+      label: {
+        'en-US': 'Days Until Due',
+      },
+      isRequired: false,
+      type: {
+        name: 'number',
+      },
+      attributeConstraint: 'None',
+      isSearchable: false,
+      inputHint: 'SingleLine',
+      inputTip: {
+        'en-US':
+          "Number of days a customer has to pay invoices generated by this subscription. Only applies when collection method is assigned as 'send_invoice'.",
+      },
+    },
+    {
+      name: 'cancel_at_period_end',
+      label: {
+        'en-US': 'Cancel At Period End',
+      },
+      isRequired: false,
+      type: {
+        name: 'boolean',
+      },
+      attributeConstraint: 'None',
+      isSearchable: false,
+      inputHint: 'SingleLine',
+    },
+    {
+      name: 'cancel_at',
+      label: {
+        'en-US': 'Cancel At',
+      },
+      isRequired: false,
+      type: {
+        name: 'datetime',
+      },
+      attributeConstraint: 'None',
+      isSearchable: false,
+      inputHint: 'SingleLine',
+      inputTip: {
+        'en-US': 'Date and Time when the subscription should be canceled. (Displayed as Local Date Time)',
+      },
+    },
+    {
+      name: 'billing_cycle_anchor_day',
+      label: {
+        'en-US': 'Billing Cycle Anchor Day',
+      },
+      type: {
+        name: 'number',
+      },
+      isRequired: false,
+      attributeConstraint: 'None',
+      isSearchable: false,
+      inputHint: 'SingleLine',
+      inputTip: {
+        'en-US':
+          'The day of the month when the billing cycle should start. If a specific date time is needed, use the Billing Cycle Date field instead.',
+      },
+    },
+    {
+      name: 'billing_cycle_anchor_time',
+      label: {
+        'en-US': 'Billing Cycle Anchor Time',
+      },
+      inputTip: {
+        'en-US':
+          'UTC Time of day to indicate when the billing cycle should start, this value works together with the Billing Cycle Anchor Day. If a specific date time is needed use the Billing Cycle Date field instead.',
+      },
+      type: {
+        name: 'time',
+      },
+      isRequired: false,
+      attributeConstraint: 'None',
+      isSearchable: false,
+      inputHint: 'SingleLine',
+    },
+    {
+      name: 'billing_cycle_anchor_date',
+      label: {
+        'en-US': 'Billing Cycle Anchor Date',
+      },
+      type: {
+        name: 'datetime',
+      },
+      isRequired: false,
+      attributeConstraint: 'None',
+      isSearchable: false,
+      inputHint: 'SingleLine',
+      inputTip: {
+        'en-US': 'The exact date and time when the billing cycle should start. (Displayed as Local Date Time)',
+      },
+    },
+    {
+      name: 'trial_period_days',
+      label: {
+        'en-US': 'Trial Period Days',
+      },
+      isRequired: false,
+      type: {
+        name: 'number',
+      },
+      attributeConstraint: 'None',
+      isSearchable: false,
+      inputHint: 'SingleLine',
+      inputTip: {
+        'en-US': 'Amount of days the trial days will last, or define a date and time in the Trial End Date field.',
+      },
+    },
+    {
+      name: 'trial_end_date',
+      label: {
+        'en-US': 'Trial End Date',
+      },
+      isRequired: false,
+      type: {
+        name: 'datetime',
+      },
+      attributeConstraint: 'None',
+      isSearchable: false,
+      inputHint: 'SingleLine',
+      inputTip: {
+        'en-US':
+          'Date and Time when trial should end (Displayed as Local Date Time), or define the amount of days in the Trial Period Days field.',
+      },
+    },
+    {
+      name: 'missing_payment_method_at_trial_end',
+      label: {
+        'en-US': 'Missing Payment Method Behavior at Trial End',
+      },
+      isRequired: false,
+      type: {
+        name: 'enum',
+        values: [
+          {
+            key: 'cancel',
+            label: 'cancel',
+          },
+          {
+            key: 'create_invoice',
+            label: 'create_invoice',
+          },
+          {
+            key: 'pause',
+            label: 'pause',
+          },
+        ],
+      },
+      attributeConstraint: 'None',
+      isSearchable: false,
+      inputHint: 'SingleLine',
+      inputTip: {
+        'en-US': 'Defines how the subscription should behave when the user’s free trial ends.',
+      },
+    },
+    {
+      name: 'proration_behavior',
+      label: {
+        'en-US': 'Proration Behavior',
+      },
+      isRequired: false,
+      type: {
+        name: 'enum',
+        values: [
+          {
+            key: 'none',
+            label: 'none',
+          },
+          {
+            key: 'create_prorations',
+            label: 'create_prorations',
+          },
+          {
+            key: 'always_invoice',
+            label: 'always_invoice',
+          },
+        ],
       },
       attributeConstraint: 'None',
       isSearchable: false,

@@ -1,4 +1,3 @@
-import { PaymentResponseSchemaDTO } from "../dtos/mock-payment.dto";
 import {
   DropinComponent,
   DropinOptions,
@@ -9,33 +8,8 @@ import {
   StripeExpressCheckoutElement,
   StripePaymentElement,
 } from "@stripe/stripe-js";
-
-interface BillingAddress {
-  name: string;
-  email: string;
-  phone: string;
-  address: {
-    city: string;
-    country: string;
-    line1: string;
-    line2: string;
-    postal_code: string;
-    state: string;
-  }
-}
-
-interface ConfirmPaymentProps {
-  merchantReturnUrl: string;
-  cartId: string;
-  clientSecret: string;
-  paymentReference: string;
-  billingAddress?: BillingAddress;
-}
-
-interface ConfirmPaymentIntentProps {
-  paymentIntentId: string;
-  paymentReference: string;
-}
+import { apiService, ApiService } from "../services/api-service";
+import { StripeService, stripeService } from "../services/stripe-service";
 
 export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
   public dropinHasSubmit = true;
@@ -60,6 +34,8 @@ export class DropinComponents implements DropinComponent {
   private baseOptions: BaseOptions;
   private paymentElement: StripeExpressCheckoutElement | StripePaymentElement;
   private dropinOptions: DropinOptions;
+  private api: ApiService;
+  private stripe: StripeService;
 
   constructor(opts: {
     baseOptions: BaseOptions;
@@ -67,6 +43,14 @@ export class DropinComponents implements DropinComponent {
   }) {
     this.baseOptions = opts.baseOptions;
     this.dropinOptions = opts.dropinOptions;
+    this.api = apiService({
+      baseApi: opts.baseOptions.processorUrl,
+      sessionId: opts.baseOptions.sessionId,
+    });
+    this.stripe = stripeService({
+      stripe: opts.baseOptions.sdk,
+      elements: opts.baseOptions.elements,
+    });
   }
 
   init(): void {
@@ -96,107 +80,93 @@ export class DropinComponents implements DropinComponent {
         throw submitError;
       }
 
-      const {
-        sClientSecret,
-        paymentReference,
-        merchantReturnUrl,
-        cartId,
-        billingAddress
-      } = await this.getPayment();
-
-      const { paymentIntent } = await this.confirmStripePayment({
-        merchantReturnUrl,
-        cartId,
-        clientSecret: sClientSecret,
-        paymentReference,
-        ...(billingAddress && {billingAddress: JSON.parse(billingAddress) as BillingAddress}),
-      });
-
-      await this.confirmPaymentIntent({
-        paymentIntentId: paymentIntent.id,
-        paymentReference,
-      });
+      switch (this.baseOptions.paymentMode) {
+        case "payment":
+          await this.createPayment();
+          break;
+        case "subscription":
+          await this.createSubscription();
+          break;
+        case "setup":
+          await this.createSetupIntent();
+          break;
+        default:
+          throw new Error("Invalid payment mode");
+      }
     } catch (error) {
       this.baseOptions.onError?.(error);
     }
   }
 
-  private async getPayment(): Promise<PaymentResponseSchemaDTO> {
-    const apiUrl = new URL(`${this.baseOptions.processorUrl}/payments`);
-    apiUrl.searchParams.append("customerId", this.baseOptions.stripeCustomerId);
-
-    const response = await fetch(apiUrl.toString(), {
-      method: "GET",
-      headers: this.getHeadersConfig(),
+  private async createPayment(): Promise<void> {
+    const paymentRes = await this.api.getPayment();
+    const paymentIntent = await this.stripe.confirmStripePayment(paymentRes);
+    await this.api.confirmPaymentIntent({
+      paymentIntentId: paymentIntent.id,
+      paymentReference: paymentRes.paymentReference,
     });
 
-    if (!response.ok) {
-      const error = await response.json();
-      console.warn(`Error in processor getting Payment: ${error.message}`);
-      throw error;
-    } else {
-      return await response.json();
-    }
+    this.baseOptions.onComplete?.({
+      isSuccess: true,
+      paymentReference: paymentRes.paymentReference,
+      paymentIntent: paymentIntent.id,
+    });
   }
 
-  private async confirmStripePayment({
-    merchantReturnUrl,
-    cartId,
-    clientSecret,
-    paymentReference,
-    billingAddress,
-  }: ConfirmPaymentProps) {
-    const returnUrl = new URL(merchantReturnUrl);
-    returnUrl.searchParams.append("cartId", cartId);
-    returnUrl.searchParams.append("paymentReference", paymentReference);
+  private async createSetupIntent(): Promise<void> {
+    const { clientSecret, merchantReturnUrl, billingAddress } =
+      await this.api.createSetupIntent();
 
-    const { error, paymentIntent } = await this.baseOptions.sdk.confirmPayment({
-      elements: this.baseOptions.elements,
+    const { id: setupIntentId } = await this.stripe.confirmStripeSetupIntent({
+      merchantReturnUrl,
       clientSecret,
-      confirmParams: {
-        return_url: returnUrl.toString(),
-        ...(billingAddress &&{
-          payment_method_data: {
-            billing_details: billingAddress
-          }
-        })
-      },
-      redirect: "if_required",
+      billingAddress,
     });
 
-    if (error) {
-      throw error;
-    }
+    const subscription = await this.api.createSubscriptionFromSetupIntent(
+      setupIntentId
+    );
 
-    return { paymentIntent };
+    await this.api.confirmSubscriptionPayment({
+      subscriptionId: subscription.subscriptionId,
+      paymentReference: subscription.paymentReference,
+    });
+
+    this.baseOptions.onComplete?.({
+      isSuccess: true,
+      paymentReference: subscription.paymentReference,
+      paymentIntent: setupIntentId,
+    });
   }
 
-  private async confirmPaymentIntent({
-    paymentIntentId,
-    paymentReference,
-  }: ConfirmPaymentIntentProps) {
-    const apiUrl = `${this.baseOptions.processorUrl}/confirmPayments/${paymentReference}`;
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: this.getHeadersConfig(),
-      body: JSON.stringify({ paymentIntent: paymentIntentId }),
+  private async createSubscription(): Promise<void> {
+    const {
+      cartId,
+      clientSecret,
+      billingAddress,
+      merchantReturnUrl,
+      paymentReference,
+      subscriptionId,
+    } = await this.api.createSubscription();
+
+    const { id: paymentIntentId } = await this.stripe.confirmStripePayment({
+      cartId,
+      clientSecret,
+      billingAddress,
+      merchantReturnUrl,
+      paymentReference,
     });
 
-    if (!response.ok) {
-      throw "Error on /confirmPayments";
-    }
+    await this.api.confirmSubscriptionPayment({
+      subscriptionId,
+      paymentReference,
+      paymentIntentId,
+    });
 
     this.baseOptions.onComplete?.({
       isSuccess: true,
       paymentReference,
       paymentIntent: paymentIntentId,
     });
-  }
-
-  private getHeadersConfig(): HeadersInit {
-    return {
-      "Content-Type": "application/json",
-      "x-session-id": this.baseOptions.sessionId,
-    };
   }
 }
