@@ -20,7 +20,7 @@ import {
   PaymentIntentResponseSchema,
   PaymentModificationStatus,
 } from '../dtos/operations/payment-intents.dto';
-import { StripeEvent } from '../services/types/stripe-payment.type';
+import { StripeEvent, StripeSubscriptionEvent } from '../services/types/stripe-payment.type';
 import { isFromSubscriptionInvoice } from '../utils';
 
 type PaymentRoutesOptions = {
@@ -114,15 +114,26 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
         case StripeEvent.CHARGE__CAPTURED:
           log.info(`Received: ${event.type} event of ${event.data.object.id}`);
           break;
+        case StripeEvent.PAYMENT_INTENT__SUCCEEDED:
+        case StripeEvent.PAYMENT_INTENT__CANCELED:
+        case StripeEvent.PAYMENT_INTENT__PAYMENT_FAILED:
+        case StripeEvent.CHARGE__REFUNDED:
+        case StripeEvent.CHARGE__SUCCEEDED:
+          if (!isFromSubscriptionInvoice(event)) {
+            log.info(`Processing Stripe payment event: ${event.type}`);
+            await opts.paymentService.processStripeEvent(event);
+          } else {
+            log.info(`--->>> This Stripe event is from a subscription invoice: ${event.type}`);
+          }
+          break;
+        case StripeSubscriptionEvent.INVOICE_PAID:
+        case StripeSubscriptionEvent.INVOICE_PAYMENT_FAILED:
+          log.info(`Processing Stripe Subscription event: ${event.type}`);
+          await opts.paymentService.processSubscriptionEvent(event);
+          break;
         default:
           log.info(`--->>> This Stripe event is not supported: ${event.type}`);
           break;
-      }
-
-      if (event.type.startsWith('invoice')) {
-        await opts.paymentService.processSubscriptionEvent(event);
-      } else if (!isFromSubscriptionInvoice(event)) {
-        await opts.paymentService.processStripeEvent(event);
       }
 
       return reply.status(200).send();

@@ -31,6 +31,8 @@ export default async function (server: FastifyInstance) {
   await server.register(subscriptionRoutes, {
     subscriptionService: stripeSubscriptionService,
     sessionHeaderAuthHook: paymentSDK.sessionHeaderAuthHookFn,
+    oauth2AuthHook: paymentSDK.oauth2AuthHookFn,
+    authorizationHook: paymentSDK.authorityAuthorizationHookFn,
   });
 
   await server.register(paymentRoutes, {

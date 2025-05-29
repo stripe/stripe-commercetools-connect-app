@@ -96,6 +96,30 @@ export const ConfirmSubscriptionRequestSchema = Type.Object({
   paymentIntentId: Type.Optional(Type.String()),
 });
 
+export const SubscriptionListResponseSchema = Type.Object({
+  subscriptions: Type.Array(Type.Any()),
+  error: Type.Optional(Type.String()),
+});
+
+export enum SubscriptionOutcome {
+  UPDATED = 'updated',
+  CANCELED = 'canceled',
+  ERROR = 'error',
+}
+
+export const SubscriptionModifyResponseSchema = Type.Object({
+  id: Type.String(),
+  status: Type.String(),
+  message: Type.Optional(Type.String()),
+  outcome: Type.Enum(SubscriptionOutcome),
+});
+
+export const SubscriptionUpdateRequestSchema = Type.Object({
+  id: Type.String(),
+  params: Type.Optional(Type.Any()),
+  options: Type.Optional(Type.Any()),
+});
+
 export type PaymentRequestSchemaDTO = Static<typeof PaymentRequestSchema>;
 export type PaymentResponseSchemaDTO = Static<typeof PaymentResponseSchema>;
 export type ConfigElementResponseSchemaDTO = Static<typeof ConfigElementResponseSchema>;
@@ -105,3 +129,6 @@ export type SubscriptionFromSetupIntentResponseSchemaDTO = Static<typeof Subscri
 export type SubscriptionResponseSchemaDTO = Static<typeof SubscriptionResponseSchema>;
 export type ConfirmSubscriptionRequestSchemaDTO = Static<typeof ConfirmSubscriptionRequestSchema>;
 export type SetupIntentResponseSchemaDTO = Static<typeof SetupIntentResponseSchema>;
+export type SubscriptionListResponseSchemaDTO = Static<typeof SubscriptionListResponseSchema>;
+export type SubscriptionModifyResponseSchemaDTO = Static<typeof SubscriptionModifyResponseSchema>;
+export type SubscriptionUpdateRequestSchemaDTO = Static<typeof SubscriptionUpdateRequestSchema>;

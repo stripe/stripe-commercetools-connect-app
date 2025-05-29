@@ -23,6 +23,8 @@ import {
   ConfirmSubscriptionRequestSchemaDTO,
   SetupIntentResponseSchemaDTO,
   SubscriptionFromSetupIntentResponseSchemaDTO,
+  SubscriptionModifyResponseSchemaDTO,
+  SubscriptionOutcome,
   SubscriptionResponseSchemaDTO,
 } from '../dtos/stripe-payment.dto';
 import { getCartIdFromContext, getMerchantReturnUrlFromContext } from '../libs/fastify/context/context';
@@ -40,9 +42,10 @@ import { getSubscriptionAttributes } from '../mappers/subscription-mapper';
 import { CtPaymentCreationService } from './ct-payment-creation.service';
 import { getCartExpanded, updateCartById } from './commerce-tools/cart-client';
 import { getCustomFieldUpdateActions } from './commerce-tools/custom-type-helper';
-import { METADATA_PRICE_ID_FIELD, METADATA_VARIANT_SKU_FIELD, METADATA_PRODUCT_ID_FIELD } from '../constants';
+import { METADATA_PRICE_ID_FIELD, METADATA_PRODUCT_ID_FIELD, METADATA_VARIANT_SKU_FIELD } from '../constants';
 import { StripePaymentService } from './stripe-payment.service';
 import { StripeCouponService } from './stripe-coupon.service';
+import { getCustomerById } from './commerce-tools/customer-client';
 
 const stripe = stripeApi();
 
@@ -302,8 +305,7 @@ export class StripeSubscriptionService {
     }
 
     log.info(`No stripe product found was found with metadata specified. A new one will be created.`);
-    const newProductId = await this.createStripeProduct(product);
-    return newProductId;
+    return await this.createStripeProduct(product);
   }
 
   public async createStripeProduct(product: LineItem): Promise<string> {
@@ -508,5 +510,100 @@ export class StripeSubscriptionService {
     }
 
     return { centAmount, currencyCode, fractionDigits };
+  }
+
+  async getCustomerSubscriptions(customerId: string): Promise<Stripe.Subscription[]> {
+    const customer = await getCustomerById(customerId);
+
+    const stripeCustomerId = customer?.custom?.fields?.[stripeCustomerIdFieldName];
+    if (!stripeCustomerId) {
+      log.warn(`No Stripe customer ID found for customer ${customerId}`);
+      throw new Error(`No Stripe customer ID found for customer ${customerId}`);
+    }
+
+    try {
+      const subscriptions = await stripe.subscriptions.list({
+        customer: stripeCustomerId,
+        expand: ['data.latest_invoice', 'data.default_payment_method'],
+      });
+
+      log.info(`Retrieved ${subscriptions.data.length} subscriptions for customer ${customerId}`);
+      return subscriptions.data;
+    } catch (error) {
+      log.error(`Failed to retrieve subscriptions for customer ${customerId}`, { error });
+      throw new Error(`Failed to retrieve subscriptions for customer ${customerId}: ${error}`);
+    }
+  }
+
+  async cancelSubscription({
+    customerId,
+    subscriptionId,
+  }: {
+    customerId: string;
+    subscriptionId: string;
+  }): Promise<SubscriptionModifyResponseSchemaDTO> {
+    await this.validateCustomerSubscription(customerId, subscriptionId);
+
+    try {
+      const canceledSubscription = await stripe.subscriptions.cancel(subscriptionId, {
+        invoice_now: false,
+        prorate: true,
+      });
+
+      log.info(`Successfully canceled subscription ${subscriptionId} for customer ${customerId}`);
+
+      //TODO cancel the subscription in commercetools. Get the cart associated with this subscription (if available from metadata)
+      /*const cartId = canceledSubscription.metadata?.cartId;
+      let merchantReturnUrl = getConfig().merchantReturnUrl;*/
+
+      return {
+        id: canceledSubscription.id,
+        status: canceledSubscription.status,
+        outcome: SubscriptionOutcome.CANCELED,
+        message: `Subscription ${subscriptionId} has been successfully canceled.`,
+      };
+    } catch (error) {
+      log.error(`Failed to cancel subscription ${subscriptionId}`, { error });
+      throw wrapStripeError(error);
+    }
+  }
+
+  async updateSubscription({
+    customerId,
+    subscriptionId,
+    params,
+    options,
+  }: {
+    customerId: string;
+    subscriptionId: string;
+    params?: Stripe.SubscriptionUpdateParams;
+    options?: Stripe.RequestOptions;
+  }): Promise<Stripe.Subscription> {
+    await this.validateCustomerSubscription(customerId, subscriptionId);
+
+    try {
+      const updatedSubscription = await stripe.subscriptions.update(subscriptionId, params, options);
+      log.info(`Successfully updated subscription ${subscriptionId} for customer ${customerId}`, {
+        updatedSubscriptionId: updatedSubscription.id,
+        changes: JSON.stringify(params),
+      });
+
+      return updatedSubscription;
+    } catch (error) {
+      log.error(`Failed to update subscription ${subscriptionId}`, { error });
+      throw wrapStripeError(error);
+    }
+  }
+
+  async validateCustomerSubscription(customerId: string, subscriptionId: string): Promise<void> {
+    const subscriptions = await this.getCustomerSubscriptions(customerId);
+    const subscription = subscriptions.find((sub) => sub.id === subscriptionId);
+
+    if (!subscription) {
+      throw new Error(`Subscription ${subscriptionId} does not belong to customer ${customerId}`);
+    }
+    log.info(`Subscription ${subscriptionId} is valid for customer ${customerId}`, {
+      subscriptionStatus: subscription.status,
+    });
   }
 }
