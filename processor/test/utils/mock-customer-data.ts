@@ -1,5 +1,5 @@
 import Stripe from 'stripe';
-import { Customer } from '@commercetools/platform-sdk';
+import { Customer, Type } from '@commercetools/platform-sdk';
 
 export const mockCtCustomerId = '437906f7-1aaa-41dd-8775-3a03d8aa1258';
 
@@ -37,7 +37,7 @@ export const mockCreateSessionResult: Stripe.Response<Stripe.CustomerSession> = 
 };
 
 export const mockCustomerData: Stripe.Response<Stripe.Customer> = {
-  id: 'cus_Example',
+  id: mockStripeCustomerId,
   object: 'customer',
   balance: 0,
   created: 1742596970,
@@ -61,12 +61,12 @@ export const mockCustomerData: Stripe.Response<Stripe.Customer> = {
   preferred_locales: [],
   shipping: {
     address: {
-      city: 'Los Angeles',
-      country: 'US',
       line1: '123 Test street',
       line2: 'department 1',
+      city: 'Los Angeles',
       postal_code: '12345',
       state: 'CA',
+      country: 'US',
     },
     name: 'John Smith',
     phone: '+312345678',
@@ -82,8 +82,8 @@ export const mockCtCustomerData: Customer = {
   createdAt: '2025-03-19T00:09:28.752Z',
   lastModifiedAt: '2025-03-19T00:48:46.632Z',
   email: 'test@example.com',
-  firstName: 'Gildardo',
-  lastName: 'Diaz',
+  firstName: 'John',
+  lastName: 'Smith',
   addresses: [
     {
       title: 'Mr.',
@@ -111,7 +111,7 @@ export const mockCtCustomerData: Customer = {
       id: 'mock-type-id',
     },
     fields: {
-      stripeConnector_stripeCustomerId: 'cus_Example',
+      stripeConnector_stripeCustomerId: mockStripeCustomerId,
     },
   },
 };
@@ -146,8 +146,8 @@ export const mockCtCustomerWithoutCustomFieldsData: Customer = {
   createdAt: '2025-03-19T00:09:28.752Z',
   lastModifiedAt: '2025-03-19T00:48:46.632Z',
   email: 'test@example.com',
-  firstName: 'Gildardo',
-  lastName: 'Diaz',
+  firstName: 'John',
+  lastName: 'Smith',
   addresses: [
     {
       id: 'xxxxxx-test-id',
@@ -178,4 +178,37 @@ export const mockSearchCustomerResponse: Stripe.Response<Stripe.ApiSearchResult<
   next_page: null,
   object: 'search_result',
   url: '/customers',
+};
+
+export const mockCtCustomTypeData: Type = {
+  id: 'mock_custom_type_id',
+  version: 1,
+  createdAt: '2025-04-02T19:52:26.752Z',
+  lastModifiedAt: '2025-04-02T19:53:07.296Z',
+  key: 'payment-connector-stripe-customer-id',
+  name: {
+    en: 'Stripe Customer ID',
+  },
+  description: {
+    en: 'Stores the Stripe Customer ID on a commercetools customer',
+  },
+  resourceTypeIds: ['customer'],
+  fieldDefinitions: [
+    {
+      name: 'stripeConnector_stripeCustomerId',
+      label: {
+        en: 'Stripe Customer ID',
+      },
+      required: false,
+      type: {
+        name: 'String',
+      },
+      inputHint: 'SingleLine',
+    },
+  ],
+};
+
+export const mockCtCustomTypeWithoutFieldData: Type = {
+  ...mockCtCustomTypeData,
+  fieldDefinitions: [],
 };

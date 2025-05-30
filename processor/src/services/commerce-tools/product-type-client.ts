@@ -1,6 +1,6 @@
 import { ProductType, ProductTypeDraft } from '@commercetools/platform-sdk';
 import { paymentSDK } from '../../payment-sdk';
-import { KeyAndVersion } from './customTypeHelper';
+import { KeyAndVersion } from './custom-type-helper';
 
 const apiClient = paymentSDK.ctAPI.client;
 

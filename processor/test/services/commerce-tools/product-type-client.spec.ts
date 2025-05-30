@@ -6,9 +6,9 @@ import {
   deleteProductType,
   getProductsByProductTypeId,
   getProductTypeByKey,
-} from '../../../src/services/commerce-tools/productTypeClient';
+} from '../../../src/services/commerce-tools/product-type-client';
 
-describe('ProductTypeHelper testing', () => {
+describe('ProductTypeClient testing', () => {
   beforeEach(() => {
     jest.setTimeout(10000);
     jest.resetAllMocks();

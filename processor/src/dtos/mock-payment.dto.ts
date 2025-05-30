@@ -13,7 +13,10 @@ export enum PaymentMethodType {
 }
 
 export const PaymentResponseSchema = Type.Object({
+  clientSecret: Type.String(),
   paymentReference: Type.String(),
+  merchantReturnUrl: Type.String(),
+  cartId: Type.String(),
 });
 
 export const PaymentOutcomeSchema = Type.Enum(PaymentOutcome);

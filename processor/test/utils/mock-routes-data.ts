@@ -561,7 +561,7 @@ export const mockRoute__customer_session_succeed: CustomerResponseSchemaDTO = {
 };
 
 export const mockRoute__payments_succeed: PaymentResponseSchemaDTO = {
-  sClientSecret: 'mock_paymentReference',
+  clientSecret: 'mock_paymentReference',
   paymentReference: 'mock_paymentReference',
   merchantReturnUrl: 'mock_merchantReturnUrl',
   cartId: 'mockCartId',
@@ -598,6 +598,7 @@ export const mockRoute__get_config_element_succeed: ConfigElementResponseSchemaD
   setupFutureUsage: 'on_session',
   layout: '{"type":"accordion","defaultCollapsed":false,"radios":true,"spacedAccordionItems":true}',
   collectBillingAddress: CollectBillingAddressOptions.AUTO,
+  paymentMode: 'payment',
 };
 
 export const mockEvent__charge_capture_succeeded_notCaptured: Stripe.Event = {

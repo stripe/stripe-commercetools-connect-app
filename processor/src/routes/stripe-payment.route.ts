@@ -4,8 +4,6 @@ import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import {
   ConfigElementResponseSchema,
   ConfigElementResponseSchemaDTO,
-  CustomerResponseSchema,
-  CustomerResponseSchemaDTO,
   PaymentResponseSchema,
   PaymentResponseSchemaDTO,
 } from '../dtos/stripe-payment.dto';
@@ -22,7 +20,8 @@ import {
   PaymentIntentResponseSchema,
   PaymentModificationStatus,
 } from '../dtos/operations/payment-intents.dto';
-import { StripeEvent } from '../services/types/stripe-payment.type';
+import { StripeEvent, StripeSubscriptionEvent } from '../services/types/stripe-payment.type';
+import { isFromSubscriptionInvoice } from '../utils';
 
 type PaymentRoutesOptions = {
   paymentService: StripePaymentService;
@@ -34,59 +33,19 @@ type StripeRoutesOptions = {
   stripeHeaderAuthHook: StripeHeaderAuthHook;
 };
 
-/**
- * MVP if additional information needs to be included in the payment intent, this method should be supplied with the necessary data.
- *
- */
-export const customerRoutes = async (fastify: FastifyInstance, opts: FastifyPluginOptions & PaymentRoutesOptions) => {
-  fastify.get<{ Querystring: { customerId?: string }; Reply: CustomerResponseSchemaDTO }>(
-    '/customer/session',
-    {
-      preHandler: [opts.sessionHeaderAuthHook.authenticate()],
-      schema: {
-        querystring: {
-          type: 'object',
-          properties: {
-            customerId: Type.Optional(Type.String()),
-          },
-        },
-        response: {
-          200: CustomerResponseSchema,
-          204: Type.Null(),
-        },
-      },
-    },
-    async (request, reply) => {
-      const stripeCustomerId = request?.query?.customerId;
-      const resp = await opts.paymentService.getCustomerSession(stripeCustomerId);
-      if (!resp) {
-        return reply.status(204).send(resp);
-      }
-      return reply.status(200).send(resp);
-    },
-  );
-};
-
 export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPluginOptions & PaymentRoutesOptions) => {
-  fastify.get<{ Querystring: { customerId?: string }; Reply: PaymentResponseSchemaDTO }>(
+  fastify.get<{ Reply: PaymentResponseSchemaDTO }>(
     '/payments',
     {
       preHandler: [opts.sessionHeaderAuthHook.authenticate()],
       schema: {
-        querystring: {
-          type: 'object',
-          properties: {
-            customerId: Type.Optional(Type.String()),
-          },
-        },
         response: {
           200: PaymentResponseSchema,
         },
       },
     },
-    async (request, reply) => {
-      const resp = await opts.paymentService.createPaymentIntentStripe();
-
+    async (_, reply) => {
+      const resp = await opts.paymentService.createPaymentIntent();
       return reply.status(200).send(resp);
     },
   );
@@ -155,12 +114,27 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
         case StripeEvent.CHARGE__CAPTURED:
           log.info(`Received: ${event.type} event of ${event.data.object.id}`);
           break;
+        case StripeEvent.PAYMENT_INTENT__SUCCEEDED:
+        case StripeEvent.PAYMENT_INTENT__CANCELED:
+        case StripeEvent.PAYMENT_INTENT__PAYMENT_FAILED:
+        case StripeEvent.CHARGE__REFUNDED:
+        case StripeEvent.CHARGE__SUCCEEDED:
+          if (!isFromSubscriptionInvoice(event)) {
+            log.info(`Processing Stripe payment event: ${event.type}`);
+            await opts.paymentService.processStripeEvent(event);
+          } else {
+            log.info(`--->>> This Stripe event is from a subscription invoice: ${event.type}`);
+          }
+          break;
+        case StripeSubscriptionEvent.INVOICE_PAID:
+        case StripeSubscriptionEvent.INVOICE_PAYMENT_FAILED:
+          log.info(`Processing Stripe Subscription event: ${event.type}`);
+          await opts.paymentService.processSubscriptionEvent(event);
+          break;
         default:
           log.info(`--->>> This Stripe event is not supported: ${event.type}`);
           break;
       }
-
-      await opts.paymentService.processStripeEvent(event);
 
       return reply.status(200).send();
     },

@@ -11,9 +11,9 @@ import {
 } from '../utils/mock-actions-data';
 import { paymentSDK } from '../../src/payment-sdk';
 import { createLaunchpadPurchaseOrderNumberCustomType } from '../../src/connectors/actions';
-import * as CustomTypeHelper from '../../src/services/commerce-tools/customTypeHelper';
-import * as CustomTypeClient from '../../src/services/commerce-tools/customTypeClient';
-import * as ProductTypeClient from '../../src/services/commerce-tools/productTypeClient';
+import * as CustomTypeHelper from '../../src/services/commerce-tools/custom-type-helper';
+import * as CustomTypeClient from '../../src/services/commerce-tools/custom-type-client';
+import * as ProductTypeClient from '../../src/services/commerce-tools/product-type-client';
 
 jest.mock('../../src/libs/logger');
 jest.mock('stripe', () => ({
