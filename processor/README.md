@@ -240,7 +240,7 @@ The following webhooks currently supported and transformed to different payment 
 
 The order is created during the processing of the `payment_intent.succeeded` webhook. Before creating the order, the cart must include shipment information.
 
-In the current implementation, the sample application retrieves shipment and address details from the `last_charge` attribute included in the Stripe event payload. This setup serves as an example and can be adapted or reused based on your specific requirements.
+Note: If the cart does not have shipment information, the order creation will fail. The connector does not handle the case where the cart is missing shipment information.
 
 #### Endpoint
 `POST /stripe/webhooks`

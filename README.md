@@ -137,7 +137,7 @@ const Enabler = await import(process.env.REACT_APP_ENABLER_BUILD_URL);
 
 ### 2. **Initialize the Payment Component**
 
-Create a new Enabler instance and specify the `paymentElementType` parameter to configure the component type, either **Payment Element:'payment'** or **Express Checkout:'expressCheckout**.
+Create a new Enabler instance and specify the `paymentElementType` parameter to configure the component type, either **Payment Element:'paymentElement'** or **Express Checkout:'expressCheckout**.
 
 ```javascript
 new Enabler({
@@ -150,8 +150,15 @@ new Enabler({
     onError: (err) => {
         onError(err);                          // Callback for error handling
     },
-    paymentElementType: type,                 // Component type:(payment|expressCheckout) Payment Element or Express Checkout
+    paymentElementType: type,                 // Component type:(paymentElement|expressCheckout) Payment Element or Express Checkout
 });
+
+const builder = await enabler.createDropinBuilder('embedded');
+const component = await builder.build({
+   showPayButton: !builder.componentHasSubmit,
+});
+
+component.mount("#payment"); //Selector where the component will be mounted
 ```
 
 Replace the placeholder variables (`COMMERCETOOLS_PROCESSOR_URL`, `SESSION_ID`, `onComplete`, `onError`, and `type`) with appropriate values based on your application configuration.
