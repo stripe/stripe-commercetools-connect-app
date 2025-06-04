@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import Stripe from 'stripe';
-import { healthCheckCommercetoolsPermissions, Money, statusHandler } from '@commercetools/connect-payments-sdk';
+import { Cart, healthCheckCommercetoolsPermissions, Money, statusHandler } from '@commercetools/connect-payments-sdk';
 import {
   CancelPaymentRequest,
   CapturePaymentRequest,
@@ -37,10 +37,11 @@ import { SubscriptionEventConverter } from './converters/subscriptionEventConver
 import { CtPaymentCreationService } from './ct-payment-creation.service';
 import { stripeCustomerIdFieldName } from '../custom-types/custom-types';
 import { StripeCustomerService } from './stripe-customer.service';
-import { getCartExpanded } from './commerce-tools/cart-client';
+import { getCartExpanded, updateCartById } from './commerce-tools/cart-client';
 import { METADATA_ORDER_ID_FIELD } from '../constants';
 import { addOrderPayment, createOrderFromCart } from './commerce-tools/order-client';
 import { StripeSubscriptionService } from './stripe-subscription.service';
+import { CartUpdateAction } from '@commercetools/platform-sdk';
 
 export class StripePaymentService extends AbstractPaymentService {
   private stripeEventConverter: StripeEventConverter;
@@ -458,7 +459,8 @@ export class StripePaymentService extends AbstractPaymentService {
 
       if (event.type === StripeEvent.PAYMENT_INTENT__SUCCEEDED) {
         const ctCart = await this.ctCartService.getCartByPaymentId({ paymentId: updateData.id });
-        await this.createOrder({ cart: ctCart, paymentIntentId: updateData.pspReference });
+        const updatedCart = await this.updateCartAddress(event, ctCart);
+        await this.createOrder({ cart: updatedCart, paymentIntentId: updateData.pspReference });
       }
     } catch (e) {
       log.error('Error processing notification', { error: e });
@@ -586,5 +588,32 @@ export class StripePaymentService extends AbstractPaymentService {
     } catch (error) {
       log.error('Error adding payment to order', { error });
     }
+  }
+
+  public async updateCartAddress(event: Stripe.Event, ctCart: Cart): Promise<Cart> {
+    const { latest_charge } = event.data.object as Stripe.PaymentIntent;
+    const charge = await stripeApi().charges.retrieve(latest_charge as string);
+    const { billing_details, shipping } = charge;
+    let billingAlias: Stripe.Charge.BillingDetails | Stripe.Charge.Shipping;
+    if (!shipping) {
+      billingAlias = billing_details;
+    } else {
+      billingAlias = shipping;
+    }
+
+    const actions: CartUpdateAction[] = [
+      {
+        action: 'setShippingAddress',
+        address: {
+          key: billingAlias.name || 'mockName',
+          country: billingAlias.address?.country || 'US',
+          city: billingAlias.address?.city || 'mockCity',
+          postalCode: billingAlias.address?.postal_code || 'mockPostalCode',
+          state: billingAlias.address?.state || 'mockState',
+          streetName: billingAlias.address?.line1 || 'mockStreenName',
+        },
+      },
+    ];
+    return await updateCartById(ctCart, actions);
   }
 }
