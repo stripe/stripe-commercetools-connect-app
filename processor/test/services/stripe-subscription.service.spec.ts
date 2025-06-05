@@ -1,5 +1,5 @@
 import Stripe from 'stripe';
-import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
+import { afterAll, afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { paymentSDK } from '../../src/payment-sdk';
 import {
   lineItem,
@@ -44,6 +44,18 @@ import * as CustomTypeHelper from '../../src/services/commerce-tools/custom-type
 import * as CartClient from '../../src/services/commerce-tools/cart-client';
 import * as StripeClient from '../../src/clients/stripe.client';
 import * as Config from '../../src/config/config';
+import fastify, { FastifyInstance } from 'fastify';
+import {
+  AuthorityAuthorizationHook,
+  CommercetoolsCartService,
+  CommercetoolsOrderService,
+  CommercetoolsPaymentService,
+  Oauth2AuthenticationHook,
+  SessionHeaderAuthenticationHook,
+} from '@commercetools/connect-payments-sdk';
+import { IncomingHttpHeaders } from 'node:http';
+import { subscriptionRoutes } from '../../src/routes/stripe-subscription.route';
+import { SubscriptionOutcome } from '../../src/dtos/stripe-payment.dto';
 
 jest.mock('stripe', () => ({
   __esModule: true,
@@ -71,8 +83,34 @@ describe('stripe-subscription.service', () => {
     ctOrderService: paymentSDK.ctOrderService,
   };
   const stripeSubscriptionService = new StripeSubscriptionService(opts);
+  const token = 'token';
+  let fastifyApp: FastifyInstance = fastify({ logger: false });
 
-  beforeEach(() => {
+  const spyAuthenticateOauth2 = jest
+    .spyOn(Oauth2AuthenticationHook.prototype, 'authenticate')
+    .mockImplementation(() => async (request: { headers: IncomingHttpHeaders }) => {
+      expect(request.headers['authorization']).toContain(`Bearer ${token}`);
+    });
+
+  const spyAuthenticateSession = jest
+    .spyOn(SessionHeaderAuthenticationHook.prototype, 'authenticate')
+    .mockImplementationOnce(() => async (request: { headers: IncomingHttpHeaders }) => {
+      expect(request.headers['x-session-id']).toContain('session-id');
+    });
+
+  const spyAuthenticateAuthority = jest
+    .spyOn(AuthorityAuthorizationHook.prototype, 'authorize')
+    .mockImplementation(() => async () => {
+      expect('manage_project').toEqual('manage_project');
+    });
+
+  let spiedSubscriptionService = new StripeSubscriptionService({
+    ctCartService: jest.fn() as unknown as CommercetoolsCartService,
+    ctPaymentService: jest.fn() as unknown as CommercetoolsPaymentService,
+    ctOrderService: jest.fn() as unknown as CommercetoolsOrderService,
+  });
+
+  beforeEach(async () => {
     jest.setTimeout(10000);
     jest.resetAllMocks();
     Stripe.prototype.subscriptions = {
@@ -97,10 +135,54 @@ describe('stripe-subscription.service', () => {
       create: jest.fn(),
       retrieve: jest.fn(),
     } as unknown as Stripe.SetupIntentsResource;
+
+    await fastifyApp.close();
+    fastifyApp = fastify({ logger: false });
+
+    // Create properly mocked hooks and service
+    const spiedSessionHeaderAuthenticationHook = {
+      authenticate: jest.fn().mockReturnValue(async () => {}),
+    } as unknown as SessionHeaderAuthenticationHook;
+
+    const spiedOauth2AuthenticationHook = {
+      authenticate: jest.fn().mockReturnValue(async () => {}),
+    } as unknown as Oauth2AuthenticationHook;
+
+    const spiedAuthorityAuthorizationHook = {
+      authorize: jest.fn().mockReturnValue(async () => {}),
+    } as unknown as AuthorityAuthorizationHook;
+
+    // Create mock subscription service with all required methods
+    spiedSubscriptionService = {
+      createSetupIntent: jest.fn(),
+      createSubscription: jest.fn(),
+      createSubscriptionFromSetupIntent: jest.fn(),
+      confirmSubscriptionPayment: jest.fn(),
+      getCustomerSubscriptions: jest.fn(),
+      cancelSubscription: jest.fn(),
+      updateSubscription: jest.fn(),
+    } as unknown as StripeSubscriptionService;
+
+    // Re-register routes with fresh mocks
+    await fastifyApp.register(subscriptionRoutes, {
+      prefix: '',
+      sessionHeaderAuthHook: spiedSessionHeaderAuthenticationHook,
+      oauth2AuthHook: spiedOauth2AuthenticationHook,
+      authorizationHook: spiedAuthorityAuthorizationHook,
+      subscriptionService: spiedSubscriptionService,
+    });
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     jest.restoreAllMocks();
+    spyAuthenticateOauth2.mockClear();
+    spyAuthenticateSession.mockClear();
+    spyAuthenticateAuthority.mockClear();
+    await fastifyApp.ready();
+  });
+
+  afterAll(async () => {
+    await fastifyApp.close();
   });
 
   describe('method createSetupIntent', () => {
@@ -490,8 +572,9 @@ describe('stripe-subscription.service', () => {
     });
 
     test('should return all subscription data successfully', async () => {
-      const mockCart = mockGetSubscriptionCartWithTwoItems;
-      const getCartExpandedMock = jest.spyOn(CartClient, 'getCartExpanded').mockResolvedValue(mockCart);
+      const getCartExpandedMock = jest
+        .spyOn(CartClient, 'getCartExpanded')
+        .mockResolvedValue(mockGetSubscriptionCartWithTwoItems);
       const result = stripeSubscriptionService.prepareSubscriptionData();
       expect(getCartExpandedMock).toHaveBeenCalled();
       expect(result).rejects.toThrowError();
@@ -924,6 +1007,191 @@ describe('stripe-subscription.service', () => {
       expect(() => stripeSubscriptionService.getSubscriptionPaymentAmount(mockGetCartResult())).toThrowError(
         'Cart is not a subscription.',
       );
+    });
+  });
+
+  describe('Stripe Subscription Routes', () => {
+    describe('DELETE /subscription-api/:customerId/:subscriptionId', () => {
+      test('it should cancel subscription successfully', async () => {
+        // Given
+        const customerId = 'customer_123';
+        const subscriptionId = 'sub_123';
+        const mockResult = {
+          id: subscriptionId,
+          status: 'canceled',
+          outcome: SubscriptionOutcome.CANCELED,
+          message: 'Subscription canceled successfully',
+        };
+
+        jest.spyOn(spiedSubscriptionService, 'cancelSubscription').mockResolvedValue(mockResult);
+
+        // When
+        const response = await fastifyApp.inject({
+          method: 'DELETE',
+          url: `/subscription-api/${customerId}/${subscriptionId}`,
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          body: {},
+        });
+
+        // Then
+        expect(response.statusCode).toEqual(200);
+        expect(response.json()).toEqual(mockResult);
+        expect(spiedSubscriptionService.cancelSubscription).toHaveBeenCalledWith({ customerId, subscriptionId });
+      });
+
+      test('it should return error on cancellation failure', async () => {
+        // Given
+        const customerId = 'customer_123';
+        const subscriptionId = 'sub_123';
+
+        jest.spyOn(spiedSubscriptionService, 'cancelSubscription').mockRejectedValue(new Error('Failed to cancel'));
+
+        // When
+        const response = await fastifyApp.inject({
+          method: 'DELETE',
+          url: `/subscription-api/${customerId}/${subscriptionId}`,
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          body: {},
+        });
+
+        // Then
+        expect(response.statusCode).toEqual(400);
+        expect(response.json().id).toEqual(subscriptionId);
+        expect(response.json().status).toEqual('failed');
+        expect(response.json().outcome).toEqual('error');
+        expect(response.json().message).toEqual('Failed to cancel');
+      });
+    });
+
+    describe('POST /subscription-api/:customerId', () => {
+      test('it should update subscription successfully', async () => {
+        // Given
+        const customerId = 'customer_123';
+        const subscriptionId = 'sub_123';
+        const updateParams = {
+          cancel_at_period_end: true,
+        };
+
+        const mockResult = {
+          id: subscriptionId,
+          status: 'active',
+          object: 'subscription',
+          application: null,
+          application_fee_percent: null,
+          automatic_tax: {
+            disabled_reason: null,
+            liability: null,
+            enabled: false,
+          },
+          billing_cycle_anchor: 123456789,
+          billing_cycle_anchor_config: null,
+          billing_thresholds: null,
+          cancel_at: null,
+          cancel_at_period_end: false,
+          canceled_at: null,
+          cancellation_details: null,
+          collection_method: 'charge_automatically',
+          created: 123456789,
+          currency: 'usd',
+          current_period_end: 123456789,
+          current_period_start: 123456789,
+          customer: 'cus_123',
+          days_until_due: null,
+          default_payment_method: null,
+          default_source: null,
+          default_tax_rates: [],
+          description: null,
+          discount: null,
+          ended_at: null,
+          items: { object: 'list', data: [], has_more: false, url: '' },
+          latest_invoice: null,
+          livemode: false,
+          metadata: {},
+          next_pending_invoice_item_invoice: null,
+          pause_collection: null,
+          pending_invoice_item_interval: null,
+          pending_setup_intent: null,
+          pending_update: null,
+          plan: null,
+          quantity: null,
+          schedule: null,
+          start_date: 123456789,
+          test_clock: null,
+          transfer_data: null,
+          trial_end: null,
+          trial_start: null,
+          discounts: [],
+          invoice_settings: {
+            account_tax_ids: null,
+            issuer: null,
+          },
+          on_behalf_of: null,
+          payment_settings: null,
+          trial_settings: null,
+        } as unknown as Stripe.Subscription;
+
+        jest.spyOn(spiedSubscriptionService, 'updateSubscription').mockResolvedValue(mockResult);
+
+        // When
+        const response = await fastifyApp.inject({
+          method: 'POST',
+          url: `/subscription-api/${customerId}`,
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          payload: {
+            id: subscriptionId,
+            params: updateParams,
+          },
+        });
+
+        // Then
+        expect(response.statusCode).toEqual(200);
+        expect(response.json().id).toEqual(subscriptionId);
+        expect(response.json().outcome).toEqual('updated');
+        expect(spiedSubscriptionService.updateSubscription).toHaveBeenCalledWith({
+          customerId,
+          subscriptionId,
+          params: updateParams,
+          options: undefined,
+        });
+      });
+
+      test('it should return error on update failure', async () => {
+        // Given
+        const customerId = 'customer_123';
+        const subscriptionId = 'sub_123';
+
+        jest.spyOn(spiedSubscriptionService, 'updateSubscription').mockRejectedValue(new Error('Failed to update'));
+
+        // When
+        const response = await fastifyApp.inject({
+          method: 'POST',
+          url: `/subscription-api/${customerId}`,
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          payload: {
+            id: subscriptionId,
+            params: {},
+          },
+        });
+
+        // Then
+        expect(response.statusCode).toEqual(400);
+        expect(response.json().id).toEqual(subscriptionId);
+        expect(response.json().status).toEqual('failed');
+        expect(response.json().outcome).toEqual('error');
+        expect(response.json().message).toEqual('Failed to update');
+      });
     });
   });
 });
