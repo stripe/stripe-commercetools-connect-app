@@ -1,7 +1,5 @@
 # Stripe Payment for Composable Commerce
 
-[![License](https://img.shields.io/github/license/commercetools/commercetools-connect-payment-integration-stripe)](
-
 This repository provides a commercetools [connect](https://docs.commercetools.com/connect) integration for [Stripe payment](https://docs.stripe.com/payments/payment-element), enabling a drop-in experience through the Stripe Payment Element and supporting webhook handling, payment intents, and checkout configuration.
 
 ## Features
