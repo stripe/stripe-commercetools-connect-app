@@ -161,7 +161,7 @@ describe('CustomTypeHelper testing', () => {
       expect(getTypesByResourceTypeIdMock).toHaveBeenCalled();
       expect(deleteCustomTypeByKeyMock).toHaveBeenCalled();
       expect(Logger.log.info).toHaveBeenCalledWith(
-        `Custom Type "${mock_CustomType_withFieldDefinition.key}" deleted successfully.`,
+        `Custom Type "${mock_CustomType_withFieldDefinition.key}" deleted successfully as it contained only our fields.`,
       );
     });
 
@@ -190,7 +190,7 @@ describe('CustomTypeHelper testing', () => {
       expect(getTypesByResourceTypeIdMock).toHaveBeenCalled();
       expect(updateCustomTypeByKeyMock).toHaveBeenCalled();
       expect(Logger.log.info).toHaveBeenCalledWith(
-        `Removed ${mock_CustomType_withFieldDefinition.fieldDefinitions.length} fields(s) from Custom Type "${mock_CustomType_withFieldDefinition.key}" successfully.`,
+        `Removed ${mock_CustomType_withFieldDefinition.fieldDefinitions.length} field(s) from Custom Type "${mock_CustomType_withFieldDefinition.key}", but kept the type as it contains additional fields.`,
       );
     });
 

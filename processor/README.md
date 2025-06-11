@@ -28,7 +28,16 @@ The connector will automatically create and use a Setup Intent when required for
 
 ### Custom Types for Subscription Configuration
 
-The connector creates and uses specific custom types to enable subscription management:
+The connector creates and uses specific custom types to enable subscription management. Depending on the subscription information added in the custom type, three distinct payment flows are identified:
+
+1. **payment**: When no subscription fields are present, the connector creates a normal payment intent.
+2. **subscription**: When subscription information is present and immediate payment is required, a subscription is created directly.
+3. **setupIntent**: When subscription information indicates a future payment (like with trial periods), a setup intent is created first to securely store payment details without immediate charge.
+
+The payment flow is automatically determined based on the subscription information in the product's custom type. The endpoint `/config-element/:payment` returns the `paymentMode` attribute with the appropriate value ("payment", "subscription", or "setupIntent") indicating which flow the product will follow.
+
+The configuration of subscription products is done through a custom product type called `payment-connector-subscription-information`.
+This type is applied to product variants to define the parameters for subscription management. The following fields are used to configure the subscription:
 
 1. **payment-connector-subscription-information**: This custom product type is applied to product variants to configure subscription parameters including:
    - `description`: A description for the subscription

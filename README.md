@@ -1,4 +1,6 @@
-# connect-payment-integration-template
+# Stripe Payment for Composable Commerce
+
+[![License](https://img.shields.io/github/license/commercetools/commercetools-connect-payment-integration-stripe)](
 
 This repository provides a commercetools [connect](https://docs.commercetools.com/connect) integration for [Stripe payment](https://docs.stripe.com/payments/payment-element), enabling a drop-in experience through the Stripe Payment Element and supporting webhook handling, payment intents, and checkout configuration.
 
@@ -32,6 +34,19 @@ Their values are input for environment variables/configurations for connecting, 
 #### 3. Stripe account and keys
 
 Configure Stripe secret and public keys so the Connect application can handle endpoint session and authentication processes. Their values are taken as input as environment variables/ configuration for Connect, with variable names `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, and `STRIPE_WEBHOOK_SIGNING_SECRET`.
+If you want to create a Restricted key to add in the `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY`, the minimum permissions needed are:
+- refunds.create
+- paymentIntents.cancel
+- paymentIntents.capture
+- paymentMethods.list
+- customer.retrieve
+- customer.create
+- customer.search
+- customerSession.create
+- webhookEndpoints.update
+- webhookEndpoints.retrieve
+- webhooks.constructEvent
+- subscriptions.create
 
 ## Getting started
 
