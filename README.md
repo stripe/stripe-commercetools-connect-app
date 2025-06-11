@@ -1,4 +1,6 @@
-# connect-payment-integration-template
+# Stripe Payment for Composable Commerce
+
+[![License](https://img.shields.io/github/license/commercetools/commercetools-connect-payment-integration-stripe)](
 
 This repository provides a commercetools [connect](https://docs.commercetools.com/connect) integration for [Stripe payment](https://docs.stripe.com/payments/payment-element), enabling a drop-in experience through the Stripe Payment Element and supporting webhook handling, payment intents, and checkout configuration.
 
@@ -12,6 +14,10 @@ This repository provides a commercetools [connect](https://docs.commercetools.co
 - Customer session management for Stripe, including customer creation and retrieval.[Considerations](./processor/README.md#considerations-for-stripe-customer-session)
 - Transfer of shipping information from commercetools to Stripe payment intent.
 - Support for Buy Now Pay Later (BNPL) payment method.[Considerations](./processor/README.md#merchant-return-url)
+- Support for Apple Pay and Google Pay payment methods.[Considerations](./enabler/README.md#considerations-for-apple-pay-and-google-pay)
+- Support for saved payment methods in the Payment Element component.[Considerations](./processor/README.md#considerations-for-stripe-customer-session)
+- Support for Stripe Billing Subscription management.[Considerations](./processor/README.md#considerations-for-stripe-billing-subscription-management).
+- Subscription management for Stripe, including creating and managing subscriptions from an API endpoints..
 
 ## Prerequisite
 
@@ -28,6 +34,19 @@ Their values are input for environment variables/configurations for connecting, 
 #### 3. Stripe account and keys
 
 Configure Stripe secret and public keys so the Connect application can handle endpoint session and authentication processes. Their values are taken as input as environment variables/ configuration for Connect, with variable names `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, and `STRIPE_WEBHOOK_SIGNING_SECRET`.
+If you want to create a Restricted key to add in the `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY`, the minimum permissions needed are:
+- refunds.create
+- paymentIntents.cancel
+- paymentIntents.capture
+- paymentMethods.list
+- customer.retrieve
+- customer.create
+- customer.search
+- customerSession.create
+- webhookEndpoints.update
+- webhookEndpoints.retrieve
+- webhooks.constructEvent
+- subscriptions.create
 
 ## Getting started
 
@@ -44,7 +63,7 @@ Regarding the development of a processor or enabler module, please refer to the 
 ![overview.png](docs%2Foverview.png)
 ### Components
 
-1. **Composable Commercer**
+1. **Composable Commerce**
    Represents the website platform infrastructure provided by client.
 2. **Stripe Composable Connector**
    - A [Payment connector integration](https://docs.commercetools.com/checkout/payment-connectors-applications) within the infrastructure of commercetools that facilitates communication between commercetools and Stripe.
@@ -68,8 +87,10 @@ The following webhooks are currently supported, and the payment transactions in 
 - **payment_intent.requires_action**: Logs the information in the connector app inside the Processor logs.
 - **payment_intent.payment_failed**: Modify the payment transaction Authorization to Failure.
 - **charge.refunded**: Create a payment transaction Refund to Success and a Chargeback to Success.
-- **charge.succeeded**: Create the payment transaction to 'Authorization:Success' if charge is not capture.
+- **charge.succeeded**: Create the payment transaction to 'Authorization:Success' if charge is not capture, and update the payment method type that was used to pay.
 - **charge.captured**: Logs the information in the connector app inside the Processor logs.
+- **invoice.paid**: If payment charge is pending, we update the payment transaction to Charge:Success. If charge is not pending, we update the payment transaction to Authorization:Success and create a payment transaction Charge:Success.
+- **invoice.payment_failed**: If payment charge is pending, we update the payment transaction to Charge:Failure. If charge is not pending, we update the payment transaction to Authorization:Failure and create a payment transaction Charge:Failure.
 
 
 ## Prerequisite
@@ -87,15 +108,13 @@ Before installing the connector, you must create a Stripe account and obtain the
 3. **STRIPE_APPEARANCE_PAYMENT_ELEMENT**: This configuration enables the theming for the payment element component. The value needs to be a valid stringified JSON. More information about the properties can be found [here](https://docs.stripe.com/elements/appearance-api).
 ```
 //stringified, eg.
-{"theme":"night", "labels":"floating"}
+{"theme":"night","labels":"floating"}
 ```
-
 4. **STRIPE_APPEARANCE_EXPRESS_CHECKOUT**: This configuration enables the theming for the express checkout component. The value needs to be a valid stringified JSON. More information about the properties can be found [here](https://docs.stripe.com/elements/appearance-api).
 ```
 //stringified, eg.
-{"type":"accordion","defaultCollapsed":false,"radios":true, "spacedAccordionItems":false}
+{"theme":"night","labels":"floating"}
 ```
-
 5. **STRIPE_WEBHOOK_ID**: Unique identifier of a Webhook Endpoint in Stripe.
 6. **STRIPE_WEBHOOK_SIGNING_SECRET**: Signing secret of a Webhook Endpoint in Stripe.
 7. **STRIPE_LAYOUT**: This configuration enables the Layout for the payment component. The value needs to be a valid stringified JSON. More information about the properties can be found [here](https://docs.stripe.com/payments/payment-element#layout).
@@ -111,9 +130,17 @@ Before installing the connector, you must create a Stripe account and obtain the
 9. **STRIPE_PUBLISHABLE_KEY**: Provided by Stripe. The key is to create the Payment Element component on the front end.
 10. **STRIPE_APPLE_PAY_WELL_KNOWN**: This is the domain association file from Stripe. Use to verify the domain for Apple Pay. More information can be found [here](https://stripe.com/docs/apple-pay/web).
 11. **MERCHANT_RETURN_URL**: This is the return URL used on the confirmPayment return_url parameter. The Buy Now Pay Later payment methods will send the Stripe payment_intent in the URL; the Merchant will need to retrieve the payment intent and look for the metadata ct_payment_id is add in the commercetools Checkout SDK paymentReference.
-12. **STRIPE_CAPTURE_METHOD**: This is the capture method used for the Payment. It can be either `automatic` or `manual`. The default value is `automatic`.
-13. **STRIPE_WEBHOOK_ID**: This is the unique identifier for the Stripe Webhook Endpoint.
-14. **STRIPE_COLLECT_SHIPPING_ADDRESS**: This is the configuration for the Stripe collect shipping address in the payment element. The default value is `auto`. More information can be found [here](https://docs.stripe.com/payments/payment-element/control-billing-details-collection).
+12. **STRIPE_COLLECT_BILLING_ADDRESS**: This is the configuration for the Stripe collect shipping address in the payment element. The default value is `auto`. More information can be found [here](https://docs.stripe.com/payments/payment-element/control-billing-details-collection).
+13. **CTP_PROJECT_KEY**: The key to the commercetools project
+14. **CTP_AUTH_URL**: Authentication URL for commercetools
+15. **CTP_API_URL**: API URL for commercetools
+16. **CTP_SESSION_URL**: Session API URL for commercetools
+17. **CTP_JWKS_URL**: JWKs URL for JWT validation
+18. **CTP_JWT_ISSUER**: JWT issuer for validation
+19. **CTP_CLIENT_SECRET**: Client secret for commercetools (in secured configuration)
+20. **CTP_CLIENT_ID**: Client ID for commercetools with specific required scopes (in secured configuration)
+
+These commercetools-specific variables are essential for the connector to properly authenticate and communicate with the commercetools platform.
 
 #### 2. commercetools
 
@@ -121,81 +148,34 @@ We must create the connector on the commercetools connect marketplace, enable th
 
 1. **API client**: Various URLs from the commercetools platform must be configured so that the connect application can handle the session and authentication process for endpoints. Their values are taken as input as environment variables/ configuration for connect, with variable names `CTP_API_URL`, `CTP_AUTH_URL`, and `CTP_SESSION_URL`.
 2. **payment connector**: Install the payment connector from the commercetools connector marketplace.
-3. **commercetools Checkout**: Enable the checkout connector in the merchant center to install the current connector as a drop-in payment method in the checkout dashboard configuration page.
+
+Note: To use the Stripe Composable Connector installed, you must call the enabler module from the installed connector URL. To find more information about how to use the enabler module, please refer to the [Enabler documentation](./enabler/README.md#creating-components-for-payment-elements-or-express-checkout).
 
 ## Creating Components for Payment Elements or Express Checkout
 
-To integrate the Stripe Composable connector with commercetools and utilize the Stripe payment elements or express checkout, follow these steps:
+This section explains how to integrate the Stripe Composable connector with commercetools. First, load the Stripe Enabler using the URL provided by the connector information page. Then initialize a payment component by creating a new Enabler instance with parameters for processor URL, session ID, currency, callbacks, and payment component type (either 'paymentElement' or 'expressCheckout').
 
-### 1. **Load the Stripe Enabler**
+The integration requires a few steps: create the enabler instance with required configuration (including processor URL and callbacks), build a component using createDropinBuilder, and mount it to a DOM element. The component handles payment processing while maintaining security standards. You'll need to replace placeholder variables with your actual application configuration values to complete the integration.
 
-Use the provided enabler URL from the Stripe Composable Connector information page.
-
-```javascript
-const Enabler = await import(process.env.REACT_APP_ENABLER_BUILD_URL);
-```
-
-### 2. **Initialize the Payment Component**
-
-Create a new Enabler instance and specify the `paymentElementType` parameter to configure the component type, either **Payment Element:'paymentElement'** or **Express Checkout:'expressCheckout**.
-
-```javascript
-new Enabler({
-    processorUrl: COMMERCETOOLS_PROCESSOR_URL, // Backend processor URL
-    sessionId: SESSION_ID,                    // Commercetools session ID
-    currency: "US",                           // Desired currency for the payment
-    onComplete: ({ isSuccess, paymentReference, paymentIntent }) => {
-        onComplete(paymentIntent);            // Callback for completion
-    },
-    onError: (err) => {
-        onError(err);                          // Callback for error handling
-    },
-    paymentElementType: type,                 // Component type:(paymentElement|expressCheckout) Payment Element or Express Checkout
-});
-
-const builder = await enabler.createDropinBuilder('embedded');
-const component = await builder.build({
-   showPayButton: !builder.componentHasSubmit,
-});
-
-component.mount("#payment"); //Selector where the component will be mounted
-```
-
-Replace the placeholder variables (`COMMERCETOOLS_PROCESSOR_URL`, `SESSION_ID`, `onComplete`, `onError`, and `type`) with appropriate values based on your application configuration.
+For detailed implementation instructions and code examples, please refer to the [Enabler documentation](./enabler/README.md#creating-components-for-payment-elements-or-express-checkout).
 
 ## Considerations for Apple Pay and Google Pay
 
-### Apple Pay Requirements
+### Apple Pay
+Apple Pay integration requires three key elements:
+1. **Domain verification**: Set up a `.well-known` directory that redirects to `{COMMERCETOOLS_PROCESSOR_URL}/applePayConfig` to satisfy Apple's domain verification requirements
+2. **Compatible hardware/software**: Use iOS 11.3+/macOS 11.3+ devices with Safari and an active Apple Wallet card configured for sandbox testing
+3. **Stripe configuration**: Enable Apple Pay in your Stripe dashboard settings and ensure proper domain registration
 
-To enable Apple Pay, you must ensure the following conditions are satisfied:
+For detailed implementation instructions, see the [Apple Pay considerations in the Enabler documentation](./enabler/README.md#apple-pay-requirements).
 
-1. The website must include a `https://www.website.com/.well-known/apple-developer-merchantid-domain-association` file that redirects to:
+### Google Pay
+Google Pay implementation requires:
+1. **Compatible browser/device**: Use Chrome browser on any compatible device with an active Google Pay account configured for sandbox testing
+2. **Stripe configuration**: Enable Google Pay in your Stripe dashboard settings with domain validation handled automatically by Stripe
 
-   ```text
-   {COMMERCETOOLS_PROCESSOR_URL}/applePayConfig
-   ```
+For complete implementation details, refer to the [Google Pay considerations in the Enabler documentation](./enabler/README.md#google-pay-requirements).
 
-   This endpoint retrieves the required merchant ID domain association file. For more details, refer to Stripe’s official [Apple Pay domain association documentation](https://support.stripe.com/questions/enable-apple-pay-on-your-stripe-account).
-
-2. The environment and devices must meet Apple Pay testing requirements:
-    - You need an **iOS device** running iOS 11.3 or later, or a **Mac** running macOS 11.3 or later with Safari.
-    - The browser must be configured with an active card in the Apple Wallet in sandbox mode.
-    - A valid Stripe account must be linked with Apple Pay and properly configured.
-    - All webpages hosting an Apple Pay button are HTTPS.
-
-3. Make sure your Stripe account has Apple Pay enabled (this is configured via your Stripe dashboard).
-
-### Google Pay Requirements
-
-To enable Google Pay, you must ensure the following conditions are satisfied:
-
-1. The device and browser requirements for testing Google Pay are met:
-    - Use a **Chrome browser** on any device (mobile or desktop) supporting Google Pay.
-    - Add a payment method (card) to your Google Pay account and ensure your testing environment is set up for sandbox mode.
-
-2. Additional configuration for your Stripe account:
-    - Ensure **Google Pay** is enabled via your Stripe dashboard.
-    - Stripe automatically manages domain validation for Google Pay—manual setup is not required.
 
 ## Development Guide
 
@@ -260,12 +240,12 @@ deployAs:
           description: Stripe unique identifier for the Webhook Endpoints (example - we_*****).
           required: true
         - key: STRIPE_APPEARANCE_PAYMENT_ELEMENT
-          description: Stripe Appearance for Payment Element (example - {"theme":"night","labels":"floating"} ).
+          description: Stripe Appearance for Payment Element (example - {"theme":"stripe","variables":{"colorPrimary":"\#0570DE","colorBackground":"\#FFFFFF","colorText":"\#30313D","colorDanger":"\#DF1B41","fontFamily":"Ideal Sans,system-ui,sansserif","spacingUnit":"2px","borderRadius":"4px"}}).
+        - key: STRIPE_APPEARANCE_EXPRESS_CHECKOUT
+          description: Stripe Appearance for Express Checkout (example - {"theme":"stripe","variables":{"colorPrimary":"\#0570DE","colorBackground":"\#FFFFFF","colorText":"\#30313D","colorDanger":"\#DF1B41","fontFamily":"Ideal Sans,system-ui,sansserif","spacingUnit":"2px","borderRadius":"4px"}}).
         - key: STRIPE_LAYOUT
           description: Stripe Layout for Payment Element (example - {"type":"accordion","defaultCollapsed":false,"radios":true,"spacedAccordionItems":false} ).
           default: '{"type":"tabs","defaultCollapsed":false}'
-        - key: STRIPE_APPEARANCE_EXPRESS_CHECKOUT
-          description: Stripe Appearance for Express Checkout (example - {"theme":"night","labels":"floating"} ).
         - key: STRIPE_PUBLISHABLE_KEY
           description: Stripe Publishable Key
           required: true
@@ -278,7 +258,7 @@ deployAs:
           description: Merchant return URL
           required: true
         - key: STRIPE_COLLECT_BILLING_ADDRESS
-          description: Stripe collect billing address information (example - 'auto' | 'never' | 'if_required').
+          description: Stripe collect billing address information in Payment Element (example - 'auto' | 'never' | 'if_required').
           default: 'auto'
           required: true
       securedConfiguration:
@@ -318,7 +298,7 @@ Here, you can see the details about various variables in the configuration
 - `STRIPE_WEBHOOK_SIGNING_SECRET`: Stripe Secret key to verify webhook signatures using the official libraries. This key is created in the [Stripe dashboard Webhook](https://docs.stripe.com/webhooks).
 - `MERCHANT_RETURN_URL`: Merchant return URL used on the [confirmPayment](https://docs.stripe.com/js/payment_intents/confirm_payment) return_url parameter. The Buy Now Pay Later payment methods will send the Stripe payment_intent in the URL; the Merchant will need to retrieve the payment intent and look for the metadata `ct_payment_id` to be added in the commercetools Checkout SDK `paymentReference`.
 - `STRIPE_SAVED_PAYMENT_METHODS_CONFIG`: Stripe allows you to configure the saved payment methods in the Payment Element, refer to [docs](https://docs.stripe.com/api/customer_sessions/object#customer_session_object-components-payment_element-features). This feature is disabled by default. To enable it, you need to add the expected customer session object. Default value is `{"payment_method_save":"disabled"}`
-- `STRIPE_COLLECT_SHIPPING_ADDRESS`: Stripe allows you to collect the shipping address in the Payment Element. If you want to collect the shipping address, you need to set this value to `never`. The default value is `auto`. More information can be found [here](https://docs.stripe.com/payments/payment-element/control-billing-details-collection).
+- `STRIPE_COLLECT_BILLING_ADDRESS`: Stripe allows you to collect the shipping address in the Payment Element. If you want to collect the shipping address, you need to set this value to `never`. The default value is `auto`. More information can be found [here](https://docs.stripe.com/payments/payment-element/control-billing-details-collection).
 
 ## Development
 

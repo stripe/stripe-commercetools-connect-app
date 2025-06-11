@@ -101,10 +101,7 @@ export const subscriptionRoutes = async (
   fastify.get<{ Reply: SubscriptionListResponseSchemaDTO; Params: { customerId: string } }>(
     '/subscription-api/:customerId',
     {
-      preHandler: [
-        opts.oauth2AuthHook.authenticate(),
-        opts.authorizationHook.authorize('manage_project', 'manage_subscriptions'),
-      ],
+      preHandler: [opts.oauth2AuthHook.authenticate()],
       schema: {
         params: {
           $id: 'paramsSchema',

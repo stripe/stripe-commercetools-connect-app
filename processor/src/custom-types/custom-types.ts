@@ -81,8 +81,8 @@ export const typeLineItem: TypeDraft = {
 };
 
 export const productTypeSubscription: ProductTypeDraft = {
-  name: 'subscription-information',
-  key: 'subscription-information',
+  name: 'payment-connector-subscription-information',
+  key: 'payment-connector-subscription-information',
   description: 'The subscription-information product type.',
   attributes: [
     {

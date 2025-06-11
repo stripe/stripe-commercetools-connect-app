@@ -281,7 +281,7 @@ export const lineItemSubscription: LineItem = {
     obj: {
       id: 'product-type-id',
       version: 1,
-      name: 'subscription-information',
+      name: 'payment-connector-subscription-information',
       createdAt: '2024-01-01T00:00:00Z',
       lastModifiedAt: '2024-01-01T00:00:00Z',
       description: 'The product type.',
