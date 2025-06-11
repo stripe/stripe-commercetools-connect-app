@@ -20,7 +20,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@commercetools-backend/loggers": "23.3.0",
+    "@commercetools-backend/loggers": "24.1.0",
     "@commercetools/connect-payments-sdk": "0.22.0",
     "@fastify/autoload": "6.3.0",
     "@fastify/cors": "11.0.1",
