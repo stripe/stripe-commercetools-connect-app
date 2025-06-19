@@ -4,14 +4,14 @@ services:
   jwt-server:
     image: node:alpine
     restart: always
-    command: 
+    command:
       - npx
       - --package
       - jwt-mock-server
       - -y
       - start
     ports:
-      - 9000:9000
+      - 9002:9000
 
   enabler:
     image: node:20
@@ -28,7 +28,7 @@ services:
       - VITE_PROCESSOR_URL=http://localhost:8080
     ports:
       - 3000:3000
-  
+
   processor:
     image: node:20
     volumes:

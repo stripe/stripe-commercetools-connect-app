@@ -1,5 +1,5 @@
 @use './vx' as *;
-@import './a11y';
+@use "variables";
 
 // from mock
 
@@ -21,7 +21,7 @@
 }
 
 .subHeading {
-  color: $color-text-helper;
+  color: variables.$color-text-helper;
   font-size: 0.8125rem;
   margin-top: 0.125rem;
   margin-bottom: 1.5rem;
@@ -55,8 +55,8 @@
 
   iframe {
     height: 3.317rem !important;
-    border: 1px solid $color-border-default !important;
-    border-radius: $border-radius;
+    border: 1px solid variables.$color-border-default !important;
+    border-radius: variables.$border-radius;
     padding-left: 1rem;
     width: 100%;
     float: none !important;
@@ -70,7 +70,7 @@
   }
 
   .error {
-    color: $color-status-error;
+    color: variables.$color-status-error;
     font-size: 0.75rem;
     padding: 0 0.75rem 0.25rem 1rem;
     position: rela2tive;
@@ -80,13 +80,13 @@
 /* input fields border colors */
 :global(.is-valid) {
   & iframe {
-    border: 1px solid $color-border-default !important;
+    border: 1px solid variables.$color-border-default !important;
   }
 }
 
 :global(.is-onfocus) {
   & iframe {
-    border: 2px solid $color-status-default !important;
+    border: 2px solid variables.$color-status-default !important;
   }
   ~ .error {
     display: none;
@@ -97,7 +97,7 @@
 .inputError :not(:global(.is-onfocus)),
 .inputErrorEmptyText {
   & iframe {
-    border: 2px solid $color-status-error !important;
+    border: 2px solid variables.$color-status-error !important;
   }
 }
 
@@ -141,15 +141,15 @@
 
 /* floating labels colors */
 :global(.is-valid) ~ .floatingLabel {
-  color: $color-border-default;
+  color: variables.$color-border-default;
 }
 
 :global(.is-onfocus) ~ .floatingLabel {
-  color: $color-status-default;
+  color: variables.$color-status-default;
 }
 
 :global(.is-invalid):not(.inputEmpty) ~ .floatingLabel {
-  color: $color-status-error;
+  color: variables.$color-status-error;
 }
 
 .inputErrorEmptyText ~ .floatingLabel {
@@ -168,7 +168,7 @@
 }
 
 .subHeading {
-  color: $color-text-helper;
+  color: variables.$color-text-helper;
   font-size: 0.8125rem;
   margin-top: 0.125rem;
   margin-bottom: 1.5rem;
