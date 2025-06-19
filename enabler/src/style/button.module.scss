@@ -1,3 +1,6 @@
+@use "colors";
+@use "variables";
+
 @use './vx' as *;
 
 // legacy browser fallback
@@ -12,21 +15,21 @@
   padding: 0.5rem 1.375rem;
   background-color: var(--ctc-button);
   border: 0 none;
-  border-radius: $border-radius;
+  border-radius: variables.$border-radius;
   font-size: 0.9375rem;
-  font-weight: $font-weight-regular;
-  font-family: $font-family;
+  font-weight: variables.$font-weight-regular;
+  font-family: variables.$font-family;
   text-transform: uppercase;
   line-height: 1.5rem;
   letter-spacing: 0.43px;
-  box-shadow: $box-shadow;
+  box-shadow: variables.$box-shadow;
   background-position: center;
   transition: background-color 0.8s;
   cursor: pointer;
 
   &:hover {
     background: var(--ctc-button-hover)
-      radial-gradient(circle, transparent 1%, var(--ctc-button-hover) 1%) center/15000%;
+    radial-gradient(circle, transparent 1%, var(--ctc-button-hover) 1%) center/15000%;
   }
 
   &:active {
@@ -76,7 +79,7 @@
   }
 
   &.disabled {
-    color: $color-style-text-disabled;
+    color: colors.$color-style-text-disabled;
     text-decoration: none;
     cursor: not-allowed;
     pointer-events: none;
@@ -111,8 +114,8 @@
 
   &:hover {
     background: $color-style-primary-hover-background
-      radial-gradient(circle, transparent 1%, $color-style-primary-hover-background 1%)
-      center/15000%;
+    radial-gradient(circle, transparent 1%, $color-style-primary-hover-background 1%)
+    center/15000%;
   }
 
   &:active {
@@ -127,12 +130,12 @@
 
   &:disabled {
     background-color: transparent;
-    color: $color-button-disabled;
+    color: variables.$color-button-disabled;
   }
 }
 
 .errorButton {
-  color: $color-status-error-dark;
+  color: variables.$color-status-error-dark;
   background: transparent;
   border: 1px solid transparent;
   transition: none;
@@ -140,16 +143,16 @@
   outline: none;
 
   &:hover {
-    background: $color-status-error-hover;
+    background: variables.$color-status-error-hover;
   }
 
   &:active {
-    border: 1px solid $color-status-error-dark;
-    background: $color-status-error-active;
+    border: 1px solid variables.$color-status-error-dark;
+    background: variables.$color-status-error-active;
   }
 
   &:disabled {
     background-color: transparent;
-    color: $color-button-disabled;
+    color: variables.$color-button-disabled;
   }
 }

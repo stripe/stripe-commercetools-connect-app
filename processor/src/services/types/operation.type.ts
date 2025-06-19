@@ -10,15 +10,23 @@ import { Payment } from '@commercetools/connect-payments-sdk/dist/commercetools'
 export type CapturePaymentRequest = {
   amount: AmountSchemaDTO;
   payment: Payment;
+  merchantReference?: string;
 };
 
 export type CancelPaymentRequest = {
   payment: Payment;
+  merchantReference?: string;
 };
 
 export type RefundPaymentRequest = {
   amount: AmountSchemaDTO;
   payment: Payment;
+  merchantReference?: string;
+};
+
+export type ReversePaymentRequest = {
+  payment: Payment;
+  merchantReference?: string;
 };
 
 export type PaymentProviderModificationResponse = {
