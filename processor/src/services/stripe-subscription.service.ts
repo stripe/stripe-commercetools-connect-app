@@ -4,6 +4,7 @@ import {
   CommercetoolsCartService,
   CommercetoolsPaymentService,
   LineItem,
+  Money,
   Payment,
 } from '@commercetools/connect-payments-sdk';
 import { CartSetLineItemCustomFieldAction, CartSetLineItemCustomTypeAction } from '@commercetools/platform-sdk';
@@ -46,6 +47,9 @@ import { METADATA_PRICE_ID_FIELD, METADATA_PRODUCT_ID_FIELD, METADATA_VARIANT_SK
 import { StripePaymentService } from './stripe-payment.service';
 import { StripeCouponService } from './stripe-coupon.service';
 import { getCustomerById } from './commerce-tools/customer-client';
+import { SubscriptionEventConverter } from './converters/subscriptionEventConverter';
+import { PaymentTransactions } from '../dtos/operations/payment-intents.dto';
+import { PaymentStatus } from './types/stripe-payment.type';
 
 const stripe = stripeApi();
 
@@ -56,6 +60,7 @@ export class StripeSubscriptionService {
   private paymentCreationService: CtPaymentCreationService;
   private paymentService: StripePaymentService;
   private stripeCouponService: StripeCouponService;
+  private subscriptionEventConverter: SubscriptionEventConverter;
 
   constructor(opts: StripeSubscriptionServiceOptions) {
     this.ctCartService = opts.ctCartService;
@@ -67,6 +72,7 @@ export class StripeSubscriptionService {
       ctPaymentService: opts.ctPaymentService,
     });
     this.stripeCouponService = new StripeCouponService();
+    this.subscriptionEventConverter = new SubscriptionEventConverter();
   }
 
   public async createSetupIntent(): Promise<SetupIntentResponseSchemaDTO> {
@@ -605,5 +611,105 @@ export class StripeSubscriptionService {
     log.info(`Subscription ${subscriptionId} is valid for customer ${customerId}`, {
       subscriptionStatus: subscription.status,
     });
+  }
+
+  /**
+   * Retrieves modified payment data based on the given Stripe event for subscriptions.
+   *
+   * @param {Stripe.Event} event - The Stripe event object to extract data from.
+   * @return {ModifyPayment} - An object containing modified payment data.
+   */
+  public async processSubscriptionEvent(event: Stripe.Event): Promise<void> {
+    log.info('Processing subscription notification', { event: JSON.stringify(event.id) });
+    try {
+      const dataInvoice = event.data.object as Stripe.Invoice;
+      const invoiceExpanded = await this.paymentCreationService.getStripeInvoiceExpanded(dataInvoice.id);
+      const subscription = invoiceExpanded.subscription as Stripe.Subscription;
+      const invoicePaymentIntent = invoiceExpanded.payment_intent as Stripe.PaymentIntent;
+
+      let payment = await this.ctPaymentService.getPayment({
+        id: subscription.metadata?.ct_payment_id ?? '',
+      });
+      if (!payment) {
+        log.error(`Cannot process invoice with ID: ${dataInvoice.id}. Missing Payment can be trial days.`);
+        return;
+      }
+
+      const failedPaymentIntent = await this.ctPaymentService.findPaymentsByInterfaceId({
+        interfaceId: invoicePaymentIntent.id,
+      });
+      const isPaymentFailed = failedPaymentIntent.length > 0;
+      if (failedPaymentIntent.length > 0) {
+        //Update a failed payment if it has a Failed transaction
+        payment = failedPaymentIntent[0];
+      }
+      const isPaymentChargePending = this.ctPaymentService.hasTransactionInState({
+        payment,
+        transactionType: PaymentTransactions.CHARGE,
+        states: [PaymentStatus.PENDING],
+      });
+
+      const updateData = this.subscriptionEventConverter.convert(
+        event,
+        invoiceExpanded,
+        isPaymentChargePending,
+        payment,
+      );
+
+      if (!isPaymentChargePending && !isPaymentFailed) {
+        log.info(`Subscription Payment ${payment} do not have Transaction in pending state`);
+        const eventCartId = dataInvoice.subscription_details?.metadata?.cart_id;
+        if (!eventCartId) {
+          log.error(`Cannot process invoice with ID: ${dataInvoice.id}. Missing cart.`);
+          return;
+        }
+
+        const cart = await this.ctCartService.getCart({ id: eventCartId });
+        //If it is invoice.payment_failed the amount is the amount_due
+        const isInvoicePaid = event.type.startsWith('invoice.paid');
+        const amountPlanned: Money = {
+          currencyCode: dataInvoice.currency.toUpperCase(),
+          centAmount: isInvoicePaid ? dataInvoice.amount_paid : dataInvoice.amount_due,
+        };
+        const createdPayment = await this.paymentCreationService.handleCtPaymentSubscription({
+          cart,
+          amountPlanned,
+          interactionId: updateData.pspReference,
+        });
+
+        if (cart.cartState !== 'Ordered') {
+          log.info('Updating cart address after processing the notification', {
+            ctCartId: cart.id,
+            invoiceId: invoiceExpanded.id,
+          });
+          const updatedCart = await this.paymentService.updateCartAddress(
+            invoiceExpanded.charge as Stripe.Charge,
+            cart,
+          );
+          await this.paymentService.createOrder({ cart: updatedCart, paymentIntentId: updateData.pspReference });
+        }
+
+        await this.paymentService.addPaymentToOrder(payment.id, createdPayment);
+        updateData.id = createdPayment;
+      }
+
+      for (const tx of updateData.transactions) {
+        const updatedPayment = await this.ctPaymentService.updatePayment({
+          ...updateData,
+          transaction: tx,
+        });
+
+        log.info('Subscription payment updated after processing the notification', {
+          paymentId: updatedPayment.id,
+          version: updatedPayment.version,
+          pspReference: updateData.pspReference,
+          paymentMethod: updateData.paymentMethod,
+          transaction: JSON.stringify(tx),
+        });
+      }
+    } catch (e) {
+      log.error('Error processing notification', { error: e });
+      return;
+    }
   }
 }

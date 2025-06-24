@@ -40,6 +40,7 @@ import { StripeHeaderAuthHook } from '../../src/libs/fastify/hooks/stripe-header
 import { appLogger } from '../../src/payment-sdk';
 // import { StripeCustomerService } from '../../src/services/stripe-customer.service';
 import { mockEvent__invoice_paid__Expanded_noPaymnet_intent__amount_paid } from '../utils/mock-subscription-data';
+import { StripeSubscriptionService } from '../../src/services/stripe-subscription.service';
 
 jest.mock('stripe', () => ({
   __esModule: true,
@@ -108,6 +109,12 @@ describe('Stripe Payment APIs', () => {
     ctOrderService: jest.fn() as unknown as CommercetoolsOrderService,
   });
 
+  const spiedSubscriptionService = new StripeSubscriptionService({
+    ctCartService: jest.fn() as unknown as CommercetoolsCartService,
+    ctPaymentService: jest.fn() as unknown as CommercetoolsPaymentService,
+    ctOrderService: jest.fn() as unknown as CommercetoolsOrderService,
+  });
+
   // const spiedCustomerService = new StripeCustomerService(jest.fn() as unknown as CommercetoolsCartService);
 
   const spiedStripeHeaderAuthHook = new StripeHeaderAuthHook();
@@ -118,18 +125,21 @@ describe('Stripe Payment APIs', () => {
     await fastifyApp.register(stripeWebhooksRoutes, {
       stripeHeaderAuthHook: spiedStripeHeaderAuthHook,
       paymentService: spiedPaymentService,
+      subscriptionService: spiedSubscriptionService,
     });
 
     await fastifyApp.register(paymentRoutes, {
       prefix: '/',
       sessionHeaderAuthHook: spiedSessionHeaderAuthenticationHook,
       paymentService: spiedPaymentService,
+      subscriptionService: spiedSubscriptionService,
     });
 
     await fastifyApp.register(configElementRoutes, {
       prefix: '/',
       sessionHeaderAuthHook: spiedSessionHeaderAuthenticationHook,
       paymentService: spiedPaymentService,
+      subscriptionService: spiedSubscriptionService,
     });
 
     // await fastifyApp.register(customerRoutes, {
@@ -375,7 +385,7 @@ describe('Stripe Payment APIs', () => {
       jest
         .spyOn(Stripe.prototype.webhooks, 'constructEvent')
         .mockReturnValue(mockEvent__invoice_paid__Expanded_noPaymnet_intent__amount_paid);
-      jest.spyOn(StripePaymentService.prototype, 'processSubscriptionEvent').mockReturnValue(Promise.resolve());
+      jest.spyOn(StripeSubscriptionService.prototype, 'processSubscriptionEvent').mockReturnValue(Promise.resolve());
 
       //When
       const response = await fastifyApp.inject({
@@ -388,7 +398,7 @@ describe('Stripe Payment APIs', () => {
 
       //Then
       expect(response.statusCode).toEqual(200);
-      expect(spiedPaymentService.processSubscriptionEvent).toHaveBeenCalled();
+      expect(spiedSubscriptionService.processSubscriptionEvent).toHaveBeenCalled();
     });
 
     test('it should handle a invoice.payment_failed event gracefully.', async () => {
@@ -403,7 +413,7 @@ describe('Stripe Payment APIs', () => {
       jest
         .spyOn(Stripe.prototype.webhooks, 'constructEvent')
         .mockReturnValue(mockEvent__invoice_paid__Expanded_noPaymnet_intent__amount_paid);
-      jest.spyOn(StripePaymentService.prototype, 'processSubscriptionEvent').mockReturnValue(Promise.resolve());
+      jest.spyOn(StripeSubscriptionService.prototype, 'processSubscriptionEvent').mockReturnValue(Promise.resolve());
 
       //When
       const response = await fastifyApp.inject({
@@ -416,7 +426,7 @@ describe('Stripe Payment APIs', () => {
 
       //Then
       expect(response.statusCode).toEqual(200);
-      expect(spiedPaymentService.processSubscriptionEvent).toHaveBeenCalled();
+      expect(spiedSubscriptionService.processSubscriptionEvent).toHaveBeenCalled();
     });
   });
 

@@ -37,17 +37,20 @@ export default async function (server: FastifyInstance) {
 
   await server.register(paymentRoutes, {
     paymentService: stripePaymentService,
+    subscriptionService: stripeSubscriptionService,
     sessionHeaderAuthHook: paymentSDK.sessionHeaderAuthHookFn,
   });
 
   const stripeHeaderAuthHook = new StripeHeaderAuthHook();
   await server.register(stripeWebhooksRoutes, {
     paymentService: stripePaymentService,
+    subscriptionService: stripeSubscriptionService,
     stripeHeaderAuthHook: stripeHeaderAuthHook,
   });
 
   await server.register(configElementRoutes, {
     paymentService: stripePaymentService,
+    subscriptionService: stripeSubscriptionService,
     sessionHeaderAuthHook: paymentSDK.sessionHeaderAuthHookFn,
   });
 }

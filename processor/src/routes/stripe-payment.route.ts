@@ -22,14 +22,17 @@ import {
 } from '../dtos/operations/payment-intents.dto';
 import { StripeEvent, StripeSubscriptionEvent } from '../services/types/stripe-payment.type';
 import { isFromSubscriptionInvoice } from '../utils';
+import { StripeSubscriptionService } from '../services/stripe-subscription.service';
 
 type PaymentRoutesOptions = {
   paymentService: StripePaymentService;
+  subscriptionService: StripeSubscriptionService;
   sessionHeaderAuthHook: SessionHeaderAuthenticationHook;
 };
 
 type StripeRoutesOptions = {
   paymentService: StripePaymentService;
+  subscriptionService: StripeSubscriptionService;
   stripeHeaderAuthHook: StripeHeaderAuthHook;
 };
 
@@ -129,7 +132,7 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
         case StripeSubscriptionEvent.INVOICE_PAID:
         case StripeSubscriptionEvent.INVOICE_PAYMENT_FAILED:
           log.info(`Processing Stripe Subscription event: ${event.type}`);
-          await opts.paymentService.processSubscriptionEvent(event);
+          await opts.subscriptionService.processSubscriptionEvent(event);
           break;
         default:
           log.info(`--->>> This Stripe event is not supported: ${event.type}`);
