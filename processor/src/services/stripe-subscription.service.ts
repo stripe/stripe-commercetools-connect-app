@@ -418,7 +418,6 @@ export class StripeSubscriptionService {
           isPending: isSendInvoice && !hasTrial ? true : false,
         });
       }
-      await this.paymentService.createOrder({ cart, subscriptionId });
     } catch (error) {
       throw wrapStripeError(error);
     }
