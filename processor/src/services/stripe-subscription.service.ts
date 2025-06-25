@@ -676,18 +676,6 @@ export class StripeSubscriptionService {
           interactionId: updateData.pspReference,
         });
 
-        if (cart.cartState !== 'Ordered') {
-          log.info('Updating cart address after processing the notification', {
-            ctCartId: cart.id,
-            invoiceId: invoiceExpanded.id,
-          });
-          const updatedCart = await this.paymentService.updateCartAddress(
-            invoiceExpanded.charge as Stripe.Charge,
-            cart,
-          );
-          await this.paymentService.createOrder({ cart: updatedCart, paymentIntentId: updateData.pspReference });
-        }
-
         await this.paymentService.addPaymentToOrder(payment.id, createdPayment);
         updateData.id = createdPayment;
       }
@@ -705,6 +693,16 @@ export class StripeSubscriptionService {
           paymentMethod: updateData.paymentMethod,
           transaction: JSON.stringify(tx),
         });
+      }
+
+      const cart = await this.ctCartService.getCartByPaymentId({ paymentId: payment.id });
+      if (cart.cartState !== 'Ordered') {
+        log.info('Updating cart address after processing the notification', {
+          ctCartId: cart.id,
+          invoiceId: invoiceExpanded.id,
+        });
+        const updatedCart = await this.paymentService.updateCartAddress(invoiceExpanded.charge as Stripe.Charge, cart);
+        await this.paymentService.createOrder({ cart: updatedCart, paymentIntentId: updateData.pspReference });
       }
     } catch (e) {
       log.error('Error processing notification', { error: e });

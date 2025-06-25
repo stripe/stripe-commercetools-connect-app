@@ -35,7 +35,6 @@ import { mock_SetLineItemCustomFieldActions } from '../utils/mock-actions-data';
 import { DefaultCartService } from '@commercetools/connect-payments-sdk/dist/commercetools/services/ct-cart.service';
 import { mockInvoice, mockInvoiceWithAmountDue, mockSubscriptionId } from '../utils/mock-subscription-data';
 import { CtPaymentCreationService } from '../../src/services/ct-payment-creation.service';
-import { StripePaymentService } from '../../src/services/stripe-payment.service';
 import { DefaultPaymentService } from '@commercetools/connect-payments-sdk/dist/commercetools/services/ct-payment.service';
 import { mockCtCustomerData, mockStripeCustomerId } from '../utils/mock-customer-data';
 import { StripeCustomerService } from '../../src/services/stripe-customer.service';
@@ -799,7 +798,6 @@ describe('stripe-subscription.service', () => {
       const updateSubscriptionPaymentTransactionsMock = jest
         .spyOn(CtPaymentCreationService.prototype, 'updateSubscriptionPaymentTransactions')
         .mockResolvedValue();
-      const createOrderMock = jest.spyOn(StripePaymentService.prototype, 'createOrder').mockResolvedValue();
 
       const result = await stripeSubscriptionService.confirmSubscriptionPayment({
         paymentReference: 'paymentReference',
@@ -812,7 +810,6 @@ describe('stripe-subscription.service', () => {
       expect(getInvoiceFromSubscriptionMock).toHaveBeenCalled();
       expect(getCurrentPaymentMock).toHaveBeenCalled();
       expect(updateSubscriptionPaymentTransactionsMock).toHaveBeenCalled();
-      expect(createOrderMock).toHaveBeenCalled();
     });
 
     test('should confirm subscription payment with subscription ID successfully', async () => {
@@ -828,7 +825,6 @@ describe('stripe-subscription.service', () => {
       const updateSubscriptionPaymentTransactionsMock = jest
         .spyOn(CtPaymentCreationService.prototype, 'updateSubscriptionPaymentTransactions')
         .mockResolvedValue();
-      const createOrderMock = jest.spyOn(StripePaymentService.prototype, 'createOrder').mockResolvedValue();
 
       const result = await stripeSubscriptionService.confirmSubscriptionPayment({
         paymentReference: 'paymentReference',
@@ -840,7 +836,6 @@ describe('stripe-subscription.service', () => {
       expect(getInvoiceFromSubscriptionMock).toHaveBeenCalled();
       expect(getCurrentPaymentMock).toHaveBeenCalled();
       expect(updateSubscriptionPaymentTransactionsMock).toHaveBeenCalled();
-      expect(createOrderMock).toHaveBeenCalled();
     });
 
     test('should confirm subscription payment successfully without invoice', async () => {
@@ -853,7 +848,6 @@ describe('stripe-subscription.service', () => {
       const updateSubscriptionPaymentTransactionsMock = jest
         .spyOn(CtPaymentCreationService.prototype, 'updateSubscriptionPaymentTransactions')
         .mockResolvedValue();
-      const createOrderMock = jest.spyOn(StripePaymentService.prototype, 'createOrder').mockResolvedValue();
 
       const result = await stripeSubscriptionService.confirmSubscriptionPayment({
         paymentReference: 'paymentReference',
@@ -864,7 +858,6 @@ describe('stripe-subscription.service', () => {
       expect(getCartMock).toHaveBeenCalled();
       expect(getCurrentPaymentMock).toHaveBeenCalled();
       expect(updateSubscriptionPaymentTransactionsMock).toHaveBeenCalled();
-      expect(createOrderMock).toHaveBeenCalled();
     });
 
     test('should fail to confirm subscription payment', async () => {
