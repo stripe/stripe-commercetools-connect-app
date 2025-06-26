@@ -1,7 +1,12 @@
 import { TransactionData, Money, Payment } from '@commercetools/connect-payments-sdk';
 
 import Stripe from 'stripe';
-import { PaymentStatus, StripeEventUpdatePayment, StripeSubscriptionEvent } from '../types/stripe-payment.type';
+import {
+  PaymentStatus,
+  StripeEvent,
+  StripeEventUpdatePayment,
+  StripeSubscriptionEvent,
+} from '../types/stripe-payment.type';
 import { PaymentTransactions } from '../../dtos/operations/payment-intents.dto';
 import { wrapStripeError } from '../../clients/stripe.client';
 
@@ -96,6 +101,21 @@ export class SubscriptionEventConverter {
             },
           ];
         }
+      case StripeEvent.CHARGE__REFUNDED:
+        return [
+          {
+            type: PaymentTransactions.REFUND,
+            state: PaymentStatus.SUCCESS,
+            amount: this.populateAmount(invoice),
+            interactionId: paymentIntentId,
+          },
+          {
+            type: PaymentTransactions.CHARGE_BACK,
+            state: PaymentStatus.SUCCESS,
+            amount: this.populateAmount(invoice),
+            interactionId: paymentIntentId,
+          },
+        ];
       /*case StripeSubscriptionEvent.PAYMENT_INTENT__CANCELED:
         return [
           {
@@ -118,22 +138,6 @@ export class SubscriptionEventConverter {
           {
             type: PaymentTransactions.AUTHORIZATION,
             state: PaymentStatus.FAILURE,
-            amount: this.populateAmount(event),
-            interactionId: paymentIntentId,
-          },
-        ];
-      case StripeEvent.CHARGE__REFUNDED:
-        if (!event.data.object.captured) return [];
-        return [
-          {
-            type: PaymentTransactions.REFUND,
-            state: PaymentStatus.SUCCESS,
-            amount: this.populateAmount(event),
-            interactionId: paymentIntentId,
-          },
-          {
-            type: PaymentTransactions.CHARGE_BACK,
-            state: PaymentStatus.SUCCESS,
             amount: this.populateAmount(event),
             interactionId: paymentIntentId,
           },

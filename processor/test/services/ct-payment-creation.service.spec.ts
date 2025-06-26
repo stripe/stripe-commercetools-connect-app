@@ -110,7 +110,6 @@ describe('ct-payment-creation.service', () => {
         cart: mockGetCartResult(),
         amountPlanned: mockGetPaymentAmount,
         interactionId: mockStripeCreatePaymentResult.id,
-        isSubscription: true,
       });
 
       expect(result).toStrictEqual(mockGetPaymentResult.id);

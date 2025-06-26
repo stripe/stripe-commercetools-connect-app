@@ -21,7 +21,7 @@ import {
   PaymentModificationStatus,
 } from '../dtos/operations/payment-intents.dto';
 import { StripeEvent, StripeSubscriptionEvent } from '../services/types/stripe-payment.type';
-import { isFromSubscriptionInvoice } from '../utils';
+import { isFromSubscriptionInvoice, isEventRefundOrSucceed } from '../utils';
 import { StripeSubscriptionService } from '../services/stripe-subscription.service';
 
 type PaymentRoutesOptions = {
@@ -120,17 +120,17 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
         case StripeEvent.PAYMENT_INTENT__SUCCEEDED:
         case StripeEvent.PAYMENT_INTENT__CANCELED:
         case StripeEvent.PAYMENT_INTENT__PAYMENT_FAILED:
+        case StripeEvent.CHARGE__REFUNDED:
         case StripeEvent.CHARGE__SUCCEEDED:
           if (!isFromSubscriptionInvoice(event)) {
             log.info(`Processing Stripe payment event: ${event.type}`);
             await opts.paymentService.processStripeEvent(event);
+          } else if (isEventRefundOrSucceed(event)) {
+            log.info(`--->>> This Stripe event is from a subscription invoice refund or charge: ${event.type}`);
+            await opts.subscriptionService.processSubscriptionEvent(event);
           } else {
             log.info(`--->>> This Stripe event is from a subscription invoice: ${event.type}`);
           }
-          break;
-        case StripeEvent.CHARGE__REFUNDED:
-          log.info(`Processing Stripe refund payment event: ${event.type}`);
-          await opts.paymentService.processStripeEvent(event);
           break;
         case StripeSubscriptionEvent.INVOICE_PAID:
         case StripeSubscriptionEvent.INVOICE_PAYMENT_FAILED:

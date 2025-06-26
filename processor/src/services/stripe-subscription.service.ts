@@ -32,7 +32,7 @@ import { getCartIdFromContext, getMerchantReturnUrlFromContext } from '../libs/f
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
 import { StripeCustomerService } from './stripe-customer.service';
-import { getLocalizedString, transformVariantAttributes } from '../utils';
+import { getLocalizedString, isEventRefundOrSucceed, transformVariantAttributes } from '../utils';
 import {
   lineItemStripeSubscriptionIdField,
   productTypeSubscription,
@@ -621,8 +621,12 @@ export class StripeSubscriptionService {
   public async processSubscriptionEvent(event: Stripe.Event): Promise<void> {
     log.info('Processing subscription notification', { event: JSON.stringify(event.id) });
     try {
-      const dataInvoice = event.data.object as Stripe.Invoice;
-      const invoiceExpanded = await this.paymentCreationService.getStripeInvoiceExpanded(dataInvoice.id);
+      const isChargeRefund = isEventRefundOrSucceed(event);
+      const dataInvoiceId = isChargeRefund
+        ? ((event.data.object as Stripe.Charge).invoice as string)
+        : (event.data.object as Stripe.Invoice).id;
+
+      const invoiceExpanded = await this.paymentCreationService.getStripeInvoiceExpanded(dataInvoiceId);
       const subscription = invoiceExpanded.subscription as Stripe.Subscription;
       const invoicePaymentIntent = invoiceExpanded.payment_intent as Stripe.PaymentIntent;
 
@@ -630,7 +634,7 @@ export class StripeSubscriptionService {
         id: subscription.metadata?.ct_payment_id ?? '',
       });
       if (!payment) {
-        log.error(`Cannot process invoice with ID: ${dataInvoice.id}. Missing Payment can be trial days.`);
+        log.error(`Cannot process invoice with ID: ${invoiceExpanded.id}. Missing Payment can be trial days.`);
         return;
       }
 
@@ -657,9 +661,9 @@ export class StripeSubscriptionService {
 
       if (!isPaymentChargePending && !isPaymentFailed) {
         log.info(`Subscription Payment ${payment} do not have Transaction in pending state`);
-        const eventCartId = dataInvoice.subscription_details?.metadata?.cart_id;
+        const eventCartId = invoiceExpanded.subscription_details?.metadata?.cart_id;
         if (!eventCartId) {
-          log.error(`Cannot process invoice with ID: ${dataInvoice.id}. Missing cart.`);
+          log.error(`Cannot process invoice with ID: ${invoiceExpanded.id}. Missing cart.`);
           return;
         }
 
@@ -667,8 +671,8 @@ export class StripeSubscriptionService {
         //If it is invoice.payment_failed the amount is the amount_due
         const isInvoicePaid = event.type.startsWith('invoice.paid');
         const amountPlanned: Money = {
-          currencyCode: dataInvoice.currency.toUpperCase(),
-          centAmount: isInvoicePaid ? dataInvoice.amount_paid : dataInvoice.amount_due,
+          currencyCode: invoiceExpanded.currency.toUpperCase(),
+          centAmount: isInvoicePaid ? invoiceExpanded.amount_paid : invoiceExpanded.amount_due,
         };
         const createdPayment = await this.paymentCreationService.handleCtPaymentSubscription({
           cart,
