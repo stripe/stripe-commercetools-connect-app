@@ -47,7 +47,7 @@ export interface BaseOptions {
   elements: StripeElements; // MVP https://docs.stripe.com/js/elements_object
   paymentMode: StripeElementsOptionsMode['mode']
   stripeCustomerId?: string;
-};
+}
 
 interface ElementsOptions {
   type: string;
@@ -61,6 +61,7 @@ interface ElementsOptions {
       address: string;
     };
   };
+  billingAddressRequired: boolean;
 }
 
 export class MockPaymentEnabler implements PaymentEnabler {
@@ -204,6 +205,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
           }
         }
       }),
+      billingAddressRequired: true, // Used for express checkout, this will be updated in the future to be more dynamic
     }
   }
 
