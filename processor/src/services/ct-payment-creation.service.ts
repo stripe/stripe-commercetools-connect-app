@@ -37,6 +37,7 @@ export class CtPaymentCreationService {
   public async createCtPayment({ cart, amountPlanned, interactionId }: PaymentCreationProps): Promise<string> {
     const response = await this.ctPaymentService.createPayment({
       amountPlanned,
+      interfaceId: interactionId,
       paymentMethodInfo: {
         paymentInterface: getPaymentInterfaceFromContext() || 'stripe',
         //...(isSubscription && { method: 'subscription' }), //remove this line if you want to update the payment method for subscriptions with the payment method used in the Stripe webhook event charge.succeeded

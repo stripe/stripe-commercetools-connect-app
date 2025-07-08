@@ -10,6 +10,8 @@ import {
 } from "@stripe/stripe-js";
 import { apiService, ApiService } from "../services/api-service";
 import { StripeService, stripeService } from "../services/stripe-service";
+import {ExpressCheckoutPartialAddress, ShippingRate} from "@stripe/stripe-js/dist/stripe-js/elements/express-checkout";
+import {ShippingMethodsResponseSchemaDTO} from "../dtos/mock-payment.dto.ts";
 
 export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
   public dropinHasSubmit = true;
@@ -63,6 +65,51 @@ export class DropinComponents implements DropinComponent {
       this.paymentElement.mount(selector);
     } else {
       (this.paymentElement as StripeExpressCheckoutElement).mount(selector);
+      (this.paymentElement as StripeExpressCheckoutElement).on('shippingaddresschange', async (event) => {
+        const resolve = event.resolve;
+        const reject = event.reject;
+        const address = event.address;
+        try {
+          const res = await this.getShippingMethods(address as ExpressCheckoutPartialAddress);
+
+          await this.updateElementTotalAmount(res);
+
+          resolve(res);
+        } catch (error) {
+          console.error("Error fetching shipping methods:", error);
+          reject();
+        }
+      });
+
+      (this.paymentElement as StripeExpressCheckoutElement).on('shippingratechange', async (event) => {
+        const resolve = event.resolve;
+        const reject = event.reject;
+        const shippingRate = event.shippingRate;
+
+        try {
+          const response = await this.updateShippingRate(shippingRate);
+          await this.updateElementTotalAmount(response);
+          resolve({
+            shippingRates: response.shippingRates,
+            lineItems: response.lineItems
+          });
+        } catch (error) {
+          console.error("Error fetching shipping methods:", error);
+          reject();
+        }
+      });
+
+      (this.paymentElement as StripeExpressCheckoutElement).on('cancel', async () => {
+
+        try {
+          const response = await this.removeShippingRate();
+          this.baseOptions.elements.update({amount: response});
+
+        } catch (error) {
+          console.error("Error removing shipping rates:", error);
+        }
+      });
+
       (this.paymentElement as StripeExpressCheckoutElement).on(
         "confirm",
         async () => {
@@ -168,5 +215,41 @@ export class DropinComponents implements DropinComponent {
       paymentReference,
       paymentIntent: paymentIntentId,
     });
+  }
+
+  async getShippingMethods(address: ExpressCheckoutPartialAddress): Promise<ShippingMethodsResponseSchemaDTO> {
+    try {
+      const response = await this.api.getShippingMethods(address);
+      return response;
+    } catch (error) {
+      console.error("Error fetching shipping methods:", error);
+      throw error;
+    }
+  }
+
+  async updateShippingRate(shippingRate: ShippingRate): Promise<ShippingMethodsResponseSchemaDTO> {
+    try {
+      const response = await this.api.updateShippingRate(shippingRate)
+      return response;
+    } catch (error) {
+      console.error("Error fetching shipping methods:", error);
+      throw error;
+    }
+  }
+
+  async updateElementTotalAmount(res: ShippingMethodsResponseSchemaDTO) {
+    const totalAmount = res.lineItems.reduce((acc, item) => acc + item.amount, 0);
+    await this.baseOptions.elements.update({amount: totalAmount});
+  }
+
+  async removeShippingRate(): Promise<number> {
+    try {
+      const response = await this.api.removeShippingRate();
+      const totalAmount = response.lineItems.reduce((acc, item) => acc + item.amount, 0);
+      return totalAmount;
+    } catch (error) {
+      console.error("Error removing shipping rates:", error);
+      throw error;
+    }
   }
 }

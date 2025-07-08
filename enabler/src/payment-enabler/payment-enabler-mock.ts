@@ -62,6 +62,7 @@ interface ElementsOptions {
     };
   };
   billingAddressRequired: boolean;
+  shippingAddressRequired: boolean;
 }
 
 export class MockPaymentEnabler implements PaymentEnabler {
@@ -206,6 +207,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
         }
       }),
       billingAddressRequired: true, // Used for express checkout, this will be updated in the future to be more dynamic
+      shippingAddressRequired: true, // Used for express checkout, this will be updated in the future to be more dynamic
     }
   }
 

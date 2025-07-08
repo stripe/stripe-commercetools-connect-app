@@ -13,12 +13,7 @@ import {
   SessionHeaderAuthenticationManager,
 } from '@commercetools/connect-payments-sdk';
 import { IncomingHttpHeaders } from 'node:http';
-import {
-  configElementRoutes,
-  // customerRoutes,
-  paymentRoutes,
-  stripeWebhooksRoutes,
-} from '../../src/routes/stripe-payment.route';
+import { configElementRoutes, paymentRoutes, stripeWebhooksRoutes } from '../../src/routes/stripe-payment.route';
 import { StripePaymentService } from '../../src/services/stripe-payment.service';
 import {
   mockEvent__paymentIntent_processing,

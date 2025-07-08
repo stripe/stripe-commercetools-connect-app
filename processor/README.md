@@ -498,7 +498,7 @@ Session authentication required.
 - **outcome**: Either "approved" or "rejected" based on confirmation result.
 - **error**: Error details if rejection occurred.
 
-### Stripe Subscription Management API### Stripe Subscription Management API
+### Stripe Subscription Management API
 
 This API provides endpoints for managing Stripe subscriptions within commercetools. To access these endpoints, you need a valid OAuth2 bearer token with the appropriate scopes (`manage_project` and `manage_subscriptions`). The API is accessible through the processor URL exposed by the commercetools installed connector, with the base path `/subscription-api/`. All requests must include the Authorization header with the format `Authorization: Bearer <your-oauth-token>`.
 
@@ -559,4 +559,55 @@ OAuth2 authentication with "manage_project" and "manage_subscriptions" scopes.
 - **status**: Current status of the subscription.
 - **outcome**: Result of the update ("updated" or "error").
 - **message**: Details about the update operation.
-```
+
+### Express Checkout methods
+
+#### Get Shipping Methods for Cart
+Retrieves the shipping methods available for a specific cart and updates the cart's shipping method by adding the new address and the first available shipping method to the cart.
+
+##### Endpoint
+`POST /shipping-methods`
+
+##### Authentication
+Cart session authentication required.
+
+##### Request Body
+- **country**: Optional country from the Express Checkout Component.
+- **state**: Optional state from the Express Checkout Component.
+- **city**: Optional city from the Express Checkout Component.
+- **postalCode**: Optional postal code from the Express Checkout Component.
+
+##### Response Parameters
+- **shippingRates**: Array of shipping rates for the selected address.
+- **lineItems**: Name and price of the selected line items and shipping cost.
+
+#### Update Shipping Methods selected for the Cart
+This endpoint updates the shipping methods selected in the Stripe Express Checkout Component and retrieves the line items and shipping cost for the selected shipping method.
+
+##### Endpoint
+`POST /shipping-methods/update`
+
+##### Authentication
+Cart session authentication required.
+
+##### Request Body
+- **id**: ID of the shipping method selected in the Express Checkout component.
+- **amount**: Amount of the shipping method selected.
+- **displayName**: Display name of the shipping method selected.
+
+##### Response Parameters
+- **shippingRates**: Array of shipping rates for the selected address.
+- **lineItems**: Name and price of the selected line items and shipping cost.
+
+#### Remove Shipping Methods Selected for the Cart
+This endpoint is called when the user exits the Express Checkout component without completing payment. It removes the selected shipping method from the cart and returns the updated cart total amount to refresh the Stripe component.
+
+##### Endpoint
+`GET /shipping-methods/remove`
+
+##### Authentication
+Cart session authentication required.
+
+##### Response Parameters
+- **shippingRates**: Array of shipping rates for the selected address.
+- **lineItems**: Name and price of the selected line items and shipping cost.
