@@ -90,7 +90,7 @@ describe('stripe-customer.service', () => {
 
       await stripeCustomerService.getCustomerSession();
 
-      expect(Logger.log.warn).toBeCalled();
+      expect(Logger.log.warn).toHaveBeenCalled();
       expect(getCartMock).toHaveBeenCalled();
     });
 
@@ -102,7 +102,7 @@ describe('stripe-customer.service', () => {
 
       await stripeCustomerService.getCustomerSession();
 
-      expect(Logger.log.info).toBeCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
       expect(getCartMock).toHaveBeenCalled();
       expect(getCtCustomerMock).toHaveBeenCalled();
     });
@@ -362,7 +362,7 @@ describe('stripe-customer.service', () => {
 
     test('should return undefined due to incorrect ctCustomerId', async () => {
       const result = await stripeCustomerService.findStripeCustomer('wrongId');
-      expect(Logger.log.warn).toBeCalled();
+      expect(Logger.log.warn).toHaveBeenCalled();
       expect(result).toBeUndefined();
     });
   });
@@ -463,7 +463,7 @@ describe('stripe-customer.service', () => {
       const result = await stripeCustomerService.getCtCustomer(mockCtCustomerId);
 
       expect(getCtCustomerMock).toHaveBeenCalled();
-      expect(Logger.log.warn).toBeCalled();
+      expect(Logger.log.warn).toHaveBeenCalled();
       expect(result).toBeUndefined();
     });
   });

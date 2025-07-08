@@ -108,6 +108,7 @@ describe('stripe-payment.service', () => {
   };
   const paymentService: AbstractPaymentService = new StripePaymentService(opts);
   const stripePaymentService: StripePaymentService = new StripePaymentService(opts);
+  const subscriptionService: StripeSubscriptionService = new StripeSubscriptionService(opts);
 
   beforeEach(() => {
     jest.setTimeout(10000);
@@ -706,7 +707,7 @@ describe('stripe-payment.service', () => {
       expect(getCartMock).toHaveBeenCalled();
       expect(getPaymentAmountMock).toHaveBeenCalled();
       expect(paymentModeMock).toHaveBeenCalled();
-      expect(Logger.log.info).toBeCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
     });
   });
 
@@ -881,7 +882,7 @@ describe('stripe-payment.service', () => {
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
 
-      await stripePaymentService.processSubscriptionEvent(mockEvent);
+      await subscriptionService.processSubscriptionEvent(mockEvent);
 
       const mockedInvoice = mockEvent.data.object as Stripe.Invoice;
       const mockedSubscription = mockedInvoice.subscription as Stripe.Subscription;
@@ -964,7 +965,7 @@ describe('stripe-payment.service', () => {
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
 
-      await stripePaymentService.processSubscriptionEvent(mockEvent);
+      await subscriptionService.processSubscriptionEvent(mockEvent);
 
       const mockedInvoice = mockEvent.data.object as Stripe.Invoice;
       const mockedSubscription = mockedInvoice.subscription as Stripe.Subscription;
@@ -1056,7 +1057,7 @@ describe('stripe-payment.service', () => {
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
 
-      await stripePaymentService.processSubscriptionEvent(mockEvent);
+      await subscriptionService.processSubscriptionEvent(mockEvent);
 
       const mockedInvoice = mockEvent.data.object as Stripe.Invoice;
       const mockedSubscription = mockedInvoice.subscription as Stripe.Subscription;
@@ -1138,7 +1139,7 @@ describe('stripe-payment.service', () => {
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
 
-      await stripePaymentService.processSubscriptionEvent(mockEvent);
+      await subscriptionService.processSubscriptionEvent(mockEvent);
 
       const mockedInvoice = mockEvent.data.object as Stripe.Invoice;
       const mockedSubscription = mockedInvoice.subscription as Stripe.Subscription;
@@ -1202,15 +1203,6 @@ describe('stripe-payment.service', () => {
 
   describe('updateCartAddress method', () => {
     test('should update cart address using shipping details when available', async () => {
-      // Mock event with payment intent containing charge
-      const mockEvent = {
-        data: {
-          object: {
-            latest_charge: 'ch_123456',
-          },
-        },
-      } as Stripe.Event;
-
       const mockCart = mockGetCartResult();
 
       // Mock shipping details in the Stripe charge
@@ -1235,12 +1227,12 @@ describe('stripe-payment.service', () => {
             line1: '10 Downing Street',
           },
         },
-      };
+      } as Stripe.Charge;
 
       // Mock the expected cart update actions
       const expectedActions = [
         {
-          action: 'setShippingAddress',
+          action: 'setShippingAddress' as const,
           address: {
             key: 'John Doe Shipping',
             country: 'GB',
@@ -1252,27 +1244,13 @@ describe('stripe-payment.service', () => {
         },
       ];
 
-      // Mock Stripe API charge retrieval
-      const stripeChargeRetrieveMock = jest.spyOn(Stripe.prototype.charges, 'retrieve').mockResolvedValue({
-        ...mockCharge,
-        lastResponse: {
-          headers: {},
-          requestId: 'req_mock',
-          statusCode: 200,
-          apiVersion: '2020-08-27',
-        },
-      } as Stripe.Response<Stripe.Charge>);
-
       // Mock updateCartById function
       const updateCartByIdMock = jest
         .spyOn(CartClient, 'updateCartById')
         .mockResolvedValue({ ...mockCart, shippingAddress: expectedActions[0].address });
 
       // Call the method
-      const result = await stripePaymentService.updateCartAddress(mockEvent, mockCart);
-
-      // Verify Stripe API was called correctly
-      expect(stripeChargeRetrieveMock).toHaveBeenCalledWith('ch_123456');
+      const result = await stripePaymentService.updateCartAddress(mockCharge, mockCart);
 
       // Verify cart update was called with correct actions
       expect(updateCartByIdMock).toHaveBeenCalledWith(mockCart, expectedActions);
@@ -1282,15 +1260,6 @@ describe('stripe-payment.service', () => {
     });
 
     test('should use billing details when shipping is not available', async () => {
-      // Mock event with payment intent containing charge
-      const mockEvent = {
-        data: {
-          object: {
-            latest_charge: 'ch_123456',
-          },
-        },
-      } as Stripe.Event;
-
       const mockCart = mockGetCartResult();
 
       // Mock charge with only billing details (no shipping)
@@ -1306,12 +1275,12 @@ describe('stripe-payment.service', () => {
           },
         },
         // No shipping property
-      };
+      } as Stripe.Charge;
 
       // Mock the expected cart update actions using billing details
       const expectedActions = [
         {
-          action: 'setShippingAddress',
+          action: 'setShippingAddress' as const,
           address: {
             key: 'Jane Smith',
             country: 'US',
@@ -1323,26 +1292,13 @@ describe('stripe-payment.service', () => {
         },
       ];
 
-      const stripeChargeRetrieveMock = jest.spyOn(Stripe.prototype.charges, 'retrieve').mockResolvedValue({
-        ...mockCharge,
-        lastResponse: {
-          headers: {},
-          requestId: 'req_mock',
-          statusCode: 200,
-          apiVersion: '2020-08-27',
-        },
-      } as Stripe.Response<Stripe.Charge>);
-
       // Mock updateCartById function
       const updateCartByIdMock = jest
         .spyOn(CartClient, 'updateCartById')
         .mockResolvedValue({ ...mockCart, shippingAddress: expectedActions[0].address });
 
       // Call the method
-      const result = await stripePaymentService.updateCartAddress(mockEvent, mockCart);
-
-      // Verify Stripe API was called correctly
-      expect(stripeChargeRetrieveMock).toHaveBeenCalledWith('ch_123456');
+      const result = await stripePaymentService.updateCartAddress(mockCharge, mockCart);
 
       // Verify cart update was called with correct actions
       expect(updateCartByIdMock).toHaveBeenCalledWith(mockCart, expectedActions);
@@ -1352,15 +1308,6 @@ describe('stripe-payment.service', () => {
     });
 
     test('should use fallback values when address details are missing', async () => {
-      // Mock event with payment intent containing charge
-      const mockEvent = {
-        data: {
-          object: {
-            latest_charge: 'ch_123456',
-          },
-        },
-      } as Stripe.Event;
-
       const mockCart = mockGetCartResult();
 
       // Mock charge with minimal details
@@ -1372,12 +1319,12 @@ describe('stripe-payment.service', () => {
           },
         },
         // No shipping property
-      };
+      } as Stripe.Charge;
 
       // Mock the expected cart update actions using fallback values
       const expectedActions = [
         {
-          action: 'setShippingAddress',
+          action: 'setShippingAddress' as const,
           address: {
             key: 'mockName',
             country: 'US',
@@ -1389,26 +1336,13 @@ describe('stripe-payment.service', () => {
         },
       ];
 
-      const stripeChargeRetrieveMock = jest.spyOn(Stripe.prototype.charges, 'retrieve').mockResolvedValue({
-        ...mockCharge,
-        lastResponse: {
-          headers: {},
-          requestId: 'req_mock',
-          statusCode: 200,
-          apiVersion: '2020-08-27',
-        },
-      } as Stripe.Response<Stripe.Charge>);
-
       // Mock updateCartById function
       const updateCartByIdMock = jest
         .spyOn(CartClient, 'updateCartById')
         .mockResolvedValue({ ...mockCart, shippingAddress: expectedActions[0].address });
 
       // Call the method
-      const result = await stripePaymentService.updateCartAddress(mockEvent, mockCart);
-
-      // Verify Stripe API was called correctly
-      expect(stripeChargeRetrieveMock).toHaveBeenCalledWith('ch_123456');
+      const result = await stripePaymentService.updateCartAddress(mockCharge, mockCart);
 
       // Verify cart update was called with correct actions
       expect(updateCartByIdMock).toHaveBeenCalledWith(mockCart, expectedActions);

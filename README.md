@@ -157,6 +157,10 @@ The integration requires a few steps: create the enabler instance with required 
 
 For detailed implementation instructions and code examples, please refer to the [Enabler documentation](./enabler/README.md#creating-components-for-payment-elements-or-express-checkout).
 
+## Considerations for Express Checkout
+
+By default all Express Checkout components are created with 'shippingAddressRequired' and 'billingAddressRequired' set to true. This means that the Express Checkout component can update the shipping methods and the address information in the cart. You can find the information of the methods responsible for updating the shipping methods in the [Processor Documentation](./processor/README.md#express-checkout-methods).
+
 ## Considerations for Apple Pay and Google Pay
 
 ### Apple Pay

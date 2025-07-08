@@ -22,7 +22,7 @@ describe('wrapStripeError', () => {
     const result = StripeClient.wrapStripeError(error);
 
     expect(result.message).toBe('Error');
-    expect(Logger.log.error).toBeCalledTimes(1);
+    expect(Logger.log.error).toHaveBeenCalledTimes(1);
   });
 
   test('should return a StripeApiError', async () => {

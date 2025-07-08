@@ -5,9 +5,11 @@ import {
   CustomerResponseSchemaDTO,
   PaymentResponseSchemaDTO,
   SetupIntentResponseSchemaDTO,
+  ShippingMethodsResponseSchemaDTO,
   SubscriptionFromSetupIntentResponseSchemaDTO,
   SubscriptionResponseSchemaDTO,
 } from "../dtos/mock-payment.dto";
+import {ExpressCheckoutPartialAddress, ShippingRate} from "@stripe/stripe-js/dist/stripe-js/elements/express-checkout";
 
 export interface ApiServiceProps {
   baseApi: string;
@@ -34,6 +36,9 @@ export interface ApiService {
     setupIntentId: string
   ) => Promise<SubscriptionFromSetupIntentResponseSchemaDTO>;
   confirmSubscriptionPayment: (data: ConfirmSubscriptionProps) => Promise<void>;
+  getShippingMethods: (data: ExpressCheckoutPartialAddress) => Promise<ShippingMethodsResponseSchemaDTO>;
+  updateShippingRate: (data: ShippingRate) => Promise<ShippingMethodsResponseSchemaDTO>;
+  removeShippingRate: () => Promise<ShippingMethodsResponseSchemaDTO>;
 }
 
 export const apiService = ({
@@ -198,6 +203,68 @@ export const apiService = ({
     }
   };
 
+  const getShippingMethods = async (
+    data: ExpressCheckoutPartialAddress
+  ): Promise<ShippingMethodsResponseSchemaDTO> => {
+    const apiUrl = `${baseApi}/shipping-methods`;
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: getHeadersConfig(),
+      body: JSON.stringify({
+        country: data.country,
+        state: data.state,
+        city: data.city,
+        postalCode: data.postal_code,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.warn(`Error in processor getting shipping methods: ${error.message}`);
+      throw error;
+    }
+    return await response.json();
+  }
+
+  const updateShippingRate = async (
+    data: ShippingRate
+  ): Promise<ShippingMethodsResponseSchemaDTO> => {
+    const apiUrl = `${baseApi}/shipping-methods/update`;
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: getHeadersConfig(),
+      body: JSON.stringify({
+        id: data.id,
+        amount: data.amount,
+        displayName: data.displayName
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.warn(`Error in processor updating shipping rate: ${error.message}`);
+      throw error;
+    }
+
+    return await response.json();
+  }
+
+  const removeShippingRate = async (
+  ): Promise<ShippingMethodsResponseSchemaDTO> => {
+    const apiUrl = `${baseApi}/shipping-methods/remove`;
+    const response = await fetch(apiUrl, {
+      method: "GET",
+      headers: getHeadersConfig(),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      console.warn(`Error in processor removing shipping rate: ${error.message}`);
+      throw error;
+    }
+
+    return await response.json();
+  }
+
   return {
     getHeadersConfig,
     getCustomerOptions,
@@ -208,5 +275,8 @@ export const apiService = ({
     createSubscription,
     createSubscriptionFromSetupIntent,
     confirmSubscriptionPayment,
+    getShippingMethods,
+    updateShippingRate,
+    removeShippingRate
   };
 };

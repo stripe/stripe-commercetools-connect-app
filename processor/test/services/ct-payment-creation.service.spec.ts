@@ -110,7 +110,6 @@ describe('ct-payment-creation.service', () => {
         cart: mockGetCartResult(),
         amountPlanned: mockGetPaymentAmount,
         interactionId: mockStripeCreatePaymentResult.id,
-        isSubscription: true,
       });
 
       expect(result).toStrictEqual(mockGetPaymentResult.id);
@@ -182,7 +181,7 @@ describe('ct-payment-creation.service', () => {
         ctPaymentId: mockGetPaymentResult.id,
         paymentIntentId: mockStripeCreatePaymentResult.id,
       });
-      expect(Logger.log.info).toBeCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
       expect(stripeUpdatePaymentIntentMock).toHaveBeenCalled();
     });
 
@@ -200,7 +199,7 @@ describe('ct-payment-creation.service', () => {
         paymentIntentId: mockStripeCreatePaymentResult.id,
         subscriptionId: subscriptionResponseMock.id,
       });
-      expect(Logger.log.info).toBeCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
       expect(stripeUpdatePaymentIntentMock).toHaveBeenCalled();
       expect(stripeUpdateSubscriptionMock).toHaveBeenCalled();
     });
@@ -210,7 +209,7 @@ describe('ct-payment-creation.service', () => {
         cart: mockGetCartResult(),
         ctPaymentId: mockGetPaymentResult.id,
       });
-      expect(Logger.log.warn).toBeCalled();
+      expect(Logger.log.warn).toHaveBeenCalled();
     });
   });
 
@@ -249,7 +248,7 @@ describe('ct-payment-creation.service', () => {
         subscriptionId: subscriptionResponseMock.id,
       });
       expect(updatePaymentMock).toHaveBeenCalled();
-      expect(Logger.log.info).toBeCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
     });
 
     test('should update the payment transaction successfully and with pending', async () => {
@@ -264,7 +263,7 @@ describe('ct-payment-creation.service', () => {
         isPending: true,
       });
       expect(updatePaymentMock).toHaveBeenCalled();
-      expect(Logger.log.info).toBeCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
     });
   });
 
@@ -285,7 +284,7 @@ describe('ct-payment-creation.service', () => {
         await paymentCreationService.getStripeInvoiceExpanded(mockStripeCreatePaymentResult.id);
       } catch {
         expect(stripeGetInvoiceMock).toHaveBeenCalled();
-        expect(Logger.log.error).toBeCalled();
+        expect(Logger.log.error).toHaveBeenCalled();
       }
     });
   });
@@ -302,7 +301,7 @@ describe('ct-payment-creation.service', () => {
         interactionId: mockStripeCreatePaymentResult.id,
       });
       expect(updatePaymentMock).toHaveBeenCalled();
-      expect(Logger.log.info).toBeCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
     });
   });
 });

@@ -7,6 +7,8 @@ import { StripeCustomerService } from '../../services/stripe-customer.service';
 import { customerRoutes } from '../../routes/stripe-customer.route';
 import { subscriptionRoutes } from '../../routes/stripe-subscription.route';
 import { StripeSubscriptionService } from '../../services/stripe-subscription.service';
+import { StripeShippingService } from '../../services/stripe-shipping.service';
+import { stripeShippingRoute } from '../../routes/stripe-shipping.route';
 
 export default async function (server: FastifyInstance) {
   const stripeCustomerService = new StripeCustomerService(paymentSDK.ctCartService);
@@ -23,6 +25,10 @@ export default async function (server: FastifyInstance) {
     ctOrderService: paymentSDK.ctOrderService,
   });
 
+  const stripeShippingService = new StripeShippingService({
+    ctCartService: paymentSDK.ctCartService,
+  });
+
   await server.register(customerRoutes, {
     customerService: stripeCustomerService,
     sessionHeaderAuthHook: paymentSDK.sessionHeaderAuthHookFn,
@@ -37,17 +43,25 @@ export default async function (server: FastifyInstance) {
 
   await server.register(paymentRoutes, {
     paymentService: stripePaymentService,
+    subscriptionService: stripeSubscriptionService,
     sessionHeaderAuthHook: paymentSDK.sessionHeaderAuthHookFn,
   });
 
   const stripeHeaderAuthHook = new StripeHeaderAuthHook();
   await server.register(stripeWebhooksRoutes, {
     paymentService: stripePaymentService,
+    subscriptionService: stripeSubscriptionService,
     stripeHeaderAuthHook: stripeHeaderAuthHook,
   });
 
   await server.register(configElementRoutes, {
     paymentService: stripePaymentService,
+    subscriptionService: stripeSubscriptionService,
+    sessionHeaderAuthHook: paymentSDK.sessionHeaderAuthHookFn,
+  });
+
+  await server.register(stripeShippingRoute, {
+    shippingMethodsService: stripeShippingService,
     sessionHeaderAuthHook: paymentSDK.sessionHeaderAuthHookFn,
   });
 }

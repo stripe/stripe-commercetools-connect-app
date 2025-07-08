@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import { Attribute, LocalizedString } from '@commercetools/platform-sdk';
 import { PaymentOutcome } from './dtos/stripe-payment.dto';
+import { StripeEvent } from './services/types/stripe-payment.type';
 
 export const parseJSON = <T extends object | []>(json?: string): T => {
   try {
@@ -39,6 +40,10 @@ export const isFromSubscriptionInvoice = (event: Stripe.Event): boolean => {
   }
 
   return false;
+};
+
+export const isEventRefundOrSucceed = (event: Stripe.Event): boolean => {
+  return event.type === StripeEvent.CHARGE__REFUNDED;
 };
 
 export const transformVariantAttributes = <T>(attributes?: Attribute[]): T => {

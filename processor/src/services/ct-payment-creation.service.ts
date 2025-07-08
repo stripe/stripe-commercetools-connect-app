@@ -34,17 +34,13 @@ export class CtPaymentCreationService {
     this.ctPaymentService = opts.ctPaymentService;
   }
 
-  public async createCtPayment({
-    cart,
-    amountPlanned,
-    interactionId,
-    isSubscription = false,
-  }: PaymentCreationProps): Promise<string> {
+  public async createCtPayment({ cart, amountPlanned, interactionId }: PaymentCreationProps): Promise<string> {
     const response = await this.ctPaymentService.createPayment({
       amountPlanned,
+      interfaceId: interactionId,
       paymentMethodInfo: {
         paymentInterface: getPaymentInterfaceFromContext() || 'stripe',
-        ...(isSubscription && { method: 'subscription' }), //remove this line if you want to update the payment method for subscriptions with the payment method used in the Stripe webhook event charge.succeeded
+        //...(isSubscription && { method: 'subscription' }), //remove this line if you want to update the payment method for subscriptions with the payment method used in the Stripe webhook event charge.succeeded
       },
       ...(cart.customerId
         ? { customer: { typeId: 'customer', id: cart.customerId } }
@@ -84,7 +80,6 @@ export class CtPaymentCreationService {
       cart,
       amountPlanned,
       interactionId,
-      isSubscription: Boolean(subscriptionId),
     });
 
     await this.addCtPayment(cart, ctPaymentId);
@@ -211,7 +206,6 @@ export class CtPaymentCreationService {
       cart,
       amountPlanned,
       interactionId,
-      isSubscription: true,
     });
 
     log.info(`Commercetools Subscription Payment transaction initial created.`, {

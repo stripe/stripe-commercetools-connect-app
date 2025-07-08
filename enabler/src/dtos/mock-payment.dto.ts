@@ -74,6 +74,27 @@ export const SubscriptionFromSetupIntentResponseSchema = Type.Object({
   paymentReference: Type.String(),
 });
 
+export const ShippingMethodsResponseSchema = Type.Object({
+  shippingRates: Type.Optional(
+    Type.Array(
+      Type.Object({
+        id: Type.String(),
+        displayName: Type.String(),
+        amount: Type.Number(),
+      }),
+    ),
+  ),
+  lineItems: Type.Optional(
+    Type.Array(
+      Type.Object({
+        name: Type.String(),
+        amount: Type.Number(),
+      }),
+    ),
+  ),
+});
+
+
 export type PaymentRequestSchemaDTO = Static<typeof PaymentRequestSchema>;
 export type PaymentResponseSchemaDTO = Static<typeof PaymentResponseSchema>;
 export type ConfigElementResponseSchemaDTO = Static<typeof ConfigElementResponseSchema>;
@@ -83,3 +104,4 @@ export type ConfirmPaymentRequestSchemaDTO = Static<typeof ConfirmPaymentRequest
 export type SubscriptionFromSetupIntentResponseSchemaDTO = Static<typeof SubscriptionFromSetupIntentResponseSchema>;
 export type SubscriptionResponseSchemaDTO = Static<typeof SubscriptionResponseSchema>;
 export type SetupIntentResponseSchemaDTO = Static<typeof SetupIntentResponseSchema>;
+export type ShippingMethodsResponseSchemaDTO = Static<typeof ShippingMethodsResponseSchema>;
