@@ -266,7 +266,7 @@ describe('stripe-subscription.service', () => {
       expect(result.subscriptionId).toStrictEqual(subscriptionResponseMock.id);
       expect(result.clientSecret).toStrictEqual(mockStripeCreatePaymentResult.client_secret);
       expect(result.paymentReference).toStrictEqual(mockGetPaymentResult.id);
-      expect(Logger.log.info).toBeCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
       expect(prepareSubscriptionDataMock).toHaveBeenCalled();
       expect(stripeCreateSubscriptionMock).toHaveBeenCalled();
       expect(saveSubscriptionIdMock).toHaveBeenCalled();
@@ -331,7 +331,7 @@ describe('stripe-subscription.service', () => {
       expect(result).toBeDefined();
       expect(result.subscriptionId).toStrictEqual(subscriptionResponseMock.id);
       expect(result.paymentReference).toStrictEqual(mockGetPaymentResult.id);
-      expect(Logger.log.info).toBeCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
       expect(prepareSubscriptionDataMock).toHaveBeenCalled();
       expect(stripeRetrieveSetupIntentMock).toHaveBeenCalled();
       expect(stripeCreateSubscriptionMock).toHaveBeenCalled();
@@ -375,13 +375,13 @@ describe('stripe-subscription.service', () => {
       expect(prepareSubscriptionDataMock).toHaveBeenCalled();
       expect(stripeRetrieveSetupIntentMock).toHaveBeenCalled();
       expect(stripeCreateSubscriptionMock).toHaveBeenCalled();
-      expect(Logger.log.info).toBeCalledWith('Stripe Subscription from Setup Intent created.', {
+      expect(Logger.log.info).toHaveBeenCalledWith('Stripe Subscription from Setup Intent created.', {
         ctCartId: mockCart.id,
         stripeSubscriptionId: subscriptionResponseMock.id,
         stripeSetupIntentId: setupIntentIdMock,
       });
       expect(stripeSendInvoiceMock).toHaveBeenCalled();
-      expect(Logger.log.info).toBeCalledWith('Stripe Subscription invoice was sent.');
+      expect(Logger.log.info).toHaveBeenCalledWith('Stripe Subscription invoice was sent.');
       expect(saveSubscriptionIdMock).toHaveBeenCalled();
       expect(handleCtPaymentCreationMock).toHaveBeenCalled();
     });
@@ -420,13 +420,13 @@ describe('stripe-subscription.service', () => {
       expect(prepareSubscriptionDataMock).toHaveBeenCalled();
       expect(stripeRetrieveSetupIntentMock).toHaveBeenCalled();
       expect(stripeCreateSubscriptionMock).toHaveBeenCalled();
-      expect(Logger.log.info).toBeCalledWith('Stripe Subscription from Setup Intent created.', {
+      expect(Logger.log.info).toHaveBeenCalledWith('Stripe Subscription from Setup Intent created.', {
         ctCartId: mockCart.id,
         stripeSubscriptionId: subscriptionResponseMock.id,
         stripeSetupIntentId: setupIntentIdMock,
       });
       expect(stripeSendInvoiceMock).toHaveBeenCalled();
-      expect(Logger.log.info).toBeCalledWith('Stripe Subscription invoice is paid.');
+      expect(Logger.log.info).toHaveBeenCalledWith('Stripe Subscription invoice is paid.');
       expect(saveSubscriptionIdMock).toHaveBeenCalled();
       expect(handleCtPaymentCreationMock).toHaveBeenCalled();
     });
@@ -473,13 +473,13 @@ describe('stripe-subscription.service', () => {
       expect(prepareSubscriptionDataMock).toHaveBeenCalled();
       expect(stripeRetrieveSetupIntentMock).toHaveBeenCalled();
       expect(stripeCreateSubscriptionMock).toHaveBeenCalled();
-      expect(Logger.log.info).toBeCalledWith('Stripe Subscription from Setup Intent created.', {
+      expect(Logger.log.info).toHaveBeenCalledWith('Stripe Subscription from Setup Intent created.', {
         ctCartId: mockCart.id,
         stripeSubscriptionId: subscriptionResponseMock.id,
         stripeSetupIntentId: setupIntentIdMock,
       });
       expect(stripeSendInvoiceMock).toHaveBeenCalled();
-      expect(Logger.log.warn).toBeCalledWith('Stripe Subscription invoice was not sent.');
+      expect(Logger.log.warn).toHaveBeenCalledWith('Stripe Subscription invoice was not sent.');
       expect(saveSubscriptionIdMock).toHaveBeenCalled();
       expect(handleCtPaymentCreationMock).toHaveBeenCalled();
     });
@@ -576,15 +576,15 @@ describe('stripe-subscription.service', () => {
         .mockResolvedValue(mockGetSubscriptionCartWithTwoItems);
       const result = stripeSubscriptionService.prepareSubscriptionData();
       expect(getCartExpandedMock).toHaveBeenCalled();
-      expect(result).rejects.toThrowError();
+      expect(result).rejects.toThrow();
     });
   });
 
   describe('method validateSubscription', () => {
     test('should throw error subscription has no invoice', async () => {
-      expect(() =>
-        stripeSubscriptionService.validateSubscription(subscriptionWithoutPaymentResponseMock),
-      ).toThrowError();
+      expect(() => stripeSubscriptionService.validateSubscription(subscriptionWithoutPaymentResponseMock)).toThrow(
+        new Error('Failed to create Subscription, missing Payment Intent.'),
+      );
     });
   });
 
@@ -599,7 +599,7 @@ describe('stripe-subscription.service', () => {
         mockGetPaymentAmount,
       );
       expect(result).toStrictEqual(stripePriceIdMock);
-      expect(Logger.log.info).toBeCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
       expect(stripeSearchPricesMock).toHaveBeenCalled();
     });
 
@@ -619,7 +619,7 @@ describe('stripe-subscription.service', () => {
 
       const result = await stripeSubscriptionService.getSubscriptionPriceId(mockGetCartResult(), mockGetPaymentAmount);
       expect(result).toStrictEqual(stripePriceIdMock);
-      expect(Logger.log.info).toBeCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
       expect(stripeUpdatePaymentIntentMock).toHaveBeenCalled();
       expect(getStripeProductIdMock).toHaveBeenCalled();
       expect(disableStripePriceMock).toHaveBeenCalled();
@@ -639,7 +639,7 @@ describe('stripe-subscription.service', () => {
 
       const result = await stripeSubscriptionService.getSubscriptionPriceId(mockGetCartResult(), mockGetPaymentAmount);
       expect(result).toStrictEqual(stripePriceIdMock);
-      expect(Logger.log.info).toBeCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
       expect(stripeUpdatePaymentIntentMock).toHaveBeenCalled();
       expect(getStripeProductIdMock).toHaveBeenCalled();
       expect(createStripePriceMock).toHaveBeenCalled();
@@ -657,7 +657,7 @@ describe('stripe-subscription.service', () => {
         mockGetSubscriptionCartWithVariant(1).lineItems[0],
       );
       expect(result).toBeUndefined();
-      expect(Logger.log.warn).toBeCalled();
+      expect(Logger.log.warn).toHaveBeenCalled();
       expect(stripeUpdatePriceMock).toHaveBeenCalled();
     });
 
@@ -671,7 +671,7 @@ describe('stripe-subscription.service', () => {
         mockGetSubscriptionCartWithVariant(1).lineItems[0],
       );
       expect(result).toBeUndefined();
-      expect(Logger.log.warn).toBeCalled();
+      expect(Logger.log.warn).toHaveBeenCalled();
       expect(stripeUpdatePriceMock).toHaveBeenCalled();
     });
   });
@@ -685,7 +685,7 @@ describe('stripe-subscription.service', () => {
 
       const result = await stripeSubscriptionService.getStripeProduct(productMock);
       expect(result).toStrictEqual(stripeProductIdMock);
-      expect(Logger.log.info).toBeCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
       expect(stripeSearchProducts).toHaveBeenCalled();
     });
 
@@ -700,7 +700,7 @@ describe('stripe-subscription.service', () => {
 
       const result = await stripeSubscriptionService.getStripeProduct(productMock);
       expect(result).toStrictEqual(stripeProductIdMock);
-      expect(Logger.log.info).toBeCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
       expect(stripeSearchProducts).toHaveBeenCalled();
       expect(createStripeProductMock).toHaveBeenCalled();
     });
@@ -714,7 +714,7 @@ describe('stripe-subscription.service', () => {
 
       const result = await stripeSubscriptionService.createStripeProduct(lineItem);
       expect(result).toStrictEqual(stripeProductIdMock);
-      expect(Logger.log.info).toBeCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
       expect(stripeCreateProductMock).toHaveBeenCalled();
     });
   });
@@ -750,7 +750,7 @@ describe('stripe-subscription.service', () => {
       });
       expect(result.id).toStrictEqual(setupIntentResponseMock.id);
       expect(result.clientSecret).toStrictEqual(setupIntentResponseMock.client_secret);
-      expect(Logger.log.info).toBeCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
       expect(stripeCreatePriceMock).toHaveBeenCalled();
     });
 
@@ -764,7 +764,7 @@ describe('stripe-subscription.service', () => {
         stripeCustomerId: 'stripeCustomerId',
         offSession: false,
       });
-      expect(result).rejects.toThrowError(new Error('Failed to create Setup Intent.'));
+      expect(result).rejects.toThrow(new Error('Failed to create Setup Intent.'));
       expect(stripeCreatePriceMock).toHaveBeenCalled();
     });
   });
@@ -778,7 +778,7 @@ describe('stripe-subscription.service', () => {
 
       const result = await stripeSubscriptionService.saveSubscriptionId(mockGetCartResult(), 'stripeSubscriptionId');
       expect(result).toBeUndefined();
-      expect(Logger.log.info).toBeCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
       expect(getCustomFieldUpdateActionsMock).toHaveBeenCalled();
       expect(updateCartByIdMock).toHaveBeenCalled();
     });
@@ -997,7 +997,7 @@ describe('stripe-subscription.service', () => {
     });
 
     test('should throw an error', () => {
-      expect(() => stripeSubscriptionService.getSubscriptionPaymentAmount(mockGetCartResult())).toThrowError(
+      expect(() => stripeSubscriptionService.getSubscriptionPaymentAmount(mockGetCartResult())).toThrow(
         'Cart is not a subscription.',
       );
     });

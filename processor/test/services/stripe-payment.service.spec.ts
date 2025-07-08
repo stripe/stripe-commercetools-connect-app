@@ -707,7 +707,7 @@ describe('stripe-payment.service', () => {
       expect(getCartMock).toHaveBeenCalled();
       expect(getPaymentAmountMock).toHaveBeenCalled();
       expect(paymentModeMock).toHaveBeenCalled();
-      expect(Logger.log.info).toBeCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
     });
   });
 
@@ -1232,7 +1232,7 @@ describe('stripe-payment.service', () => {
       // Mock the expected cart update actions
       const expectedActions = [
         {
-          action: 'setShippingAddress',
+          action: 'setShippingAddress' as const,
           address: {
             key: 'John Doe Shipping',
             country: 'GB',
@@ -1280,7 +1280,7 @@ describe('stripe-payment.service', () => {
       // Mock the expected cart update actions using billing details
       const expectedActions = [
         {
-          action: 'setShippingAddress',
+          action: 'setShippingAddress' as const,
           address: {
             key: 'Jane Smith',
             country: 'US',
@@ -1324,7 +1324,7 @@ describe('stripe-payment.service', () => {
       // Mock the expected cart update actions using fallback values
       const expectedActions = [
         {
-          action: 'setShippingAddress',
+          action: 'setShippingAddress' as const,
           address: {
             key: 'mockName',
             country: 'US',

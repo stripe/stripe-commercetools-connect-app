@@ -109,7 +109,7 @@ describe('ShippingClient testing', () => {
       const mockCart = mockGetCartResult();
       const actions = [
         {
-          action: 'setShippingAddress',
+          action: 'setShippingAddress' as const,
           address: mockAddress,
         },
       ];
