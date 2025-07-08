@@ -21,7 +21,7 @@
       "@types/node": "^22.15.18",
       "dotenv": "^16.4.7",
       "jest": "30.0.4",
-      "jest-environment-jsdom": "^29.7.0",
+      "jest-environment-jsdom": "^30.0.4",
       "jest-fetch-mock": "^3.0.3",
       "sass": "1.89.2",
       "ts-jest": "^29.4.0",
