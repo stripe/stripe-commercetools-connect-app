@@ -9,9 +9,9 @@ The module also provides template scripts for post-deployment and pre-undeployme
 
 The Stripe customer session allows you to create a session for a customer, which can be used to manage their payment methods and subscriptions. This feature is particularly useful for businesses that want to provide a seamless checkout experience for their customers.
 
-The Stripe customer session is associated with the customer who owns the cart in the commercetools Checkout session. The cart must have the `customerId` associated to retrieve and verify if the customer has a Type with the custom field `stripeConnector_stripeCustomerId`. If the Type do not have this field, the connector will create the field to store the Stripe customer ID.
+The Stripe customer session is associated with the customer who owns the cart in the commercetools Checkout session. The cart must have the `customerId` associated to retrieve and verify if the customer has a Type with the custom field `stripeConnector_stripeCustomerId`. If the Type does not have this field, the connector will create the field to store the Stripe customer ID.
 
-If the `stripeConnector_stripeCustomerId` is presented, the connector will try to retrieve the Stripe customer, if the customer do not exist on Stripe, the connector will create a new customer in Stripe using the customer who owns the cart in the session. The commercetools customer ID will be stored in the metadata of the Stripe customer and the `stripeConnector_stripeCustomerId` field in commercetools will be updated with the Stripe customer ID .
+If the `stripeConnector_stripeCustomerId` is presented, the connector will try to retrieve the Stripe customer, if the customer does not exist on Stripe, the connector will create a new customer in Stripe using the customer who owns the cart in the session. The commercetools customer ID will be stored in the metadata of the Stripe customer and the `stripeConnector_stripeCustomerId` field in commercetools will be updated with the Stripe customer ID.
 
 The environment variable `STRIPE_SAVED_PAYMENT_METHODS_CONFIG` configures the saved payment methods. The value needs to be a valid stringified JSON. More information about the properties can be found [here](https://docs.stripe.com/api/customer_sessions/object#customer_session_object-components-payment_element-features). This feature is disabled by default.
 
@@ -106,7 +106,7 @@ $ npm run connector:pre-undeploy
 
 Setup correct environment variables: check `processor/src/config/config.ts` for default values.
 
-Make sure commercetools client credential have at least the following permissions:
+Make sure commercetools client credentials have at least the following permissions:
 
 * `manage_payments`
 * `manage_checkout_payment_intents`
@@ -132,7 +132,7 @@ Some of the services have authentication mechanism.
 OAuth2 token can be obtained from commercetools OAuth2 server. It requires API Client created beforehand. For details, please refer to [Requesting an access token using the Composable Commerce OAuth 2.0 service](https://docs.commercetools.com/api/authorization#requesting-an-access-token-using-the-composable-commerce-oauth-20-service).
 
 ### Session
-Payment connectors relies on session to be able to share information between `enabler` and `processor`.
+Payment connectors rely on session to be able to share information between `enabler` and `processor`.
 To create session before sharing information between these two modules, please execute following request to commercetools session service
 ```
 POST https://session.<region>.commercetools.com/<commercetools-project-key>/sessions
@@ -151,13 +151,13 @@ Authorization: Bearer <oauth token with manage_sessions scope>
 }
 ```
 
-Afterwards, session ID can be obtained from response, which is necessary to be put as `x-session-id` inside request header when sending request to endpoints such as `/operations/config` and `/operations/payments`.
+Afterwards, session ID can be obtained from the response, which is necessary to be put as `x-session-id` inside the request header when sending requests to endpoints such as `/operations/config` and `/operations/payments`.
 
 ### JSON web token (JWT)
 
 `jwt` needs some workaround to be able to test locally as it depends on the merchant center forward-to proxy.
 
-In order to make easy running the application locally, following commands help to build up a jwt mock server:
+In order to make it easy to run the application locally, the following commands help to build up a jwt mock server:
 
 #### Set environment variable to point to the jwksUrl
 ```
@@ -263,8 +263,8 @@ This endpoint creates a new [payment intent](https://docs.stripe.com/api/payment
 
 The webhook listener receives events from your Stripe account as they occur, allowing your integration to automatically execute actions accordingly. By registering webhook endpoints in your Stripe account, you enable Stripe to send [Event objects](https://docs.stripe.com/api/events) as part of POST requests to the registered webhook endpoint hosted by your application.
 The available webhooks are configured on the `post-deploy.ts` file, and more webhook event can be added in the method `updateWebhookEndpoint`.
-The conversion of the Payment webhook event to a transaction is converted in hte `/src/services/converters/stripeEventConverter.ts` file.
-The conversion of the Subscription webhook event to a transaction is converted in hte `/src/services/converters/subscriptionEventConverter.ts` file.
+The conversion of the Payment webhook event to a transaction is converted in the `/src/services/converters/stripeEventConverter.ts` file.
+The conversion of the Subscription webhook event to a transaction is converted in the `/src/services/converters/subscriptionEventConverter.ts` file.
 
 The following webhooks currently supported and transformed to different payment transactions in commercetools are:
 
@@ -296,8 +296,8 @@ The [Event object](https://docs.stripe.com/api/events) sent to your webhook endp
 #### Response Parameters
 The endpoint returns a 200 response to indicate the successful processing of the webhook event.
 
-### Apple pay well-know file
-This endpoint return the string of the .well-know call domain [file from Stripe](https://stripe.com/files/apple-pay/apple-developer-merchantid-domain-association).
+### Apple pay well-known file
+This endpoint returns the string of the .well-known call domain [file from Stripe](https://stripe.com/files/apple-pay/apple-developer-merchantid-domain-association).
 
 #### Endpoint
 `GET /applePayConfig`

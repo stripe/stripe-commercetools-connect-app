@@ -7,15 +7,20 @@ This repository provides a commercetools [connect](https://docs.commercetools.co
 - It uses [connect payment SDK](https://github.com/commercetools/connect-payments-sdk) to manage request context, sessions, and JWT authentication.
 - Use [commercetools payment api](https://docs.commercetools.com/checkout/payment-intents-api) to manage payment transactions.
 - Includes local development utilities in npm commands to build, start, test, lint & prettify code.
-- Supports the [Payment Element](https://stripe.com/docs/payments/payment-element) component and layout configuration.
-- Backend (processor) use the [Stripe API](https://stripe.com/docs/api) for creating and managing payment intents, handling webhooks, and processing payments.
-- Customer session management for Stripe, including customer creation and retrieval.[Considerations](./processor/README.md#considerations-for-stripe-customer-session)
-- Transfer of shipping information from commercetools to Stripe payment intent.
+- Support for the [Stripe Payment Element](https://stripe.com/docs/payments/payment-element), including:
+  - Customizable layout options
+  - Appearance API for theming and branding
+  - Manual or automatic payment capture modes
+  - Enables saving and reusing customer payment methods directly within the Payment Element component for a seamless checkout experience. [See details](./processor/README.md#considerations-for-stripe-customer-session)
+  - Flexible billing address collection
+- Supports collecting payment details before creating a payment intent, enabling flexible checkout flows. The backend processor utilizes the [Stripe API](https://stripe.com/docs/api) to efficiently create and manage payment intents and subscriptions, handle webhooks, and process payments. [See Details](README.md#sequence-diagrams-for-the-payment-connector) 
+- Comprehensive Stripe customer session management: automatically creates or retrieves Stripe customers, synchronizes the logged-in commercetools customer with their corresponding Stripe account, and stores the Stripe customer ID in commercetools for seamless future transactions. [See Considerations](./processor/README.md#considerations-for-stripe-customer-session)
+- Sync shipping information from commercetools to Stripe payment intent.
 - Support for Buy Now Pay Later (BNPL) payment method.[Considerations](./processor/README.md#merchant-return-url)
-- Support for Apple Pay and Google Pay payment methods.[Considerations](./enabler/README.md#considerations-for-apple-pay-and-google-pay)
-- Support for saved payment methods in the Payment Element component.[Considerations](./processor/README.md#considerations-for-stripe-customer-session)
-- Support for Stripe Billing Subscription management.[Considerations](./processor/README.md#considerations-for-stripe-billing-subscription-management).
-- Subscription management for Stripe, including creating and managing subscriptions from an API endpoints..
+- Support for a wide range of payment methods, including Apple Pay, Google Pay, Amazon Pay, and others. [See Considerations](./enabler/README.md#considerations-for-apple-pay-and-google-pay)
+- Merchants can leverage the custom product type provided by the connector to create and manage subscriptions directly within commercetools. These subscriptions are automatically synchronized with Stripe for creation and updates. [Learn more](./processor/README.md#considerations-for-stripe-billing-subscription-management).
+- Provides a subscription management API via the commercetools connector, enabling Stripe subscription operations directly through commercetools API endpoints.
+- Customers can update their shipping and billing addresses directly within the Stripe Express Checkout. When an address is changed, the connector automatically fetches the latest shipping rates from commercetools and updates the cart to reflect the new information. [See Details](README.md#sequence-diagrams-for-the-payment-connector) 
 
 ## Prerequisite
 
@@ -33,25 +38,19 @@ Their values are input for environment variables/configurations for connecting, 
 
 Configure Stripe secret and public keys so the Connect application can handle endpoint session and authentication processes. Their values are taken as input as environment variables/ configuration for Connect, with variable names `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, and `STRIPE_WEBHOOK_SIGNING_SECRET`.
 If you want to create a Restricted key to add in the `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY`, the minimum permissions needed are:
-- refunds.create
-- paymentIntents.cancel
-- paymentIntents.capture
-- paymentMethods.list
-- customer.retrieve
-- customer.create
-- customer.search
-- customerSession.create
-- webhookEndpoints.update
-- webhookEndpoints.retrieve
-- webhooks.constructEvent
-- subscriptions.create
+- Refunds: Write
+- PaymentIntents: Write
+- Customer: Write
+- CustomerSession: Write
+- Webhook Endpoints: Write
+- Subscriptions: Write
 
-## Getting started
+## Getting started with the Payment Connector
 
 The `connect-payment-integration-stripe` contains two modules:
 
-- **Enabler**: This is a wrapper implementation where Stripe frontend [Payment Element](https://docs.stripe.com/payments/payment-element) components are embedded. It gives checkout the control over when and how to load the connector frontend based on business configuration.
-- **Processor**: This functions as a backend service and middleware for integration with the Stripe platform. It interacts with Stripe for transactions and updates the payment entity within Composable Commerce. Finding the Stripe customer that own the commercetools cart, or creating the customer and adding the information to the custome field of the cart. Additionally, it supports a listener for triggers related to Stripe webhook events to update the payment entity with `connect-payment-sdk` based on webhook events.
+- **Enabler**: This is a wrapper implementation where Stripe frontend [Payment Element](https://docs.stripe.com/payments/payment-element) components are embedded. It gives the merchant the control over when and how to load the connector frontend based on business configuration.
+- **Processor**: This functions as a backend service and middleware for integration with the Stripe platform. It interacts with Stripe for transactions and updates the payment entity within Composable Commerce. Finding the Stripe customer that owns the commercetools cart, or creating the customer and adding the information to the custom field of the cart. Additionally, it supports a listener for triggers related to Stripe webhook events to update the payment entity with `connect-payment-sdk` based on webhook events.
 
 Regarding the development of a processor or enabler module, please refer to the following documentation:
 
@@ -77,6 +76,25 @@ Regarding the development of a processor or enabler module, please refer to the 
 5. **Stripe**
    - The external payment service provider that handles various payment operations, sends webhooks for events such as authorization, capture, refund, and cancel.
 
+### Sequence Diagrams for the Payment Connector
+
+The Enabler component is tasked with rendering the Stripe Payment Element or Express Checkout, providing a seamless payment experience for users. The diagram below illustrates the workflow for initializing these payment components:
+
+![Creation of the payment component](<docs/Creation of the Payment Component.png>)
+
+Once the payment component is set up, the connector orchestrates various payment flows based on the user's context—such as logged-in customers, guest checkouts, and subscriptions (with or without a SetupIntent). The following sequence diagrams break down these scenarios:
+
+- **Standard Payment Flow:**  
+  ![Payment](<docs/Submit Payment.png>)
+
+- **Subscription with Invoice:**  
+  ![Subscription with invoices](<docs/Submit Payment with Invoice.png>)
+
+- **Subscription without Invoice:**  
+  ![Subscription without invoices](<docs/Submit Payment without Invoice.png>)
+
+Each diagram details the interactions and steps involved in processing the respective payment type.
+
 # Webhooks
 
 The following webhooks are currently supported, and the payment transactions in commercetools are:
@@ -85,7 +103,7 @@ The following webhooks are currently supported, and the payment transactions in 
 - **payment_intent.requires_action**: Logs the information in the connector app inside the Processor logs.
 - **payment_intent.payment_failed**: Modify the payment transaction Authorization to Failure.
 - **charge.refunded**: Create a payment transaction Refund to Success and a Chargeback to Success.
-- **charge.succeeded**: Create the payment transaction to 'Authorization:Success' if charge is not capture, and update the payment method type that was used to pay.
+- **charge.succeeded**: Create the payment transaction to 'Authorization:Success' if charge is not captured, and update the payment method type that was used to pay.
 - **charge.captured**: Logs the information in the connector app inside the Processor logs.
 - **invoice.paid**: If payment charge is pending, we update the payment transaction to Charge:Success. If charge is not pending, we update the payment transaction to Authorization:Success and create a payment transaction Charge:Success.
 - **invoice.payment_failed**: If payment charge is pending, we update the payment transaction to Charge:Failure. If charge is not pending, we update the payment transaction to Authorization:Failure and create a payment transaction Charge:Failure.
@@ -99,7 +117,7 @@ The following webhooks are currently supported, and the payment transactions in 
 Before installing the connector, you must create a Stripe account and obtain the necessary credentials. The Stripe account is required to process payments and manage transactions. Sign up for a Stripe account at [Stripe](https://stripe.com/). Once you have an account, you must set up the following configurations in your environment variables or configuration files. Before installing the connector, a webhook endpoint in Stripe must be created (using a dummy URL). Retrieve the ID and Signing Secret from the Stripe Console. The Webhook Endpoint is update during the post-deploy script after the deployed connector. It's important to set the correct values in the variables so the events are sent to the connector and can be accepted. The following Stripe account credentials and configurations are required:
 
 1. **STRIPE_SECRET_KEY**: Provided by Stripe. Secret and stored securely in your web or mobile app's server-side code (such as in an environment variable or credential management system) to call Stripe APIs.
-2. **STRIPE_CAPTURE_METHOD**: Configuration that enables the capture method selected by the user. The capture method controls when Stripe will capture the fundsthe customer's account. Possible enum values:
+2. **STRIPE_CAPTURE_METHOD**: Configuration that enables the capture method selected by the user. The capture method controls when Stripe will capture the funds from the customer's account. Possible enum values:
    - `automatic`: Stripe automatically captures funds when the customer authorizes the Payment.
    - `automatic_async`: (Default) Stripe asynchronously captures funds when the customer authorizes the Payment. Recommended over `capture_method=automatic` due to improved latency. Read the [integration guide](https://docs.stripe.com/elements/appearance-api) for more information.
    - `manual`: Places a hold on the funds when the customer authorizes the Payment but doesn't capture the funds until later. (Not all payment methods support this.)
@@ -127,7 +145,7 @@ Before installing the connector, you must create a Stripe account and obtain the
 ```
 9. **STRIPE_PUBLISHABLE_KEY**: Provided by Stripe. The key is to create the Payment Element component on the front end.
 10. **STRIPE_APPLE_PAY_WELL_KNOWN**: This is the domain association file from Stripe. Use to verify the domain for Apple Pay. More information can be found [here](https://stripe.com/docs/apple-pay/web).
-11. **MERCHANT_RETURN_URL**: This is the return URL used on the confirmPayment return_url parameter. The Buy Now Pay Later payment methods will send the Stripe payment_intent in the URL; the Merchant will need to retrieve the payment intent and look for the metadata ct_payment_id is add in the commercetools Checkout SDK paymentReference.
+11. **MERCHANT_RETURN_URL**: This is the return URL used on the confirmPayment return_url parameter. The Buy Now Pay Later payment methods will send the Stripe payment_intent in the URL; the Merchant will need to retrieve the payment intent and look for the metadata ct_payment_id is added in the commercetools Checkout SDK paymentReference.
 12. **STRIPE_COLLECT_BILLING_ADDRESS**: This is the configuration for the Stripe collect shipping address in the payment element. The default value is `auto`. More information can be found [here](https://docs.stripe.com/payments/payment-element/control-billing-details-collection).
 13. **CTP_PROJECT_KEY**: The key to the commercetools project
 14. **CTP_AUTH_URL**: Authentication URL for commercetools
