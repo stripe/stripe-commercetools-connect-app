@@ -1,3 +1,7 @@
 # Code Editor directories and files
 .idea
 .env
+
+# MCP (Model Context Protocol) configuration and data
+.mcp/
+.DS_Store

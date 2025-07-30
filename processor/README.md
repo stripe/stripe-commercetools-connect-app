@@ -21,10 +21,40 @@ Diagram of the current workflow:
 
 ## Considerations For Stripe Billing Subscription Management
 
-
 The connector supports Stripe subscription management capabilities, enabling recurring billing solutions that integrate seamlessly with commercetools customers. Subscriptions allow merchants to charge customers on a recurring basis for products or services according to defined billing intervals and payment terms.
 
 The connector will automatically create and use a Setup Intent when required for subscription payments. A Setup Intent confirms and securely stores payment method details without immediately creating a charge, which is essential for recurring billing scenarios where the initial payment might be delayed (such as with free trial periods) or when setting up automatic payments for future subscription cycles.
+
+### Subscription Shipping Fee Support
+
+The connector now supports recurring shipping fees as part of subscription billing. When a cart contains shipping information, the connector will:
+
+1. **Automatically detect shipping methods** in the cart during subscription creation
+2. **Create or retrieve Stripe shipping prices** that match the subscription's billing interval
+3. **Include shipping fees** as separate line items in the subscription
+4. **Handle shipping price management** with proper metadata tracking
+
+#### Shipping Fee Integration Features
+
+- **Automatic Shipping Price Creation**: Creates Stripe prices for shipping methods that don't already exist
+- **Recurring Billing Alignment**: Ensures shipping fees follow the same billing interval as the main subscription
+- **Metadata Tracking**: Tracks shipping method IDs and amounts for proper reconciliation
+- **Existing Price Reuse**: Reuses existing Stripe shipping prices when they match the current configuration
+
+#### Shipping Price Management
+
+The connector manages shipping prices through several new methods:
+
+- `getSubscriptionShippingPriceId()`: Retrieves or creates shipping price IDs for subscriptions
+- `getStripeShippingPriceByMetadata()`: Searches for existing shipping prices by metadata
+- `createStripeShippingPrice()`: Creates new Stripe prices for shipping methods
+
+#### Metadata Fields for Shipping
+
+The following metadata fields are used to track shipping information:
+
+- `ct_variant_sku`: Stores the shipping method ID
+- `ct_shipping_price_amount`: Stores the shipping price amount in cents
 
 ### Custom Types for Subscription Configuration
 
@@ -538,7 +568,7 @@ OAuth2 authentication with "manage_project" and "manage_subscriptions" scopes.
 - **message**: Optional message with details.
 
 #### Update Customer Subscription
-Updates a specific subscription with new parameters or options.
+Updates a specific subscription with new parameters or options based on the [Stripe documentation](https://docs.stripe.com/api/subscriptions/update?lang=node).
 
 ##### Endpoint
 `POST /subscription-api/:customerId`
@@ -551,8 +581,8 @@ OAuth2 authentication with "manage_project" and "manage_subscriptions" scopes.
 
 ##### Request Body
 - **id**: The subscription ID to update.
-- **params**: Optional parameters to update.
-- **options**: Optional options to update.
+- **params**: Optional parameters to update (Stripe.SubscriptionUpdateParams).
+- **options**: Optional options to update (Stripe.RequestOptions).
 
 ##### Response Parameters
 - **id**: The subscription ID.

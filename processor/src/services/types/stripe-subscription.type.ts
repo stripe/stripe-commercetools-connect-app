@@ -4,6 +4,7 @@ import {
   CommercetoolsOrderService,
   CommercetoolsPaymentService,
   LineItem,
+  ShippingInfo,
 } from '@commercetools/connect-payments-sdk';
 import { PaymentAmount } from '@commercetools/connect-payments-sdk/dist/commercetools/types/payment.type';
 import Stripe from 'stripe';
@@ -39,6 +40,12 @@ export interface CreateStripePriceProps {
   attributes: SubscriptionAttributes;
 }
 
+export interface CreateStripeShippingPriceProps {
+  shipping: ShippingInfo;
+  stripeProductId: string;
+  attributes: SubscriptionAttributes;
+}
+
 export interface CreateSetupIntentProps {
   cart: Cart;
   stripeCustomerId: string;
@@ -63,4 +70,5 @@ export interface FullSubscriptionData extends BasicSubscriptionData {
   lineItemAmount: PaymentAmount;
   amountPlanned: PaymentAmount;
   priceId: string;
+  shippingPriceId?: string;
 }

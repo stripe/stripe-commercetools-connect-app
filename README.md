@@ -13,14 +13,15 @@ This repository provides a commercetools [connect](https://docs.commercetools.co
   - Manual or automatic payment capture modes
   - Enables saving and reusing customer payment methods directly within the Payment Element component for a seamless checkout experience. [See details](./processor/README.md#considerations-for-stripe-customer-session)
   - Flexible billing address collection
-- Supports collecting payment details before creating a payment intent, enabling flexible checkout flows. The backend processor utilizes the [Stripe API](https://stripe.com/docs/api) to efficiently create and manage payment intents and subscriptions, handle webhooks, and process payments. [See Details](README.md#sequence-diagrams-for-the-payment-connector) 
+- Supports collecting payment details before creating a payment intent, enabling flexible checkout flows. The backend processor utilizes the [Stripe API](https://stripe.com/docs/api) to efficiently create and manage payment intents and subscriptions, handle webhooks, and process payments. [See Details](README.md#sequence-diagrams-for-the-payment-connector)
 - Comprehensive Stripe customer session management: automatically creates or retrieves Stripe customers, synchronizes the logged-in commercetools customer with their corresponding Stripe account, and stores the Stripe customer ID in commercetools for seamless future transactions. [See Considerations](./processor/README.md#considerations-for-stripe-customer-session)
 - Sync shipping information from commercetools to Stripe payment intent.
 - Support for Buy Now Pay Later (BNPL) payment method.[Considerations](./processor/README.md#merchant-return-url)
 - Support for a wide range of payment methods, including Apple Pay, Google Pay, Amazon Pay, and others. [See Considerations](./enabler/README.md#considerations-for-apple-pay-and-google-pay)
 - Merchants can leverage the custom product type provided by the connector to create and manage subscriptions directly within commercetools. These subscriptions are automatically synchronized with Stripe for creation and updates. [Learn more](./processor/README.md#considerations-for-stripe-billing-subscription-management).
+- **Subscription Shipping Fee Support**: The connector now supports recurring shipping fees as part of subscription billing, automatically creating and managing Stripe shipping prices that align with subscription billing intervals. [Learn more](./processor/README.md#subscription-shipping-fee-support).
 - Provides a subscription management API via the commercetools connector, enabling Stripe subscription operations directly through commercetools API endpoints.
-- Customers can update their shipping and billing addresses directly within the Stripe Express Checkout. When an address is changed, the connector automatically fetches the latest shipping rates from commercetools and updates the cart to reflect the new information. [See Details](README.md#sequence-diagrams-for-the-payment-connector) 
+- Customers can update their shipping and billing addresses directly within the Stripe Express Checkout. When an address is changed, the connector automatically fetches the latest shipping rates from commercetools and updates the cart to reflect the new information. [See Details](README.md#sequence-diagrams-for-the-payment-connector)
 
 ## Prerequisite
 
@@ -84,16 +85,55 @@ The Enabler component is tasked with rendering the Stripe Payment Element or Exp
 
 Once the payment component is set up, the connector orchestrates various payment flows based on the user's context—such as logged-in customers, guest checkouts, and subscriptions (with or without a SetupIntent). The following sequence diagrams break down these scenarios:
 
-- **Standard Payment Flow:**  
+- **Standard Payment Flow:**
   ![Payment](<docs/Submit Payment.png>)
 
-- **Subscription with Invoice:**  
+- **Subscription with Invoice:**
   ![Subscription with invoices](<docs/Submit Payment with Invoice.png>)
 
-- **Subscription without Invoice:**  
+- **Subscription without Invoice:**
   ![Subscription without invoices](<docs/Submit Payment without Invoice.png>)
 
 Each diagram details the interactions and steps involved in processing the respective payment type.
+
+## Recent Updates and Improvements
+
+### Subscription Service Enhancements (Latest)
+
+The subscription service has been significantly enhanced with the following improvements:
+
+#### 🚀 New Features
+- **Recurring Shipping Fee Support**: Added comprehensive support for recurring shipping fees in subscriptions
+- **Automatic Shipping Price Management**: Automatic creation and management of Stripe shipping prices
+- **Enhanced Metadata Tracking**: Improved metadata handling for shipping methods and prices
+- **Comprehensive Test Coverage**: Added extensive test coverage for all subscription operations
+
+#### 🔧 Technical Improvements
+- **Method Signature Updates**: Updated method signatures to use proper object parameters for better type safety
+- **Shipping Price Integration**: New methods for managing shipping prices within subscriptions:
+  - `getSubscriptionShippingPriceId()`: Retrieves or creates shipping price IDs
+  - `getStripeShippingPriceByMetadata()`: Searches for existing shipping prices
+  - `createStripeShippingPrice()`: Creates new Stripe shipping prices
+- **Enhanced Type Definitions**: Added new TypeScript interfaces for shipping price management
+- **Improved Error Handling**: Better error handling and logging throughout the subscription service
+- **Enabler Enhancements**: Improved payment mode handling and comprehensive debugging
+- **Payment Service Improvements**: Enhanced payment intent configuration with conditional shipping and advanced payment method options
+
+#### 🧪 Testing Enhancements
+- **Comprehensive Test Suite**: Added tests for all subscription service methods
+- **Mock Data Improvements**: Enhanced mock data for shipping information and Stripe API responses
+- **Test Coverage**: Achieved comprehensive test coverage for subscription operations
+
+#### 📚 Documentation Updates
+- **API Documentation**: Updated API documentation to reflect Stripe API compliance
+- **Feature Documentation**: Added detailed documentation for shipping fee functionality
+- **Testing Documentation**: Added comprehensive testing documentation and examples
+
+For detailed information about these improvements, see the [Processor Documentation](./processor/README.md#subscription-shipping-fee-support).
+
+For technical implementation details, see the [Subscription Shipping Fee Integration Guide](./docs/subscription-shipping-fee.md).
+
+For enabler and payment service improvements, see the [Enabler Improvements Guide](./docs/enabler-improvements.md).
 
 # Webhooks
 

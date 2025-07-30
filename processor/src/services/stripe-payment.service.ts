@@ -353,10 +353,10 @@ export class StripePaymentService extends AbstractPaymentService {
       const setupFutureUsage = config.stripeSavedPaymentMethodConfig?.payment_method_save_usage;
       const customer = await this.customerService.getCtCustomer(cart.customerId!);
       const amountPlanned = await this.ctCartService.getPaymentAmount({ cart });
-      /*const shippingAddress = this.customerService.getStripeCustomerAddress(
+      const shippingAddress = this.customerService.getStripeCustomerAddress(
         cart.shippingAddress,
         customer?.addresses[0],
-      );*/
+      );
       const stripeCustomerId = customer?.custom?.fields?.[stripeCustomerIdFieldName];
       const paymentIntent = await stripeApi().paymentIntents.create(
         {
@@ -371,7 +371,9 @@ export class StripePaymentService extends AbstractPaymentService {
           },
           capture_method: config.stripeCaptureMethod as CaptureMethod,
           metadata: this.paymentCreationService.getPaymentMetadata(cart),
-          //shipping: shippingAddress,
+          ...(config.stripeCollectBillingAddress === 'auto' && {
+            shipping: shippingAddress,
+          }),
         },
         {
           idempotencyKey: crypto.randomUUID(),

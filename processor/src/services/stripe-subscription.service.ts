@@ -7,13 +7,14 @@ import {
   Money,
   Payment,
 } from '@commercetools/connect-payments-sdk';
-import { CartSetLineItemCustomFieldAction, CartSetLineItemCustomTypeAction } from '@commercetools/platform-sdk';
+import { CartSetLineItemCustomFieldAction, CartSetLineItemCustomTypeAction, ShippingInfo } from '@commercetools/platform-sdk';
 import { PaymentAmount } from '@commercetools/connect-payments-sdk/dist/commercetools/types/payment.type';
 import { getConfig } from '../config/config';
 import {
   BasicSubscriptionData,
   CreateSetupIntentProps,
   CreateStripePriceProps,
+  CreateStripeShippingPriceProps,
   FullSubscriptionData,
   GetCurrentPaymentProps,
   StripeSubscriptionServiceOptions,
@@ -43,7 +44,7 @@ import { getSubscriptionAttributes } from '../mappers/subscription-mapper';
 import { CtPaymentCreationService } from './ct-payment-creation.service';
 import { getCartExpanded, updateCartById } from './commerce-tools/cart-client';
 import { getCustomFieldUpdateActions } from './commerce-tools/custom-type-helper';
-import { METADATA_PRICE_ID_FIELD, METADATA_PRODUCT_ID_FIELD, METADATA_VARIANT_SKU_FIELD } from '../constants';
+import { METADATA_PRICE_ID_FIELD, METADATA_PRODUCT_ID_FIELD, METADATA_SHIPPING_PRICE_AMOUNT, METADATA_VARIANT_SKU_FIELD } from '../constants';
 import { StripePaymentService } from './stripe-payment.service';
 import { StripeCouponService } from './stripe-coupon.service';
 import { getCustomerById } from './commerce-tools/customer-client';
@@ -99,13 +100,22 @@ export class StripeSubscriptionService {
 
   public async createSubscription(): Promise<SubscriptionResponseSchemaDTO> {
     try {
-      const { cart, amountPlanned, priceId, stripeCustomerId, subscriptionParams, billingAddress, merchantReturnUrl } =
+      const { cart, 
+        amountPlanned, 
+        priceId, 
+        stripeCustomerId, 
+        subscriptionParams, 
+        billingAddress, 
+        merchantReturnUrl, 
+        shippingPriceId } =
         await this.prepareSubscriptionData();
 
       const subscription = await stripe.subscriptions.create({
         ...subscriptionParams,
         customer: stripeCustomerId!,
-        items: [{ price: priceId }],
+        items: [
+          { price: priceId }, 
+          ...(shippingPriceId ? [{ price: shippingPriceId }] : [])],
         payment_behavior: 'default_incomplete',
         payment_settings: { save_default_payment_method: 'on_subscription' },
         expand: ['latest_invoice.payment_intent'],
@@ -147,7 +157,7 @@ export class StripeSubscriptionService {
     setupIntentId: string,
   ): Promise<SubscriptionFromSetupIntentResponseSchemaDTO> {
     try {
-      const { cart, priceId, stripeCustomerId, subscriptionParams, amountPlanned } =
+      const { cart, priceId, stripeCustomerId, subscriptionParams, amountPlanned, shippingPriceId } =
         await this.prepareSubscriptionData();
       const { payment_method: paymentMethodId } = await stripe.setupIntents.retrieve(setupIntentId);
       const { hasFreeAnchorDays, isSendInvoice } = this.getSubscriptionTypes(subscriptionParams);
@@ -160,7 +170,9 @@ export class StripeSubscriptionService {
         ...subscriptionParams,
         customer: stripeCustomerId,
         default_payment_method: paymentMethodId,
-        items: [{ price: priceId }],
+        items: [
+          { price: priceId }, 
+          ...(shippingPriceId ? [{ price: shippingPriceId }] : [])],
         expand: ['latest_invoice'],
         payment_settings: { save_default_payment_method: 'on_subscription' },
         metadata: this.paymentCreationService.getPaymentMetadata(cart),
@@ -227,6 +239,7 @@ export class StripeSubscriptionService {
     const amountPlanned = await this.ctCartService.getPaymentAmount({ cart });
     const lineItemAmount = this.getSubscriptionPaymentAmount(cart);
     const priceId = await this.getSubscriptionPriceId(cart, lineItemAmount);
+    const shippingPriceId = await this.getSubscriptionShippingPriceId(cart);
 
     return {
       cart,
@@ -237,6 +250,7 @@ export class StripeSubscriptionService {
       subscriptionParams,
       billingAddress,
       merchantReturnUrl,
+      shippingPriceId,
     };
   }
 
@@ -276,14 +290,50 @@ export class StripeSubscriptionService {
     }
 
     log.info('A new Stripe Price will be created.');
-    const stripeProductId = await this.getStripeProduct(product);
+    const stripeProductId = await this.getStripeProduct({product});
     return await this.createStripePrice({ amount, product, stripeProductId, attributes });
+  }
+
+  public async getSubscriptionShippingPriceId(cart: Cart): Promise<string | undefined> {
+    const product = cart.lineItems[0];
+    const attributes = transformVariantAttributes<SubscriptionAttributes>(product.variant.attributes);
+    const shippingInfo = cart.shippingInfo;
+    if (!shippingInfo) {
+      log.info('No shipping method found in cart.');
+      return undefined;
+    }
+
+    const stripeProductId = await this.getStripeProduct({shipping: shippingInfo});
+    const stripePrice = await this.getStripeShippingPriceByMetadata(shippingInfo);
+
+
+    if (stripePrice.data.length && stripePrice.data[0].id) {
+      const price = stripePrice.data[0];
+      const isActive = price.active;
+      const hasSameInterval = price.recurring?.interval === attributes.recurring_interval;
+      const hasSameIntervalCount = price.recurring?.interval_count === attributes.recurring_interval_count;
+
+      if (isActive) {
+        log.info(`Found existing price ID: "${price.id}"`);
+        return price.id;
+      } 
+    }
+
+    log.info('A new Stripe Shipping Price will be created.');
+    return await this.createStripeShippingPrice({ shipping: shippingInfo, stripeProductId, attributes });
   }
 
   public async getStripePriceByMetadata(product: LineItem) {
     return await stripe.prices.search({
       query: `metadata['${METADATA_VARIANT_SKU_FIELD}']:'${product.variant.sku}' AND
               metadata['${METADATA_PRICE_ID_FIELD}']:'${product.price.id}'`,
+    });
+  }
+
+  public async getStripeShippingPriceByMetadata(shipping: ShippingInfo) {
+    return await stripe.prices.search({
+      query: `metadata['${METADATA_VARIANT_SKU_FIELD}']:'${shipping.shippingMethod?.id}' AND
+              metadata['${METADATA_SHIPPING_PRICE_AMOUNT}']:'${shipping.price.centAmount}'`,
     });
   }
 
@@ -299,9 +349,23 @@ export class StripeSubscriptionService {
     log.warn(`Existing Stripe Price "${price.id}" has been updated to deprecated.`);
   }
 
-  public async getStripeProduct(product: LineItem): Promise<string> {
+  getStripeProduct(options: { product: LineItem }): Promise<string>;// get the stripe product by product id
+  getStripeProduct(options: { shipping: ShippingInfo }): Promise<string>; // get the stripe product by shipping id
+  public async getStripeProduct(options: { product?: LineItem, shipping?: ShippingInfo }): Promise<string> {
+    const { product, shipping } = options;
+    const idProduct = product?.id;
+    const idShipping = shipping?.shippingMethod?.id;
+    if(!idProduct && !idShipping) {
+      throw new Error('Either product or shipping must be provided');
+    }
+
+    const idSearch = idProduct ?? idShipping;
+    if (!idSearch) {
+      throw new Error('Either product.id or shipping.shippingMethod.id must be provided');
+    }
+
     const stripeProduct = await stripe.products.search({
-      query: `metadata['${METADATA_PRODUCT_ID_FIELD}']:'${product.productId}'`,
+      query: `metadata['${METADATA_PRODUCT_ID_FIELD}']:'${idSearch}'`,
     });
 
     if (stripeProduct.data.length && stripeProduct.data[0].id) {
@@ -311,19 +375,34 @@ export class StripeSubscriptionService {
     }
 
     log.info(`No stripe product found was found with metadata specified. A new one will be created.`);
-    return await this.createStripeProduct(product);
+    if(product) {
+      return await this.createStripeProduct({ product });
+    } else {
+      return await this.createStripeProduct({ shipping: shipping! });
+    }
   }
 
-  public async createStripeProduct(product: LineItem): Promise<string> {
+  createStripeProduct(options: { product: LineItem }): Promise<string>;
+  createStripeProduct( options: { shipping: ShippingInfo }): Promise<string>;
+  public async createStripeProduct(options: { product?: LineItem, shipping?: ShippingInfo }): Promise<string> {
+    const { product, shipping } = options;
+
+    if(!product && !shipping) {
+      throw new Error('Either product or shipping must be provided');
+    }
+
+    const name = shipping ? shipping.shippingMethodName : getLocalizedString(product!.name);
+    const id = shipping ? shipping.shippingMethod?.id || 'Shipping Method Mock' : product!.productId;
+    
     const newProduct = await stripe.products.create({
-      name: getLocalizedString(product.name),
+      name: name,
       metadata: {
-        [METADATA_PRODUCT_ID_FIELD]: product.productId,
+        [METADATA_PRODUCT_ID_FIELD]: id,
       },
     });
 
-    log.info(`Stripe product created.`, {
-      ctProductId: product.productId,
+    log.info(`Stripe ${shipping ? 'shipping' : 'product'} created.`, {
+      ctProductId: id,
       stripeProductId: newProduct.id,
     });
     return newProduct.id;
@@ -348,6 +427,33 @@ export class StripeSubscriptionService {
     log.info(`Stripe price created.`, {
       ctProductId: product.productId,
       ctPriceAmount: amount.centAmount,
+      stripePriceId: price.id,
+      stripeProductId,
+    });
+
+    return price.id;
+  }
+
+  public async createStripeShippingPrice({ shipping, stripeProductId, attributes }: CreateStripeShippingPriceProps) {
+    const price = await stripe.prices.create({
+      currency: shipping.price.currencyCode,
+      product: stripeProductId,
+      unit_amount: shipping.price.centAmount,
+      active: true,
+      recurring: {
+        interval: attributes.recurring_interval,
+        interval_count: attributes.recurring_interval_count,
+      },
+      metadata: {
+        [METADATA_VARIANT_SKU_FIELD]: shipping.shippingMethod?.id!,
+        [METADATA_SHIPPING_PRICE_AMOUNT]: shipping.price.centAmount,
+      },
+      nickname: shipping.shippingMethodName,
+    });
+
+    log.info(`Stripe Shipping price created.`, {
+      ctProductId: shipping.shippingMethod?.id,
+      ctPriceAmount: shipping.price.centAmount,
       stripePriceId: price.id,
       stripeProductId,
     });

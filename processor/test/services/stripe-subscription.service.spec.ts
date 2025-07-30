@@ -7,6 +7,7 @@ import {
   mockGetSubscriptionCart,
   mockGetSubscriptionCartWithTwoItems,
   mockGetSubscriptionCartWithVariant,
+  shippingInfo,
 } from '../utils/mock-cart-data';
 import { StripePaymentServiceOptions } from '../../src/services/types/stripe-payment.type';
 import {
@@ -41,6 +42,7 @@ import { StripeCustomerService } from '../../src/services/stripe-customer.servic
 import * as Logger from '../../src/libs/logger/index';
 import * as CustomTypeHelper from '../../src/services/commerce-tools/custom-type-helper';
 import * as CartClient from '../../src/services/commerce-tools/cart-client';
+import * as CustomerClient from '../../src/services/commerce-tools/customer-client';
 import * as StripeClient from '../../src/clients/stripe.client';
 import * as Config from '../../src/config/config';
 import fastify, { FastifyInstance } from 'fastify';
@@ -116,6 +118,8 @@ describe('stripe-subscription.service', () => {
       create: jest.fn(),
       retrieve: jest.fn(),
       update: jest.fn(),
+      list: jest.fn(),
+      cancel: jest.fn(),
     } as unknown as Stripe.SubscriptionsResource;
     Stripe.prototype.prices = {
       create: jest.fn(),
@@ -553,6 +557,18 @@ describe('stripe-subscription.service', () => {
       const getPriceIdMock = jest
         .spyOn(StripeSubscriptionService.prototype, 'getSubscriptionPriceId')
         .mockResolvedValue(stripePriceIdMock);
+        const stripeSearchProductsMock = jest
+          .spyOn(Stripe.prototype.products, 'search')
+          .mockResolvedValue(stripeProductEmptyResponseMock);
+        const stripeCreateProductMock = jest
+          .spyOn(Stripe.prototype.products, 'create')
+          .mockResolvedValue(stripeProductDataMock);
+        const stripeSearchPricesMock = jest
+          .spyOn(Stripe.prototype.prices, 'search')
+          .mockResolvedValue(stripePriceEmptyResponseMock);
+        const stripeCreatePriceMock = jest
+          .spyOn(Stripe.prototype.prices, 'create')
+          .mockResolvedValue(stripePriceDataMock);
       const result = await stripeSubscriptionService.prepareSubscriptionData();
 
       expect(result).toBeDefined();
@@ -574,6 +590,9 @@ describe('stripe-subscription.service', () => {
       const getCartExpandedMock = jest
         .spyOn(CartClient, 'getCartExpanded')
         .mockResolvedValue(mockGetSubscriptionCartWithTwoItems);
+      const getShippingPriceIdMock = jest
+        .spyOn(stripeSubscriptionService, 'getSubscriptionShippingPriceId')
+        .mockResolvedValue(undefined);
       const result = stripeSubscriptionService.prepareSubscriptionData();
       expect(getCartExpandedMock).toHaveBeenCalled();
       expect(result).rejects.toThrow();
@@ -683,7 +702,7 @@ describe('stripe-subscription.service', () => {
         .spyOn(Stripe.prototype.products, 'search')
         .mockResolvedValue(stripeProductResponseMock);
 
-      const result = await stripeSubscriptionService.getStripeProduct(productMock);
+      const result = await stripeSubscriptionService.getStripeProduct({ product: productMock });
       expect(result).toStrictEqual(stripeProductIdMock);
       expect(Logger.log.info).toHaveBeenCalled();
       expect(stripeSearchProducts).toHaveBeenCalled();
@@ -698,7 +717,7 @@ describe('stripe-subscription.service', () => {
         .spyOn(StripeSubscriptionService.prototype, 'createStripeProduct')
         .mockResolvedValue(stripeProductIdMock);
 
-      const result = await stripeSubscriptionService.getStripeProduct(productMock);
+      const result = await stripeSubscriptionService.getStripeProduct({ product: productMock });
       expect(result).toStrictEqual(stripeProductIdMock);
       expect(Logger.log.info).toHaveBeenCalled();
       expect(stripeSearchProducts).toHaveBeenCalled();
@@ -712,7 +731,7 @@ describe('stripe-subscription.service', () => {
         .spyOn(Stripe.prototype.products, 'create')
         .mockResolvedValue(stripeProductDataMock);
 
-      const result = await stripeSubscriptionService.createStripeProduct(lineItem);
+      const result = await stripeSubscriptionService.createStripeProduct({ product: lineItem });
       expect(result).toStrictEqual(stripeProductIdMock);
       expect(Logger.log.info).toHaveBeenCalled();
       expect(stripeCreateProductMock).toHaveBeenCalled();
@@ -1000,6 +1019,395 @@ describe('stripe-subscription.service', () => {
       expect(() => stripeSubscriptionService.getSubscriptionPaymentAmount(mockGetCartResult())).toThrow(
         'Cart is not a subscription.',
       );
+    });
+  });
+
+  describe('method getSubscriptionShippingPriceId', () => {
+    test('should get existing shipping price ID successfully', async () => {
+      const mockCart = mockGetSubscriptionCartWithVariant(1);
+      const stripeSearchProductsMock = jest
+        .spyOn(Stripe.prototype.products, 'search')
+        .mockResolvedValue(stripeProductResponseMock);
+      const stripeSearchPricesMock = jest
+        .spyOn(Stripe.prototype.prices, 'search')
+        .mockResolvedValue(stripePriceResponseMock);
+
+      const result = await stripeSubscriptionService.getSubscriptionShippingPriceId(mockCart);
+      
+      expect(result).toStrictEqual(stripePriceIdMock);
+      expect(stripeSearchProductsMock).toHaveBeenCalled();
+      expect(stripeSearchPricesMock).toHaveBeenCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
+    });
+
+    test('should create new shipping price when no existing price found', async () => {
+      const mockCart = mockGetSubscriptionCartWithVariant(1);
+      const stripeSearchProductsMock = jest
+        .spyOn(Stripe.prototype.products, 'search')
+        .mockResolvedValue(stripeProductEmptyResponseMock);
+      const stripeCreateProductMock = jest
+        .spyOn(Stripe.prototype.products, 'create')
+        .mockResolvedValue(stripeProductDataMock);
+      const stripeSearchPricesMock = jest
+        .spyOn(Stripe.prototype.prices, 'search')
+        .mockResolvedValue(stripePriceEmptyResponseMock);
+      const stripeCreatePriceMock = jest
+        .spyOn(Stripe.prototype.prices, 'create')
+        .mockResolvedValue(stripePriceDataMock);
+
+      const result = await stripeSubscriptionService.getSubscriptionShippingPriceId(mockCart);
+      
+      expect(result).toStrictEqual(stripePriceIdMock);
+      expect(stripeSearchProductsMock).toHaveBeenCalled();
+      expect(stripeCreateProductMock).toHaveBeenCalled();
+      expect(stripeSearchPricesMock).toHaveBeenCalled();
+      expect(stripeCreatePriceMock).toHaveBeenCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
+    });
+
+    test('should return undefined when no shipping info in cart', async () => {
+      const mockCart = { ...mockGetSubscriptionCartWithVariant(1), shippingInfo: undefined };
+
+      const result = await stripeSubscriptionService.getSubscriptionShippingPriceId(mockCart);
+      
+      expect(result).toBeUndefined();
+      expect(Logger.log.info).toHaveBeenCalledWith('No shipping method found in cart.');
+    });
+  });
+
+  describe('method getStripePriceByMetadata', () => {
+    test('should search stripe prices by metadata successfully', async () => {
+      const stripeSearchPricesMock = jest
+        .spyOn(Stripe.prototype.prices, 'search')
+        .mockResolvedValue(stripePriceResponseMock);
+
+      const result = await stripeSubscriptionService.getStripePriceByMetadata(lineItem);
+      
+      expect(result).toStrictEqual(stripePriceResponseMock);
+      expect(stripeSearchPricesMock).toHaveBeenCalled();
+    });
+  });
+
+  describe('method getStripeShippingPriceByMetadata', () => {
+    test('should search stripe shipping prices by metadata successfully', async () => {
+      const stripeSearchPricesMock = jest
+        .spyOn(Stripe.prototype.prices, 'search')
+        .mockResolvedValue(stripePriceResponseMock);
+
+      const result = await stripeSubscriptionService.getStripeShippingPriceByMetadata(shippingInfo);
+      
+      expect(result).toStrictEqual(stripePriceResponseMock);
+      expect(stripeSearchPricesMock).toHaveBeenCalled();
+    });
+  });
+
+  describe('method createStripeShippingPrice', () => {
+    test('should create stripe shipping price successfully', async () => {
+      const stripeCreatePriceMock = jest
+        .spyOn(Stripe.prototype.prices, 'create')
+        .mockResolvedValue(stripePriceDataMock);
+
+      const result = await stripeSubscriptionService.createStripeShippingPrice({
+        shipping: shippingInfo,
+        stripeProductId: stripeProductIdMock,
+        attributes: mockSubscriptionAttributes,
+      });
+      
+      expect(result).toStrictEqual(stripePriceIdMock);
+      expect(stripeCreatePriceMock).toHaveBeenCalled();
+      expect(Logger.log.info).toHaveBeenCalled();
+    });
+  });
+
+  describe('method getSubscriptionTypes', () => {
+    test('should get subscription types successfully', () => {
+      const attributes = {
+        collection_method: 'charge_automatically',
+        trial_period_days: 7,
+      } as Stripe.SubscriptionCreateParams;
+
+      const result = stripeSubscriptionService.getSubscriptionTypes(attributes);
+      
+      expect(result).toBeDefined();
+      expect(result.hasFreeAnchorDays).toBeDefined();
+      expect(result.isSendInvoice).toBeDefined();
+    });
+  });
+
+  describe('method getCustomerSubscriptions', () => {
+    test('should get customer subscriptions successfully', async () => {
+      const customerId = 'customer_123';
+      const mockSubscriptions = [subscriptionResponseMock];
+      const getCustomerByIdMock = jest
+        .spyOn(CustomerClient, 'getCustomerById')
+        .mockResolvedValue({
+          ...mockCtCustomerData,
+          custom: {
+            type: { typeId: 'type', id: 'mock-type-id' },
+            fields: {
+              stripeConnector_stripeCustomerId: 'cus_123',
+            },
+          },
+        });
+      const stripeListSubscriptionsMock = jest
+        .spyOn(Stripe.prototype.subscriptions, 'list')
+        .mockResolvedValue({
+          data: mockSubscriptions,
+          has_more: false,
+          object: 'list',
+          url: '',
+          lastResponse: {
+            headers: {},
+            requestId: 'req_123',
+            statusCode: 200,
+          },
+        } as Stripe.Response<Stripe.ApiList<Stripe.Subscription>>);
+
+      const result = await stripeSubscriptionService.getCustomerSubscriptions(customerId);
+      
+      expect(result).toStrictEqual(mockSubscriptions);
+      expect(getCustomerByIdMock).toHaveBeenCalledWith(customerId);
+      expect(stripeListSubscriptionsMock).toHaveBeenCalled();
+    });
+  });
+
+  describe('method cancelSubscription', () => {
+    test('should cancel subscription successfully', async () => {
+      const customerId = 'customer_123';
+      const subscriptionId = 'sub_mock_id';
+      const getCustomerByIdMock = jest
+        .spyOn(CustomerClient, 'getCustomerById')
+        .mockResolvedValue({
+          ...mockCtCustomerData,
+          custom: {
+            type: { typeId: 'type', id: 'mock-type-id' },
+            fields: {
+              stripeConnector_stripeCustomerId: 'cus_123',
+            },
+          },
+        });
+      const stripeListSubscriptionsMock = jest
+        .spyOn(Stripe.prototype.subscriptions, 'list')
+        .mockResolvedValue({
+          data: [subscriptionResponseMock],
+          has_more: false,
+          object: 'list',
+          url: '',
+          lastResponse: {
+            headers: {},
+            requestId: 'req_123',
+            statusCode: 200,
+          },
+        } as Stripe.Response<Stripe.ApiList<Stripe.Subscription>>);
+      const stripeCancelSubscriptionMock = jest
+        .spyOn(Stripe.prototype.subscriptions, 'cancel')
+        .mockResolvedValue({
+          ...subscriptionResponseMock,
+          status: 'canceled',
+        });
+
+      const result = await stripeSubscriptionService.cancelSubscription({ customerId, subscriptionId });
+      
+      expect(result.id).toStrictEqual('sub_mock_id');
+      expect(result.status).toStrictEqual('canceled');
+      expect(result.outcome).toStrictEqual(SubscriptionOutcome.CANCELED);
+      expect(getCustomerByIdMock).toHaveBeenCalledWith(customerId);
+      expect(stripeCancelSubscriptionMock).toHaveBeenCalled();
+    });
+
+    test('should fail to cancel subscription', async () => {
+      const customerId = 'customer_123';
+      const subscriptionId = 'sub_mock_id';
+      const getCustomerByIdMock = jest
+        .spyOn(CustomerClient, 'getCustomerById')
+        .mockResolvedValue({
+          ...mockCtCustomerData,
+          custom: {
+            type: { typeId: 'type', id: 'mock-type-id' },
+            fields: {
+              stripeConnector_stripeCustomerId: 'cus_123',
+            },
+          },
+        });
+      const stripeListSubscriptionsMock = jest
+        .spyOn(Stripe.prototype.subscriptions, 'list')
+        .mockResolvedValue({
+          data: [subscriptionResponseMock],
+          has_more: false,
+          object: 'list',
+          url: '',
+          lastResponse: {
+            headers: {},
+            requestId: 'req_123',
+            statusCode: 200,
+          },
+        } as Stripe.Response<Stripe.ApiList<Stripe.Subscription>>);
+      const error = new Error('Failed to cancel subscription');
+      const stripeCancelSubscriptionMock = jest
+        .spyOn(Stripe.prototype.subscriptions, 'cancel')
+        .mockRejectedValue(error);
+
+      try {
+        await stripeSubscriptionService.cancelSubscription({ customerId, subscriptionId });
+      } catch (error) {
+        expect(error).toBeDefined();
+      }
+      expect(getCustomerByIdMock).toHaveBeenCalledWith(customerId);
+      expect(stripeCancelSubscriptionMock).toHaveBeenCalled();
+    });
+  });
+
+  describe('method updateSubscription', () => {
+    test('should update subscription successfully', async () => {
+      const customerId = 'customer_123';
+      const subscriptionId = 'sub_mock_id';
+      const params = { cancel_at_period_end: true };
+      const mockUpdatedSubscription = {
+        ...subscriptionResponseMock,
+        cancel_at_period_end: true,
+      };
+      const getCustomerByIdMock = jest
+        .spyOn(CustomerClient, 'getCustomerById')
+        .mockResolvedValue({
+          ...mockCtCustomerData,
+          custom: {
+            type: { typeId: 'type', id: 'mock-type-id' },
+            fields: {
+              stripeConnector_stripeCustomerId: 'cus_123',
+            },
+          },
+        });
+      const stripeListSubscriptionsMock = jest
+        .spyOn(Stripe.prototype.subscriptions, 'list')
+        .mockResolvedValue({
+          data: [subscriptionResponseMock],
+          has_more: false,
+          object: 'list',
+          url: '',
+          lastResponse: {
+            headers: {},
+            requestId: 'req_123',
+            statusCode: 200,
+          },
+        } as Stripe.Response<Stripe.ApiList<Stripe.Subscription>>);
+      const stripeUpdateSubscriptionMock = jest
+        .spyOn(Stripe.prototype.subscriptions, 'update')
+        .mockResolvedValue(mockUpdatedSubscription);
+
+      const result = await stripeSubscriptionService.updateSubscription({
+        customerId,
+        subscriptionId,
+        params,
+      });
+      
+      expect(result).toStrictEqual(mockUpdatedSubscription);
+      expect(getCustomerByIdMock).toHaveBeenCalledWith(customerId);
+      expect(stripeUpdateSubscriptionMock).toHaveBeenCalled();
+    });
+
+    test('should fail to update subscription', async () => {
+      const customerId = 'customer_123';
+      const subscriptionId = 'sub_mock_id';
+      const params = { cancel_at_period_end: true };
+      const getCustomerByIdMock = jest
+        .spyOn(CustomerClient, 'getCustomerById')
+        .mockResolvedValue({
+          ...mockCtCustomerData,
+          custom: {
+            type: { typeId: 'type', id: 'mock-type-id' },
+            fields: {
+              stripeConnector_stripeCustomerId: 'cus_123',
+            },
+          },
+        });
+      const stripeListSubscriptionsMock = jest
+        .spyOn(Stripe.prototype.subscriptions, 'list')
+        .mockResolvedValue({
+          data: [subscriptionResponseMock],
+          has_more: false,
+          object: 'list',
+          url: '',
+          lastResponse: {
+            headers: {},
+            requestId: 'req_123',
+            statusCode: 200,
+          },
+        } as Stripe.Response<Stripe.ApiList<Stripe.Subscription>>);
+      const error = new Error('Failed to update subscription');
+      const stripeUpdateSubscriptionMock = jest
+        .spyOn(Stripe.prototype.subscriptions, 'update')
+        .mockRejectedValue(error);
+
+      try {
+        await stripeSubscriptionService.updateSubscription({
+          customerId,
+          subscriptionId,
+          params,
+        });
+      } catch (error) {
+        expect(error).toBeDefined();
+      }
+      expect(getCustomerByIdMock).toHaveBeenCalledWith(customerId);
+      expect(stripeUpdateSubscriptionMock).toHaveBeenCalled();
+    });
+  });
+
+  describe('method validateCustomerSubscription', () => {
+    test('should validate customer subscription successfully', async () => {
+      const customerId = 'customer_123';
+      const subscriptionId = 'sub_mock_id';
+      const getCustomerByIdMock = jest
+        .spyOn(CustomerClient, 'getCustomerById')
+        .mockResolvedValue({
+          ...mockCtCustomerData,
+          custom: {
+            type: { typeId: 'type', id: 'mock-type-id' },
+            fields: {
+              stripeConnector_stripeCustomerId: 'cus_123',
+            },
+          },
+        });
+      const stripeListSubscriptionsMock = jest
+        .spyOn(Stripe.prototype.subscriptions, 'list')
+        .mockResolvedValue({
+          data: [subscriptionResponseMock],
+          has_more: false,
+          object: 'list',
+          url: '',
+          lastResponse: {
+            headers: {},
+            requestId: 'req_123',
+            statusCode: 200,
+          },
+        } as Stripe.Response<Stripe.ApiList<Stripe.Subscription>>);
+
+      await stripeSubscriptionService.validateCustomerSubscription(customerId, subscriptionId);
+      
+      expect(getCustomerByIdMock).toHaveBeenCalledWith(customerId);
+      expect(stripeListSubscriptionsMock).toHaveBeenCalled();
+    });
+  });
+
+  describe('method processSubscriptionEvent', () => {
+    test('should process subscription event successfully', async () => {
+      const mockEvent = {
+        id: 'evt_123',
+        object: 'event',
+        api_version: '2020-08-27',
+        created: Math.floor(Date.now() / 1000),
+        data: {
+          object: subscriptionResponseMock,
+        },
+        livemode: false,
+        pending_webhooks: 0,
+        request: null,
+        type: 'customer.subscription.created',
+      } as Stripe.Event;
+
+      await stripeSubscriptionService.processSubscriptionEvent(mockEvent);
+      
+      // Basic test to ensure method doesn't throw
+      expect(true).toBe(true);
     });
   });
 

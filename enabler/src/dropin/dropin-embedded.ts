@@ -103,7 +103,9 @@ export class DropinComponents implements DropinComponent {
 
         try {
           const response = await this.removeShippingRate();
-          this.baseOptions.elements.update({amount: response});
+          if(this.baseOptions.paymentMode !== 'setup') {
+            this.baseOptions.elements.update({amount: response});
+          }
 
         } catch (error) {
           console.error("Error removing shipping rates:", error);
@@ -121,7 +123,7 @@ export class DropinComponents implements DropinComponent {
 
   async submit(): Promise<void> {
     try {
-      const { error: submitError } = await this.baseOptions.elements.submit();
+            const { error: submitError } = await this.baseOptions.elements.submit();
 
       if (submitError) {
         throw submitError;
@@ -239,7 +241,9 @@ export class DropinComponents implements DropinComponent {
 
   async updateElementTotalAmount(res: ShippingMethodsResponseSchemaDTO) {
     const totalAmount = res.lineItems.reduce((acc, item) => acc + item.amount, 0);
-    await this.baseOptions.elements.update({amount: totalAmount});
+    if(this.baseOptions.paymentMode !== 'setup') {
+      await this.baseOptions.elements.update({amount: totalAmount});
+    }
   }
 
   async removeShippingRate(): Promise<number> {
