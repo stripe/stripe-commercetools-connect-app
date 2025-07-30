@@ -13,6 +13,7 @@ import {
   deleteProductType,
   getProductsByProductTypeId,
   getProductTypeByKey,
+  updateProductType,
 } from '../services/commerce-tools/product-type-client';
 import { addOrUpdateCustomType, deleteOrUpdateCustomType } from '../services/commerce-tools/custom-type-helper';
 
@@ -25,11 +26,11 @@ export async function handleRequest({
   loggerId: string;
   startMessage: string;
   throwError?: boolean;
-  fn: () => void;
+  fn: () => void | Promise<void>;
 }): Promise<void> {
   try {
     log.info(`${loggerId} ${startMessage}`);
-    fn();
+    await fn();
   } catch (error) {
     log.error(loggerId, error);
     if (throwError) {
@@ -121,10 +122,40 @@ export async function createProductTypeSubscription(): Promise<void> {
     fn: async () => {
       const productType = await getProductTypeByKey(productTypeSubscription.key!);
       if (productType) {
-        log.info('Product type subscription already exists. Skipping creation.');
+        log.info(`Product type "${productTypeSubscription.key}" already exists. Checking if update is needed...`);
+        
+        const existingAttributes = productType.attributes || [];
+        const desiredAttributes = productTypeSubscription.attributes || [];
+
+        const attributesAreEqual = JSON.stringify(existingAttributes) === JSON.stringify(desiredAttributes);
+
+        if (!attributesAreEqual) {
+          log.info('Product type subscription attributes differ from desired. Updating attributes...');
+          
+          const products = await getProductsByProductTypeId(productType.id);
+          if (products.length > 0) {
+            log.warn(`Cannot update product type "${productTypeSubscription.key}" because it is used by ${products.length} product(s). Skipping update.`);
+            return;
+          }
+          try {
+            const updatedProductType = await updateProductType(productTypeSubscription, productType);
+            log.info(`Product type ${updatedProductType.key} subscription attributes updated successfully.`);
+          } catch (error) {
+            log.error(`Failed to update product type "${productTypeSubscription.key}":`, error);
+            throw error;
+          }
+        } else {
+          log.info('Product type subscription already exists and attributes are the same. Skipping update.');
+        }
       } else {
-        const newProductType = await createProductType(productTypeSubscription);
-        log.info(`Product Type "${newProductType.key}" created successfully.`);
+        log.info(`Product type "${productTypeSubscription.key}" does not exist. Creating new product type...`);
+        try {
+          const newProductType = await createProductType(productTypeSubscription);
+          log.info(`Product Type "${newProductType.key}" created successfully.`);
+        } catch (error) {
+          log.error(`Failed to create product type "${productTypeSubscription.key}":`, error);
+          throw error;
+        }
       }
     },
   });

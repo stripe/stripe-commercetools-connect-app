@@ -28,3 +28,8 @@ export async function createProductType(body: ProductTypeDraft) {
   const newProductType = await apiClient.productTypes().post({ body }).execute();
   return newProductType.body;
 }
+
+export async function updateProductType(body: ProductTypeDraft, existingProductType: ProductType) {
+  await deleteProductType({ key: body.key!, version: existingProductType.version });
+  return await createProductType(body);
+}

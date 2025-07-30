@@ -70,23 +70,56 @@ The configuration of subscription products is done through a custom product type
 This type is applied to product variants to define the parameters for subscription management. The following fields are used to configure the subscription:
 
 1. **payment-connector-subscription-information**: This custom product type is applied to product variants to configure subscription parameters including:
-   - `description`: A description for the subscription
-   - `recurring_interval`: Defines the billing frequency ('day', 'week', 'month', 'year')
-   - `recurring_interval_count`: Specifies the number of intervals between billings
-   - `off_session`: Whether the subscription can be used off-session
-   - `collection_method`: Payment collection method ('charge_automatically' or 'send_invoice')
-   - `days_until_due`: Optional number of days before the invoice is due (only applies when collection method is 'send_invoice')
-   - `cancel_at_period_end`: Optional flag to cancel at the end of the current period
-   - `cancel_at`: Optional specific date and time to cancel the subscription
-   - `billing_cycle_anchor_day`: Optional day of the month for billing
-   - `billing_cycle_anchor_time`: Optional time of day for billing
-   - `billing_cycle_anchor_date`: Optional specific date and time for billing anchor
-   - `trial_period_days`: Optional trial period length in days
-   - `trial_end_date`: Optional specific date and time for trial end
-   - `missing_payment_method_at_trial_end`: Optional behavior when payment method is missing at trial end ('cancel', 'create_invoice', or 'pause')
-   - `proration_behavior`: Optional behavior for proration when making changes ('none', 'create_prorations', or 'always_invoice')
+   - `stripeConnector_description`: A description for the subscription
+   - `stripeConnector_recurring_interval`: Defines the billing frequency ('day', 'week', 'month', 'year')
+   - `stripeConnector_recurring_interval_count`: Specifies the number of intervals between billings
+   - `stripeConnector_off_session`: Whether the subscription can be used off-session
+   - `stripeConnector_collection_method`: Payment collection method ('charge_automatically' or 'send_invoice')
+   - `stripeConnector_days_until_due`: Optional number of days before the invoice is due (only applies when collection method is 'send_invoice')
+   - `stripeConnector_cancel_at_period_end`: Optional flag to cancel at the end of the current period
+   - `stripeConnector_cancel_at`: Optional specific date and time to cancel the subscription
+   - `stripeConnector_billing_cycle_anchor_day`: Optional day of the month for billing
+   - `stripeConnector_billing_cycle_anchor_time`: Optional time of day for billing
+   - `stripeConnector_billing_cycle_anchor_date`: Optional specific date and time for billing anchor
+   - `stripeConnector_trial_period_days`: Optional trial period length in days
+   - `stripeConnector_trial_end_date`: Optional specific date and time for trial end
+   - `stripeConnector_missing_payment_method_at_trial_end`: Optional behavior when payment method is missing at trial end ('cancel', 'create_invoice', or 'pause')
+   - `stripeConnector_proration_behavior`: Optional behavior for proration when making changes ('none', 'create_prorations', or 'always_invoice')
+
+> **Note**: All subscription-related attributes now use the `stripeConnector_` prefix for better organization and consistency. The system automatically handles the mapping between these prefixed attribute names and the internal field names used by the subscription service.
 
 Products marked with this type are automatically processed as subscription items during checkout, creating recurring billing arrangements in Stripe when purchased.
+
+### Attribute Name Transformation
+
+The connector automatically handles the transformation between the `stripeConnector_` prefixed attribute names used in the product type and the internal field names used by the subscription service. This transformation is handled by the `transformVariantAttributes` utility function.
+
+#### How It Works
+
+1. **Product Type Definition**: Attributes are defined with the `stripeConnector_` prefix in the custom product type
+2. **Automatic Transformation**: When processing subscription data, the `transformVariantAttributes` function automatically strips the `stripeConnector_` prefix
+3. **Internal Processing**: The subscription service receives the clean field names for processing
+4. **Backward Compatibility**: The system supports both prefixed and non-prefixed attribute names
+
+#### Example Transformation
+
+```typescript
+// Product type attributes (with prefix)
+{
+  stripeConnector_description: "Monthly subscription",
+  stripeConnector_recurring_interval: "month",
+  stripeConnector_off_session: true
+}
+
+// Transformed to internal format (prefix removed)
+{
+  description: "Monthly subscription",
+  recurring_interval: "month", 
+  off_session: true
+}
+```
+
+This transformation ensures clean separation between the commercetools product type schema and the internal subscription processing logic while maintaining backward compatibility.
 
 
 ## Getting Started

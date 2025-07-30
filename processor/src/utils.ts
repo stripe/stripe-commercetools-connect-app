@@ -49,7 +49,8 @@ export const isEventRefundOrSucceed = (event: Stripe.Event): boolean => {
 export const transformVariantAttributes = <T>(attributes?: Attribute[]): T => {
   const result: Record<string, string> = {};
   for (const { name, value } of attributes ?? []) {
-    result[name] = isObject(value) ? value.key : value;
+    const cleanName = name.startsWith('stripeConnector_') ? name.replace('stripeConnector_', '') : name;
+    result[cleanName] = isObject(value) ? value.key : value;
   }
   return result as T;
 };

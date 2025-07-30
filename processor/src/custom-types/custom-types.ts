@@ -65,7 +65,7 @@ export const typeLineItem: TypeDraft = {
       label: {
         'en-US': 'Stripe Subscription ID',
       },
-      required: true,
+      required: false,
     },
     {
       type: {
@@ -86,7 +86,7 @@ export const productTypeSubscription: ProductTypeDraft = {
   description: 'The subscription-information product type.',
   attributes: [
     {
-      name: 'description',
+      name: 'stripeConnector_description',
       label: {
         'en-US': 'Description',
       },
@@ -99,7 +99,7 @@ export const productTypeSubscription: ProductTypeDraft = {
       inputHint: 'SingleLine',
     },
     {
-      name: 'recurring_interval',
+      name: 'stripeConnector_recurring_interval',
       label: {
         'en-US': 'Recurring Interval',
       },
@@ -130,7 +130,7 @@ export const productTypeSubscription: ProductTypeDraft = {
       inputHint: 'SingleLine',
     },
     {
-      name: 'recurring_interval_count',
+      name: 'stripeConnector_recurring_interval_count',
       label: {
         'en-US': 'Recurring Interval Count',
       },
@@ -143,7 +143,7 @@ export const productTypeSubscription: ProductTypeDraft = {
       inputHint: 'SingleLine',
     },
     {
-      name: 'off_session',
+      name: 'stripeConnector_off_session',
       label: {
         'en-US': 'Off Session',
       },
@@ -156,7 +156,7 @@ export const productTypeSubscription: ProductTypeDraft = {
       inputHint: 'SingleLine',
     },
     {
-      name: 'collection_method',
+      name: 'stripeConnector_collection_method',
       label: {
         'en-US': 'Collection Method',
       },
@@ -179,7 +179,7 @@ export const productTypeSubscription: ProductTypeDraft = {
       inputHint: 'SingleLine',
     },
     {
-      name: 'days_until_due',
+      name: 'stripeConnector_days_until_due',
       label: {
         'en-US': 'Days Until Due',
       },
@@ -196,7 +196,7 @@ export const productTypeSubscription: ProductTypeDraft = {
       },
     },
     {
-      name: 'cancel_at_period_end',
+      name: 'stripeConnector_cancel_at_period_end',
       label: {
         'en-US': 'Cancel At Period End',
       },
@@ -209,7 +209,7 @@ export const productTypeSubscription: ProductTypeDraft = {
       inputHint: 'SingleLine',
     },
     {
-      name: 'cancel_at',
+      name: 'stripeConnector_cancel_at',
       label: {
         'en-US': 'Cancel At',
       },
@@ -225,7 +225,7 @@ export const productTypeSubscription: ProductTypeDraft = {
       },
     },
     {
-      name: 'billing_cycle_anchor_day',
+      name: 'stripeConnector_billing_cycle_anchor_day',
       label: {
         'en-US': 'Billing Cycle Anchor Day',
       },
@@ -242,7 +242,7 @@ export const productTypeSubscription: ProductTypeDraft = {
       },
     },
     {
-      name: 'billing_cycle_anchor_time',
+      name: 'stripeConnector_billing_cycle_anchor_time',
       label: {
         'en-US': 'Billing Cycle Anchor Time',
       },
@@ -259,7 +259,7 @@ export const productTypeSubscription: ProductTypeDraft = {
       inputHint: 'SingleLine',
     },
     {
-      name: 'billing_cycle_anchor_date',
+      name: 'stripeConnector_billing_cycle_anchor_date',
       label: {
         'en-US': 'Billing Cycle Anchor Date',
       },
@@ -275,7 +275,7 @@ export const productTypeSubscription: ProductTypeDraft = {
       },
     },
     {
-      name: 'trial_period_days',
+      name: 'stripeConnector_trial_period_days',
       label: {
         'en-US': 'Trial Period Days',
       },
@@ -291,7 +291,7 @@ export const productTypeSubscription: ProductTypeDraft = {
       },
     },
     {
-      name: 'trial_end_date',
+      name: 'stripeConnector_trial_end_date',
       label: {
         'en-US': 'Trial End Date',
       },
@@ -308,7 +308,7 @@ export const productTypeSubscription: ProductTypeDraft = {
       },
     },
     {
-      name: 'missing_payment_method_at_trial_end',
+      name: 'stripeConnector_missing_payment_method_at_trial_end',
       label: {
         'en-US': 'Missing Payment Method Behavior at Trial End',
       },
@@ -338,7 +338,7 @@ export const productTypeSubscription: ProductTypeDraft = {
       },
     },
     {
-      name: 'proration_behavior',
+      name: 'stripeConnector_proration_behavior',
       label: {
         'en-US': 'Proration Behavior',
       },

@@ -4,7 +4,7 @@ This document provides a comprehensive overview of all the changes and improveme
 
 ## Overview
 
-The latest update includes significant enhancements across multiple components of the connector, focusing on subscription management, shipping fee integration, enabler improvements, and comprehensive testing coverage.
+The latest update includes significant enhancements across multiple components of the connector, focusing on subscription management, shipping fee integration, enabler improvements, comprehensive testing coverage, and attribute name standardization.
 
 ## Summary of Changes
 
@@ -13,6 +13,7 @@ The latest update includes significant enhancements across multiple components o
 - **706 insertions, 36 deletions**
 - **2 new documentation files created**
 - **Comprehensive test coverage added**
+- **Attribute name standardization implemented**
 
 ### 🎯 Key Areas of Improvement
 
@@ -21,6 +22,7 @@ The latest update includes significant enhancements across multiple components o
 3. **Payment Service** - Enhanced payment intent configuration
 4. **Testing** - Comprehensive test coverage for all functionality
 5. **Documentation** - Complete documentation updates and new guides
+6. **Attribute Standardization** - Standardized naming convention for product type attributes
 
 ## Detailed Breakdown
 
@@ -98,6 +100,50 @@ payment_method_options: {
 ### 4. Testing Improvements
 
 #### Comprehensive Test Coverage
+
+### 5. Attribute Name Standardization
+
+#### Overview
+The connector has been updated to use a standardized naming convention for all subscription-related product type attributes. All attributes now use the `stripeConnector_` prefix for better organization, consistency, and maintainability.
+
+#### Key Changes
+- **Attribute Name Updates**: All 15 subscription-related attributes now use the `stripeConnector_` prefix
+- **Automatic Transformation**: Enhanced `transformVariantAttributes` function to automatically strip prefixes
+- **Backward Compatibility**: Support for both old and new attribute name formats
+- **Improved Organization**: Clear separation between connector-specific and general product attributes
+
+#### Technical Implementation
+```typescript
+// Enhanced attribute transformation
+export const transformVariantAttributes = <T>(attributes?: Attribute[]): T => {
+  const result: Record<string, string> = {};
+  for (const { name, value } of attributes ?? []) {
+    // Remove 'stripeConnector_' prefix if present
+    const cleanName = name.startsWith('stripeConnector_') ? name.replace('stripeConnector_', '') : name;
+    result[cleanName] = isObject(value) ? value.key : value;
+  }
+  return result as T;
+};
+```
+
+#### Benefits
+- **Better Organization**: Clear separation between connector-specific attributes and general product attributes
+- **Improved Maintainability**: Reduced naming conflicts and clear attribute ownership
+- **Enhanced Compatibility**: Backward compatibility maintained through automatic transformation
+- **Better Debugging**: Clear attribute ownership in logs and error messages
+
+#### Files Modified
+- `processor/src/custom-types/custom-types.ts`: Updated all subscription attributes to use `stripeConnector_` prefix
+- `processor/src/utils.ts`: Enhanced `transformVariantAttributes` function with prefix stripping
+- `processor/src/connectors/actions.ts`: Improved product type management and async function support
+- `processor/src/services/commerce-tools/product-type-client.ts`: Added `updateProductType` function
+- `processor/test/utils/utils.spec.ts`: Added tests for attribute name transformation
+
+#### Migration Impact
+- **No Breaking Changes**: All changes are backward compatible
+- **Automatic Handling**: System automatically handles both attribute name formats
+- **No Migration Required**: Existing implementations continue to work without changes
+- **Future-Proof**: New deployments use standardized naming convention
 - Tests for all subscription service methods
 - Enhanced mock data for realistic testing
 - Error scenario and edge case coverage
