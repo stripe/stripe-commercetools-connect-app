@@ -273,9 +273,28 @@ export const mock_ProductType: ProductType = {
   id: 'mock-product-type-id',
   version: 1,
   name: 'Mock Product Type',
-  key: 'mock',
+  key: 'payment-connector-subscription-information',
   description: 'Mock description',
-  attributes: [],
+  attributes: [
+    {
+      name: 'stripeConnector_description',
+      label: { 'en-US': 'Description' },
+      isRequired: false,
+      type: { name: 'text' },
+      attributeConstraint: 'None',
+      isSearchable: false,
+      inputHint: 'SingleLine'
+    },
+    {
+      name: 'stripeConnector_recurring_interval',
+      label: { 'en-US': 'Recurring Interval' },
+      isRequired: true,
+      type: { name: 'enum', values: [] },
+      attributeConstraint: 'None',
+      isSearchable: false,
+      inputHint: 'SingleLine'
+    }
+  ],
   createdAt: '2025-01-01T00:00:00.000Z',
   lastModifiedAt: '2025-01-01T00:00:00.000Z',
 };
