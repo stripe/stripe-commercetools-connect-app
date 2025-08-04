@@ -114,7 +114,7 @@ export class StripeSubscriptionService {
         ...subscriptionParams,
         customer: stripeCustomerId!,
         items: [
-          { price: priceId }, 
+          { price: priceId, quantity: cart.lineItems[0].quantity || 1 }, 
           ...(shippingPriceId ? [{ price: shippingPriceId }] : [])],
         payment_behavior: 'default_incomplete',
         payment_settings: { save_default_payment_method: 'on_subscription' },
@@ -171,7 +171,7 @@ export class StripeSubscriptionService {
         customer: stripeCustomerId,
         default_payment_method: paymentMethodId,
         items: [
-          { price: priceId }, 
+          { price: priceId, quantity: cart.lineItems[0].quantity || 1 }, 
           ...(shippingPriceId ? [{ price: shippingPriceId }] : [])],
         expand: ['latest_invoice'],
         payment_settings: { save_default_payment_method: 'on_subscription' },
@@ -222,7 +222,7 @@ export class StripeSubscriptionService {
     const merchantReturnUrl = getMerchantReturnUrlFromContext() || config.merchantReturnUrl;
     const cart = await getCartExpanded();
 
-    if (cart.lineItems.length > 1 || cart.lineItems[0].quantity > 1) {
+    if (cart.lineItems.length > 1) {
       throw new Error('Only one line item is allowed in the cart for subscription. Please remove the others.');
     }
 
@@ -620,7 +620,10 @@ export class StripeSubscriptionService {
       throw new Error('Cart is not a subscription.');
     }
 
-    return { centAmount, currencyCode, fractionDigits };
+    // Calculate total amount including quantity
+    const totalCentAmount = centAmount * product.quantity;
+
+    return { centAmount: totalCentAmount, currencyCode, fractionDigits };
   }
 
   async getCustomerSubscriptions(customerId: string): Promise<Stripe.Subscription[]> {
@@ -736,8 +739,14 @@ export class StripeSubscriptionService {
       const subscription = invoiceExpanded.subscription as Stripe.Subscription;
       const invoicePaymentIntent = invoiceExpanded.payment_intent as Stripe.PaymentIntent;
 
+      const paymentId = subscription.metadata?.ct_payment_id;
+      if (!paymentId) {
+        log.error(`Cannot process invoice with ID: ${invoiceExpanded.id}. Missing payment ID in subscription metadata.`);
+        return;
+      }
+      
       let payment = await this.ctPaymentService.getPayment({
-        id: subscription.metadata?.ct_payment_id ?? '',
+        id: paymentId,
       });
       if (!payment) {
         log.error(`Cannot process invoice with ID: ${invoiceExpanded.id}. Missing Payment can be trial days.`);
@@ -773,7 +782,7 @@ export class StripeSubscriptionService {
           return;
         }
 
-        const cart = await this.ctCartService.getCart({ id: eventCartId });
+        const cart = await this.ctCartService.getCart({ id: eventCartId! });
         //If it is invoice.payment_failed the amount is the amount_due
         const isInvoicePaid = event.type.startsWith('invoice.paid');
         const amountPlanned: Money = {

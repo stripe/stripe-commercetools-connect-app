@@ -586,7 +586,7 @@ describe('stripe-subscription.service', () => {
       expect(result.billingAddress).toBeDefined();
     });
 
-    test('should return all subscription data successfully', async () => {
+    test('should throw error when cart has multiple line items', async () => {
       const getCartExpandedMock = jest
         .spyOn(CartClient, 'getCartExpanded')
         .mockResolvedValue(mockGetSubscriptionCartWithTwoItems);
@@ -596,6 +596,32 @@ describe('stripe-subscription.service', () => {
       const result = stripeSubscriptionService.prepareSubscriptionData();
       expect(getCartExpandedMock).toHaveBeenCalled();
       expect(result).rejects.toThrow();
+    });
+
+    test('should allow cart with quantity greater than 1', async () => {
+      setupMockConfig({
+        stripeCollectBillingAddress: 'auto',
+        merchantReturnUrl: '',
+      });
+      const mockCartWithQuantity = {
+        ...mockGetSubscriptionCartWithVariant(1),
+        lineItems: [{ ...mockGetSubscriptionCartWithVariant(1).lineItems[0], quantity: 3 }]
+      };
+      const getCartExpandedMock = jest.spyOn(CartClient, 'getCartExpanded').mockResolvedValue(mockCartWithQuantity);
+      const getCustomerMock = jest
+        .spyOn(StripeCustomerService.prototype, 'getCtCustomer')
+        .mockResolvedValue(mockCtCustomerData);
+      
+      const result = await stripeSubscriptionService.prepareSubscriptionData({ basicData: true });
+
+      expect(result).toBeDefined();
+      expect(getCartExpandedMock).toHaveBeenCalled();
+      expect(getCustomerMock).toHaveBeenCalled();
+      expect(result.cart).toStrictEqual(mockCartWithQuantity);
+      expect(result.stripeCustomerId).toStrictEqual(mockStripeCustomerId);
+      expect(result.subscriptionParams).toBeDefined();
+      expect(result.merchantReturnUrl).toBeDefined();
+      expect(result.billingAddress).toBeUndefined();
     });
   });
 
@@ -1013,6 +1039,19 @@ describe('stripe-subscription.service', () => {
     test('should get subscription payment amount successfully', () => {
       const result = stripeSubscriptionService.getSubscriptionPaymentAmount(mockGetSubscriptionCartWithVariant(6));
       expect(result).toStrictEqual(mockGetPaymentAmount);
+    });
+
+    test('should calculate total amount including quantity', () => {
+      const mockCartWithQuantity = {
+        ...mockGetSubscriptionCartWithVariant(6),
+        lineItems: [{ ...mockGetSubscriptionCartWithVariant(6).lineItems[0], quantity: 3 }]
+      };
+      const result = stripeSubscriptionService.getSubscriptionPaymentAmount(mockCartWithQuantity);
+      const expectedAmount = {
+        ...mockGetPaymentAmount,
+        centAmount: mockGetPaymentAmount.centAmount * 3
+      };
+      expect(result).toStrictEqual(expectedAmount);
     });
 
     test('should throw an error', () => {
