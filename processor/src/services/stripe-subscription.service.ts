@@ -342,6 +342,7 @@ export class StripeSubscriptionService {
   private async getLineItemPriceId(lineItem: LineItem): Promise<string> {
     const amount: PaymentAmount = {
       centAmount: lineItem.price.value.centAmount,
+      totalCentAmount: lineItem.price.value.centAmount * lineItem.quantity,
       currencyCode: lineItem.price.value.currencyCode,
       fractionDigits: lineItem.price.value.fractionDigits,
     };
@@ -774,7 +775,7 @@ export class StripeSubscriptionService {
 
     const totalCentAmount = centAmount * product.quantity;
 
-    return { centAmount: totalCentAmount, currencyCode, fractionDigits };
+    return { centAmount: centAmount, totalCentAmount: totalCentAmount, currencyCode, fractionDigits };
   }
 
   async getCustomerSubscriptions(customerId: string): Promise<Stripe.Subscription[]> {

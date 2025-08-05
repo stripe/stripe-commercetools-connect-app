@@ -1,6 +1,116 @@
 # Changelog
 
-## [Latest] - Attribute Name Standardization and Product Type Management
+## [Latest] - Enhanced Subscription Service with Mixed Cart Support and One-Time Item Invoicing
+
+### Added
+- **One-Time Item Invoicing**: New functionality to create separate invoices for one-time items in mixed carts, allowing better management of subscription + one-time item scenarios
+- **Mixed Cart Support**: Enhanced subscription creation logic to handle carts containing both subscription items and one-time items
+- **Line Item Price Management**: New method `getAllLineItemPrices()` to retrieve all line item prices excluding subscription items
+- **Enhanced Error Handling**: Improved error handling for scenarios where no subscription product is found in the cart
+- **Quantity Support**: Enhanced quantity handling for subscription items with proper validation
+- **Comprehensive Test Coverage**: Expanded test coverage to validate new features and ensure correct behavior with mixed item carts
+- **Attribute Name Prefix Support**: Added support for `stripeConnector_` prefixed attribute names in product types
+- **Enhanced Product Type Management**: Improved product type creation and update logic with better error handling
+- **Attribute Transformation Utility**: Enhanced `transformVariantAttributes` function to automatically strip `stripeConnector_` prefixes
+
+### Changed
+- **Subscription Creation Logic**: Updated to ensure only subscription and shipping items are included in Stripe subscriptions
+- **Cart Validation**: Modified error handling to restrict subscriptions to a single line item in the cart, improving validation logic
+- **Payment Amount Calculation**: Enhanced calculation of total payment amounts to account for item quantities
+- **Product Type Attributes**: Updated all subscription-related product type attributes to use `stripeConnector_` prefix for better organization
+- **Attribute Name Mapping**: Modified `transformVariantAttributes` to automatically map prefixed attribute names to internal field names
+- **Product Type Update Logic**: Improved product type update process with better error handling and validation
+- **Function Signatures**: Updated `handleRequest` function to support both synchronous and asynchronous operations
+- **Dependency Updates**: Updated `dotenv` to version 17.2.0 and `eslint-plugin-jest` to version 29.0.1
+
+### Technical Details
+
+#### New Subscription Service Features
+- **`getAllLineItemPrices()`**: Retrieves all line item prices excluding subscription items for one-time item processing
+- **`createOneTimeItemsInvoice()`**: Creates separate Stripe invoices for one-time items in mixed carts
+- **Enhanced `createSubscription()`**: Now handles mixed carts by creating separate invoices for one-time items
+- **Quantity Support**: Proper handling of line item quantities in subscription creation
+- **Mixed Cart Validation**: Improved validation for carts containing both subscription and one-time items
+
+#### One-Time Item Invoicing Process
+1. **Item Identification**: Automatically identifies one-time items (non-subscription items) in the cart
+2. **Price Retrieval**: Gets Stripe price IDs for all one-time items
+3. **Invoice Creation**: Creates separate Stripe invoices for one-time items with proper metadata
+4. **Invoice Finalization**: Automatically finalizes invoices for immediate payment processing
+5. **Metadata Tracking**: Includes cart ID and type metadata for proper tracking
+
+#### Attribute Name Changes
+All subscription-related product type attributes now use the `stripeConnector_` prefix:
+- `stripeConnector_description` → maps to `description`
+- `stripeConnector_recurring_interval` → maps to `recurring_interval`
+- `stripeConnector_recurring_interval_count` → maps to `recurring_interval_count`
+- `stripeConnector_off_session` → maps to `off_session`
+- `stripeConnector_collection_method` → maps to `collection_method`
+- `stripeConnector_days_until_due` → maps to `days_until_due`
+- `stripeConnector_cancel_at_period_end` → maps to `cancel_at_period_end`
+- `stripeConnector_cancel_at` → maps to `cancel_at`
+- `stripeConnector_billing_cycle_anchor_day` → maps to `billing_cycle_anchor_day`
+- `stripeConnector_billing_cycle_anchor_time` → maps to `billing_cycle_anchor_time`
+- `stripeConnector_billing_cycle_anchor_date` → maps to `billing_cycle_anchor_date`
+- `stripeConnector_trial_period_days` → maps to `trial_period_days`
+- `stripeConnector_trial_end_date` → maps to `trial_end_date`
+- `stripeConnector_missing_payment_method_at_trial_end` → maps to `missing_payment_method_at_trial_end`
+- `stripeConnector_proration_behavior` → maps to `proration_behavior`
+
+#### Enhanced Utility Functions
+- **`transformVariantAttributes`**: Now automatically strips `stripeConnector_` prefixes from attribute names
+- **`handleRequest`**: Updated to support async functions with proper error handling
+- **Product Type Management**: Improved creation and update logic with comprehensive error handling
+
+#### Files Modified
+- `processor/src/services/stripe-subscription.service.ts`: Added mixed cart support and one-time item invoicing
+- `processor/src/custom-types/custom-types.ts`: Updated all subscription attributes to use `stripeConnector_` prefix
+- `processor/src/utils.ts`: Enhanced `transformVariantAttributes` function with prefix stripping
+- `processor/src/connectors/actions.ts`: Improved product type management and async function support
+- `processor/src/services/commerce-tools/product-type-client.ts`: Added `updateProductType` function
+- `processor/test/services/stripe-subscription.service.spec.ts`: Added comprehensive tests for new features
+- `processor/test/utils/utils.spec.ts`: Added tests for attribute name transformation
+- `processor/package-lock.json`: Updated dependencies
+
+#### Product Type Management Improvements
+- **Smart Update Logic**: Checks if product type exists and compares attributes before updating
+- **Product Usage Validation**: Prevents updates when product type is in use by existing products
+- **Error Handling**: Comprehensive error handling with detailed logging
+- **Graceful Degradation**: Continues deployment even if product type updates fail
+
+#### Testing Enhancements
+- Added test case for `stripeConnector_` prefix stripping in `transformVariantAttributes`
+- Enhanced test coverage for attribute name transformation
+- Added comprehensive tests for mixed cart scenarios and one-time item invoicing
+- Improved test reliability and coverage
+
+### Breaking Changes
+None - all changes are backward compatible. The `transformVariantAttributes` function now handles both prefixed and non-prefixed attribute names.
+
+### Migration Guide
+No migration required - existing functionality remains unchanged. The system automatically handles both old and new attribute name formats.
+
+### Dependencies
+- Updated `dotenv` from 16.5.0 to 17.2.0
+- Updated `eslint-plugin-jest` from 28.11.0 to 29.0.1
+
+### Performance Impact
+- Minimal performance impact
+- Improved error handling reduces failed operations
+- Better logging for debugging and monitoring
+- Enhanced attribute name handling improves data consistency
+- Mixed cart support provides more flexible cart configurations
+
+### Security
+- No security changes
+- Enhanced validation for product type operations
+- Improved error handling prevents information leakage
+- Better attribute name standardization enhances data integrity
+- Proper invoice creation ensures secure payment processing
+
+---
+
+## [Previous] - Attribute Name Standardization and Product Type Management
 
 ### Added
 - **Attribute Name Prefix Support**: Added support for `stripeConnector_` prefixed attribute names in product types
