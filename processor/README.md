@@ -121,6 +121,34 @@ The connector automatically handles the transformation between the `stripeConnec
 
 This transformation ensures clean separation between the commercetools product type schema and the internal subscription processing logic while maintaining backward compatibility.
 
+### Mixed Cart Support
+
+The connector now supports mixed carts containing both subscription items and one-time items. This feature allows customers to purchase subscription products alongside regular products in a single transaction, with automatic handling of different billing scenarios.
+
+#### How Mixed Cart Support Works
+
+1. **Cart Analysis**: The system automatically analyzes the cart to identify subscription items and one-time items
+2. **Separate Processing**: Subscription items are processed as recurring billing, while one-time items are processed as immediate invoices
+3. **Invoice Creation**: One-time items are automatically converted to separate Stripe invoices for immediate payment
+4. **Subscription Creation**: Subscription items are processed normally with recurring billing setup
+5. **Unified Experience**: Customers experience a seamless checkout process regardless of cart composition
+
+#### Mixed Cart Processing Flow
+
+```
+Cart with Mixed Items
+├── Subscription Items → Stripe Subscription (recurring billing)
+└── One-Time Items → Stripe Invoice (immediate payment)
+```
+
+#### Key Features
+
+- **Automatic Item Classification**: The system automatically identifies subscription vs. one-time items based on product type
+- **Separate Invoice Creation**: One-time items are processed as separate invoices with proper metadata tracking
+- **Quantity Support**: Proper handling of item quantities for both subscription and one-time items
+- **Error Handling**: Enhanced error handling for scenarios where no subscription product is found
+- **Metadata Tracking**: Comprehensive metadata tracking for both subscription and invoice items
+
 
 ## Getting Started
 

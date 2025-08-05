@@ -1,4 +1,5 @@
 import Stripe from 'stripe';
+import { randomUUID } from 'crypto';
 import {
   Cart,
   CommercetoolsCartService,
@@ -110,18 +111,26 @@ export class StripeSubscriptionService {
         shippingPriceId } =
         await this.prepareSubscriptionData();
 
+      const oneTimeItems = await this.getAllLineItemPrices(cart);
+      if (oneTimeItems.length > 0) {
+        await this.createOneTimeItemsInvoice(cart, stripeCustomerId!, oneTimeItems);
+      }
+
       const subscription = await stripe.subscriptions.create({
         ...subscriptionParams,
         customer: stripeCustomerId!,
         items: [
-          { price: priceId }, 
-          ...(shippingPriceId ? [{ price: shippingPriceId }] : [])],
+          { price: priceId, quantity: this.findSubscriptionLineItem(cart).quantity || 1 }, 
+          ...(shippingPriceId ? [{ price: shippingPriceId }] : []),
+        ],
         payment_behavior: 'default_incomplete',
         payment_settings: { save_default_payment_method: 'on_subscription' },
         expand: ['latest_invoice.payment_intent'],
         metadata: this.paymentCreationService.getPaymentMetadata(cart),
         discounts: await this.stripeCouponService.getStripeCoupons(cart),
-      });
+      },
+      { idempotencyKey: randomUUID() },
+    );
 
       const { clientSecret, paymentIntentId } = this.validateSubscription(subscription);
 
@@ -166,18 +175,27 @@ export class StripeSubscriptionService {
         throw new Error('Failed to create Subscription. Invalid setup intent.');
       }
 
+      const oneTimeItems = await this.getAllLineItemPrices(cart);
+      if (oneTimeItems.length > 0) {
+        await this.createOneTimeItemsInvoice(cart, stripeCustomerId!, oneTimeItems);
+      }
+
       const subscription = await stripe.subscriptions.create({
         ...subscriptionParams,
         customer: stripeCustomerId,
         default_payment_method: paymentMethodId,
+
         items: [
-          { price: priceId }, 
-          ...(shippingPriceId ? [{ price: shippingPriceId }] : [])],
+          { price: priceId, quantity: this.findSubscriptionLineItem(cart).quantity || 1 }, 
+          ...(shippingPriceId ? [{ price: shippingPriceId }] : []),
+        ],
         expand: ['latest_invoice'],
         payment_settings: { save_default_payment_method: 'on_subscription' },
         metadata: this.paymentCreationService.getPaymentMetadata(cart),
         discounts: await this.stripeCouponService.getStripeCoupons(cart),
-      });
+      },
+      { idempotencyKey: randomUUID() },
+    );
 
       log.info('Stripe Subscription from Setup Intent created.', {
         ctCartId: cart.id,
@@ -222,13 +240,11 @@ export class StripeSubscriptionService {
     const merchantReturnUrl = getMerchantReturnUrlFromContext() || config.merchantReturnUrl;
     const cart = await getCartExpanded();
 
-    if (cart.lineItems.length > 1 || cart.lineItems[0].quantity > 1) {
-      throw new Error('Only one line item is allowed in the cart for subscription. Please remove the others.');
-    }
+    const subscriptionLineItem = this.findSubscriptionLineItem(cart);
 
     const customer = await this.customerService.getCtCustomer(cart.customerId!);
     const stripeCustomerId: string = customer?.custom?.fields?.[stripeCustomerIdFieldName];
-    const subscriptionParams = getSubscriptionAttributes(cart.lineItems[0].variant.attributes);
+    const subscriptionParams = getSubscriptionAttributes(subscriptionLineItem.variant.attributes);
     const billingAddress =
       config.stripeCollectBillingAddress !== 'auto' ? this.customerService.getBillingAddress(cart) : undefined;
 
@@ -270,7 +286,7 @@ export class StripeSubscriptionService {
   }
 
   public async getSubscriptionPriceId(cart: Cart, amount: PaymentAmount): Promise<string> {
-    const product = cart.lineItems[0];
+    const product = this.findSubscriptionLineItem(cart);
     const attributes = transformVariantAttributes<SubscriptionAttributes>(product.variant.attributes);
     const stripePrice = await this.getStripePriceByMetadata(product);
 
@@ -295,7 +311,7 @@ export class StripeSubscriptionService {
   }
 
   public async getSubscriptionShippingPriceId(cart: Cart): Promise<string | undefined> {
-    const product = cart.lineItems[0];
+    const product = this.findSubscriptionLineItem(cart);
     const attributes = transformVariantAttributes<SubscriptionAttributes>(product.variant.attributes);
     const shippingInfo = cart.shippingInfo;
     if (!shippingInfo) {
@@ -323,6 +339,119 @@ export class StripeSubscriptionService {
     return await this.createStripeShippingPrice({ shipping: shippingInfo, stripeProductId, attributes });
   }
 
+  private async getLineItemPriceId(lineItem: LineItem): Promise<string> {
+    const amount: PaymentAmount = {
+      centAmount: lineItem.price.value.centAmount,
+      totalCentAmount: lineItem.price.value.centAmount * lineItem.quantity,
+      currencyCode: lineItem.price.value.currencyCode,
+      fractionDigits: lineItem.price.value.fractionDigits,
+    };
+
+    const stripePrice = await this.getStripePriceByMetadata(lineItem);
+    if (stripePrice.data.length && stripePrice.data[0].id) {
+      const price = stripePrice.data[0];
+      const isActive = price.active;
+      const hasSamePrice = price.unit_amount === amount.centAmount;
+
+      if (isActive && hasSamePrice) {
+        log.info(`Found existing price ID for line item: "${price.id}"`);
+        return price.id;
+      } else {
+        await this.disableStripePrice(price, lineItem);
+      }
+    }
+
+    const stripeProductId = await this.getStripeProduct({ product: lineItem });
+    const price = await stripe.prices.create({
+      currency: amount.currencyCode,
+      product: stripeProductId,
+      unit_amount: amount.centAmount,
+      metadata: {
+        [METADATA_VARIANT_SKU_FIELD]: lineItem.variant.sku!,
+        [METADATA_PRICE_ID_FIELD]: lineItem.price.id,
+      },
+      nickname: getLocalizedString(lineItem.name),
+    },
+    { idempotencyKey: randomUUID() },
+  );
+
+    log.info(`Stripe price created for line item.`, {
+      ctProductId: lineItem.productId,
+      ctPriceAmount: amount.centAmount,
+      stripePriceId: price.id,
+      stripeProductId,
+    });
+
+    return price.id;
+  }
+
+  /**
+   * Get all line item prices for the cart, excluding the subscription line item
+   * @param cart - The cart EXPANDED to get the line item prices for
+   * @returns An array of line item prices
+   */
+  private async getAllLineItemPrices(cart: Cart): Promise<Array<{ price: string; quantity: number }>> {
+    const subscriptionLineItem = this.findSubscriptionLineItem(cart);
+    const lineItemPrices: Array<{ price: string; quantity: number }> = [];
+
+    for (const lineItem of cart.lineItems) {
+      if (lineItem.productType.obj?.name === productTypeSubscription.name) {
+        continue;
+      }
+
+      const priceId = await this.getLineItemPriceId(lineItem);
+      lineItemPrices.push({
+        price: priceId,
+        quantity: lineItem.quantity || 1,
+      });
+    }
+
+    return lineItemPrices;
+  }
+
+  private async createOneTimeItemsInvoice(
+    cart: Cart, 
+    stripeCustomerId: string, 
+    oneTimeItems: Array<{ price: string; quantity: number }>
+  ): Promise<void> {
+    try {
+      for (const item of oneTimeItems) {
+        await stripe.invoiceItems.create({
+          customer: stripeCustomerId,
+          price: item.price,
+          quantity: item.quantity,
+                  description: 'One-time item from commercetools cart',
+      },
+      { idempotencyKey: randomUUID() },
+    );
+      }
+
+      const invoice = await stripe.invoices.create({ 
+        customer: stripeCustomerId,
+        metadata: { 
+          cartId: cart.id,
+          type: 'one-time-items'
+        }
+      },
+      { idempotencyKey: randomUUID() },
+    );
+
+      await stripe.invoices.finalizeInvoice(invoice.id);
+
+      log.info('One-time items invoice created and finalized.', {
+        ctCartId: cart.id,
+        stripeInvoiceId: invoice.id,
+        itemsCount: oneTimeItems.length,
+      });
+    } catch (error) {
+      log.error('Failed to create one-time items invoice.', {
+        ctCartId: cart.id,
+        error: error,
+      });
+      throw error;
+    }
+  }
+
   public async getStripePriceByMetadata(product: LineItem) {
     return await stripe.prices.search({
       query: `metadata['${METADATA_VARIANT_SKU_FIELD}']:'${product.variant.sku}' AND
@@ -345,7 +474,9 @@ export class StripeSubscriptionService {
         [METADATA_VARIANT_SKU_FIELD]: `deprecated_${product.variant.sku}`,
         [METADATA_PRICE_ID_FIELD]: `deprecated_${product.price.id}`,
       },
-    });
+    },
+    { idempotencyKey: randomUUID() },
+  );
     log.warn(`Existing Stripe Price "${price.id}" has been updated to deprecated.`);
   }
 
@@ -399,7 +530,9 @@ export class StripeSubscriptionService {
       metadata: {
         [METADATA_PRODUCT_ID_FIELD]: id,
       },
-    });
+    },
+    { idempotencyKey: randomUUID() },
+  );
 
     log.info(`Stripe ${shipping ? 'shipping' : 'product'} created.`, {
       ctProductId: id,
@@ -422,7 +555,9 @@ export class StripeSubscriptionService {
         interval_count: attributes.recurring_interval_count,
       },
       nickname: attributes.description,
-    });
+    },
+    { idempotencyKey: randomUUID() },
+  );
 
     log.info(`Stripe price created.`, {
       ctProductId: product.productId,
@@ -449,7 +584,9 @@ export class StripeSubscriptionService {
         [METADATA_SHIPPING_PRICE_AMOUNT]: shipping.price.centAmount,
       },
       nickname: shipping.shippingMethodName,
-    });
+    },
+    { idempotencyKey: randomUUID() },
+  );
 
     log.info(`Stripe Shipping price created.`, {
       ctProductId: shipping.shippingMethod?.id,
@@ -466,7 +603,9 @@ export class StripeSubscriptionService {
       customer: stripeCustomerId,
       usage: offSession ? 'off_session' : 'on_session',
       metadata: this.paymentCreationService.getPaymentMetadata(cart),
-    });
+    },
+    { idempotencyKey: randomUUID() },
+  );
 
     if (!setupIntent.client_secret) {
       throw new Error('Failed to create Setup Intent.');
@@ -477,7 +616,8 @@ export class StripeSubscriptionService {
   }
 
   public async saveSubscriptionId(cart: Cart, subscriptionId: string): Promise<void> {
-    const lineItemId = cart.lineItems[0].id;
+    const subscriptionLineItem = this.findSubscriptionLineItem(cart);
+    const lineItemId = subscriptionLineItem.id;
     const updateFieldActions = await getCustomFieldUpdateActions<
       CartSetLineItemCustomFieldAction | CartSetLineItemCustomTypeAction
     >({
@@ -502,8 +642,9 @@ export class StripeSubscriptionService {
     paymentIntentId,
   }: ConfirmSubscriptionRequestSchemaDTO): Promise<void> {
     try {
-      const cart = await this.ctCartService.getCart({ id: getCartIdFromContext() });
-      const subscriptionParams = getSubscriptionAttributes(cart.lineItems[0].variant.attributes!);
+      const cart = await getCartExpanded();
+      const subscriptionLineItem = this.findSubscriptionLineItem(cart);
+      const subscriptionParams = getSubscriptionAttributes(subscriptionLineItem.variant.attributes!);
       const { hasNoInvoice, isSendInvoice, hasTrial } = this.getSubscriptionTypes(subscriptionParams);
 
       if (hasNoInvoice) {
@@ -570,19 +711,19 @@ export class StripeSubscriptionService {
   }
 
   public getPaymentMode(cart: Cart): ConfigElementResponseSchemaDTO['paymentMode'] {
-    const isSubscription = cart.lineItems[0].productType.obj?.name === productTypeSubscription.name;
-    if (!isSubscription) {
+    try {
+      const subscriptionLineItem = this.findSubscriptionLineItem(cart);
+      const subscriptionParams = getSubscriptionAttributes(subscriptionLineItem.variant.attributes);
+      const { hasTrial, hasFreeAnchorDays, isSendInvoice } = this.getSubscriptionTypes(subscriptionParams);
+      if (hasTrial || hasFreeAnchorDays || isSendInvoice) {
+        log.info('Subscription type is Setup Intent.');
+        return 'setup';
+      }
+
+      return 'subscription';
+    } catch (error) {
       return 'payment';
     }
-
-    const subscriptionParams = getSubscriptionAttributes(cart.lineItems[0].variant.attributes);
-    const { hasTrial, hasFreeAnchorDays, isSendInvoice } = this.getSubscriptionTypes(subscriptionParams);
-    if (hasTrial || hasFreeAnchorDays || isSendInvoice) {
-      log.info('Subscription type is Setup Intent.');
-      return 'setup';
-    }
-
-    return 'subscription';
   }
 
   public getSubscriptionTypes(attributes: Stripe.SubscriptionCreateParams) {
@@ -611,16 +752,30 @@ export class StripeSubscriptionService {
     };
   }
 
+  private findSubscriptionLineItem(cart: Cart): LineItem {
+    const subscriptionLineItem = cart.lineItems.find(
+      (item) => {
+        const isSubscription = item.productType.obj?.name === productTypeSubscription.name;
+        if (isSubscription) {
+          return item;
+        }
+      }
+    );
+    
+    if (!subscriptionLineItem) {
+      throw new Error('No subscription product found in cart.');
+    }
+    
+    return subscriptionLineItem;
+  }
+
   public getSubscriptionPaymentAmount(cart: Cart): PaymentAmount {
-    const product = cart.lineItems[0];
-    const isSubscription = product.productType.obj?.name === productTypeSubscription.name;
+    const product = this.findSubscriptionLineItem(cart);
     const { centAmount, currencyCode, fractionDigits } = product.price.value;
 
-    if (!isSubscription) {
-      throw new Error('Cart is not a subscription.');
-    }
+    const totalCentAmount = centAmount * product.quantity;
 
-    return { centAmount, currencyCode, fractionDigits };
+    return { centAmount: centAmount, totalCentAmount: totalCentAmount, currencyCode, fractionDigits };
   }
 
   async getCustomerSubscriptions(customerId: string): Promise<Stripe.Subscription[]> {
@@ -659,7 +814,9 @@ export class StripeSubscriptionService {
       const canceledSubscription = await stripe.subscriptions.cancel(subscriptionId, {
         invoice_now: false,
         prorate: true,
-      });
+      },
+      { idempotencyKey: randomUUID() },
+    );
 
       log.info(`Successfully canceled subscription ${subscriptionId} for customer ${customerId}`);
 
@@ -697,7 +854,9 @@ export class StripeSubscriptionService {
       log.info(`Successfully updated subscription ${subscriptionId} for customer ${customerId}`, {
         updatedSubscriptionId: updatedSubscription.id,
         changes: JSON.stringify(params),
-      });
+      },
+      { idempotencyKey: randomUUID() },
+    );
 
       return updatedSubscription;
     } catch (error) {
@@ -736,8 +895,14 @@ export class StripeSubscriptionService {
       const subscription = invoiceExpanded.subscription as Stripe.Subscription;
       const invoicePaymentIntent = invoiceExpanded.payment_intent as Stripe.PaymentIntent;
 
+      const paymentId = subscription.metadata?.ct_payment_id;
+      if (!paymentId) {
+        log.error(`Cannot process invoice with ID: ${invoiceExpanded.id}. Missing payment ID in subscription metadata.`);
+        return;
+      }
+      
       let payment = await this.ctPaymentService.getPayment({
-        id: subscription.metadata?.ct_payment_id ?? '',
+        id: paymentId,
       });
       if (!payment) {
         log.error(`Cannot process invoice with ID: ${invoiceExpanded.id}. Missing Payment can be trial days.`);
@@ -773,7 +938,7 @@ export class StripeSubscriptionService {
           return;
         }
 
-        const cart = await this.ctCartService.getCart({ id: eventCartId });
+        const cart = await this.ctCartService.getCart({ id: eventCartId! });
         //If it is invoice.payment_failed the amount is the amount_due
         const isInvoicePaid = event.type.startsWith('invoice.paid');
         const amountPlanned: Money = {
@@ -783,7 +948,7 @@ export class StripeSubscriptionService {
         const createdPayment = await this.paymentCreationService.handleCtPaymentSubscription({
           cart,
           amountPlanned,
-          interactionId: updateData.pspReference,
+          interactionId: updateData.pspReference || '',
         });
 
         await this.paymentService.addPaymentToOrder(payment.id, createdPayment);

@@ -4,7 +4,7 @@ This document provides a comprehensive overview of all the changes and improveme
 
 ## Overview
 
-The latest update includes significant enhancements across multiple components of the connector, focusing on subscription management, shipping fee integration, enabler improvements, comprehensive testing coverage, and attribute name standardization.
+The latest update includes significant enhancements across multiple components of the connector, focusing on subscription management with mixed cart support, one-time item invoicing, shipping fee integration, enabler improvements, comprehensive testing coverage, and attribute name standardization.
 
 ## Summary of Changes
 
@@ -17,7 +17,7 @@ The latest update includes significant enhancements across multiple components o
 
 ### 🎯 Key Areas of Improvement
 
-1. **Subscription Service** - Major enhancements with shipping fee support
+1. **Subscription Service** - Major enhancements with mixed cart support and one-time item invoicing
 2. **Enabler Components** - Improved payment mode handling and debugging
 3. **Payment Service** - Enhanced payment intent configuration
 4. **Testing** - Comprehensive test coverage for all functionality
@@ -29,11 +29,16 @@ The latest update includes significant enhancements across multiple components o
 ### 1. Subscription Service Enhancements
 
 #### New Features
+- **Mixed Cart Support**: Enhanced subscription handling for carts containing both subscription items and one-time items
+- **One-Time Item Invoicing**: Automatic creation of separate invoices for one-time items in mixed carts
 - **Recurring Shipping Fee Support**: Automatic creation and management of shipping prices
 - **Shipping Price Integration**: Seamless integration of shipping fees into subscriptions
 - **Enhanced Metadata Tracking**: Improved tracking of shipping method information
+- **Quantity Support**: Enhanced quantity handling for subscription items with proper validation
 
 #### New Methods
+- `getAllLineItemPrices()`: Retrieves all line item prices excluding subscription items
+- `createOneTimeItemsInvoice()`: Creates separate Stripe invoices for one-time items
 - `getSubscriptionShippingPriceId()`: Retrieves or creates shipping price IDs
 - `getStripeShippingPriceByMetadata()`: Searches for existing shipping prices
 - `createStripeShippingPrice()`: Creates new Stripe shipping prices
@@ -43,6 +48,42 @@ The latest update includes significant enhancements across multiple components o
 - Enhanced error handling and logging
 - New TypeScript interfaces and constants
 - Improved metadata management
+
+#### Mixed Cart Support Implementation
+
+The subscription service now supports mixed carts containing both subscription items and one-time items. This feature enables customers to purchase subscription products alongside regular products in a single transaction.
+
+##### Key Features
+- **Automatic Item Classification**: System automatically identifies subscription vs. one-time items
+- **Separate Processing**: Subscription items processed as recurring billing, one-time items as immediate invoices
+- **Unified Checkout Experience**: Single checkout process for mixed cart scenarios
+- **Enhanced Error Handling**: Improved error handling for edge cases
+
+##### Technical Implementation
+```typescript
+// Mixed cart processing in createSubscription()
+const oneTimeItems = await this.getAllLineItemPrices(cart);
+if (oneTimeItems.length > 0) {
+  await this.createOneTimeItemsInvoice(cart, stripeCustomerId!, oneTimeItems);
+}
+
+// Create subscription with only subscription and shipping items
+const subscription = await stripe.subscriptions.create({
+  ...subscriptionParams,
+  customer: stripeCustomerId!,
+  items: [
+    { price: priceId, quantity: this.findSubscriptionLineItem(cart).quantity || 1 }, 
+    ...(shippingPriceId ? [{ price: shippingPriceId }] : []),
+  ],
+  // ... other parameters
+});
+```
+
+##### Benefits
+- **Flexible Cart Configurations**: Customers can mix subscription and one-time items freely
+- **Seamless Checkout**: Single checkout process for mixed cart scenarios
+- **Proper Billing**: Correct billing treatment for different item types
+- **Enhanced Customer Experience**: No need for separate transactions
 
 ### 2. Enabler Improvements
 

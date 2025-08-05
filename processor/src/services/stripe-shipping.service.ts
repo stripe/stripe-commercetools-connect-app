@@ -96,8 +96,8 @@ export class StripeShippingService {
   private async getCartLineItems(ctCart: Cart) {
     try {
       const lineItems = ctCart.lineItems.map((item) => ({
-        name: getLocalizedString(item.name),
-        amount: item.price.value.centAmount,
+          name: getLocalizedString(item.name),
+          amount: item.price.value.centAmount * item.quantity,
       }));
       if (ctCart.shippingInfo && ctCart.shippingInfo.price) {
         lineItems.push({
