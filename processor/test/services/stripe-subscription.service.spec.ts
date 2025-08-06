@@ -1295,7 +1295,11 @@ describe('stripe-subscription.service', () => {
   describe('method getSubscriptionPaymentAmount', () => {
     test('should get subscription payment amount successfully', () => {
       const result = stripeSubscriptionService.getSubscriptionPaymentAmount(mockGetSubscriptionCartWithVariant(6));
-      expect(result).toStrictEqual(mockGetPaymentAmount);
+      const expectedAmount = {
+        ...mockGetPaymentAmount,
+        totalCentAmount: mockGetPaymentAmount.centAmount
+      };
+      expect(result).toStrictEqual(expectedAmount);
     });
 
     test('should calculate total amount including quantity', () => {
@@ -1306,7 +1310,7 @@ describe('stripe-subscription.service', () => {
       const result = stripeSubscriptionService.getSubscriptionPaymentAmount(mockCartWithQuantity);
       const expectedAmount = {
         ...mockGetPaymentAmount,
-        centAmount: mockGetPaymentAmount.centAmount * 3
+        totalCentAmount: mockGetPaymentAmount.centAmount * 3
       };
       expect(result).toStrictEqual(expectedAmount);
     });
@@ -1328,7 +1332,7 @@ describe('stripe-subscription.service', () => {
       const result = stripeSubscriptionService.getSubscriptionPaymentAmount(mockCartWithSubscriptionNotFirst);
       const expectedAmount = {
         ...mockGetPaymentAmount,
-        centAmount: mockGetPaymentAmount.centAmount * 2
+        totalCentAmount: mockGetPaymentAmount.centAmount * 2
       };
       expect(result).toStrictEqual(expectedAmount);
     });
