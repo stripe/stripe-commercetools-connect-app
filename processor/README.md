@@ -21,10 +21,40 @@ Diagram of the current workflow:
 
 ## Considerations For Stripe Billing Subscription Management
 
-
 The connector supports Stripe subscription management capabilities, enabling recurring billing solutions that integrate seamlessly with commercetools customers. Subscriptions allow merchants to charge customers on a recurring basis for products or services according to defined billing intervals and payment terms.
 
 The connector will automatically create and use a Setup Intent when required for subscription payments. A Setup Intent confirms and securely stores payment method details without immediately creating a charge, which is essential for recurring billing scenarios where the initial payment might be delayed (such as with free trial periods) or when setting up automatic payments for future subscription cycles.
+
+### Subscription Shipping Fee Support
+
+The connector now supports recurring shipping fees as part of subscription billing. When a cart contains shipping information, the connector will:
+
+1. **Automatically detect shipping methods** in the cart during subscription creation
+2. **Create or retrieve Stripe shipping prices** that match the subscription's billing interval
+3. **Include shipping fees** as separate line items in the subscription
+4. **Handle shipping price management** with proper metadata tracking
+
+#### Shipping Fee Integration Features
+
+- **Automatic Shipping Price Creation**: Creates Stripe prices for shipping methods that don't already exist
+- **Recurring Billing Alignment**: Ensures shipping fees follow the same billing interval as the main subscription
+- **Metadata Tracking**: Tracks shipping method IDs and amounts for proper reconciliation
+- **Existing Price Reuse**: Reuses existing Stripe shipping prices when they match the current configuration
+
+#### Shipping Price Management
+
+The connector manages shipping prices through several new methods:
+
+- `getSubscriptionShippingPriceId()`: Retrieves or creates shipping price IDs for subscriptions
+- `getStripeShippingPriceByMetadata()`: Searches for existing shipping prices by metadata
+- `createStripeShippingPrice()`: Creates new Stripe prices for shipping methods
+
+#### Metadata Fields for Shipping
+
+The following metadata fields are used to track shipping information:
+
+- `ct_variant_sku`: Stores the shipping method ID
+- `ct_shipping_price_amount`: Stores the shipping price amount in cents
 
 ### Custom Types for Subscription Configuration
 
@@ -40,23 +70,120 @@ The configuration of subscription products is done through a custom product type
 This type is applied to product variants to define the parameters for subscription management. The following fields are used to configure the subscription:
 
 1. **payment-connector-subscription-information**: This custom product type is applied to product variants to configure subscription parameters including:
-   - `description`: A description for the subscription
-   - `recurring_interval`: Defines the billing frequency ('day', 'week', 'month', 'year')
-   - `recurring_interval_count`: Specifies the number of intervals between billings
-   - `off_session`: Whether the subscription can be used off-session
-   - `collection_method`: Payment collection method ('charge_automatically' or 'send_invoice')
-   - `days_until_due`: Optional number of days before the invoice is due (only applies when collection method is 'send_invoice')
-   - `cancel_at_period_end`: Optional flag to cancel at the end of the current period
-   - `cancel_at`: Optional specific date and time to cancel the subscription
-   - `billing_cycle_anchor_day`: Optional day of the month for billing
-   - `billing_cycle_anchor_time`: Optional time of day for billing
-   - `billing_cycle_anchor_date`: Optional specific date and time for billing anchor
-   - `trial_period_days`: Optional trial period length in days
-   - `trial_end_date`: Optional specific date and time for trial end
-   - `missing_payment_method_at_trial_end`: Optional behavior when payment method is missing at trial end ('cancel', 'create_invoice', or 'pause')
-   - `proration_behavior`: Optional behavior for proration when making changes ('none', 'create_prorations', or 'always_invoice')
+   - `stripeConnector_description`: A description for the subscription
+   - `stripeConnector_recurring_interval`: Defines the billing frequency ('day', 'week', 'month', 'year')
+   - `stripeConnector_recurring_interval_count`: Specifies the number of intervals between billings
+   - `stripeConnector_off_session`: Whether the subscription can be used off-session
+   - `stripeConnector_collection_method`: Payment collection method ('charge_automatically' or 'send_invoice')
+   - `stripeConnector_days_until_due`: Optional number of days before the invoice is due (only applies when collection method is 'send_invoice')
+   - `stripeConnector_cancel_at_period_end`: Optional flag to cancel at the end of the current period
+   - `stripeConnector_cancel_at`: Optional specific date and time to cancel the subscription
+   - `stripeConnector_billing_cycle_anchor_day`: Optional day of the month for billing
+   - `stripeConnector_billing_cycle_anchor_time`: Optional time of day for billing
+   - `stripeConnector_billing_cycle_anchor_date`: Optional specific date and time for billing anchor
+   - `stripeConnector_trial_period_days`: Optional trial period length in days
+   - `stripeConnector_trial_end_date`: Optional specific date and time for trial end
+   - `stripeConnector_missing_payment_method_at_trial_end`: Optional behavior when payment method is missing at trial end ('cancel', 'create_invoice', or 'pause')
+   - `stripeConnector_proration_behavior`: Optional behavior for proration when making changes ('none', 'create_prorations', or 'always_invoice')
+
+> **Note**: All subscription-related attributes now use the `stripeConnector_` prefix for better organization and consistency. The system automatically handles the mapping between these prefixed attribute names and the internal field names used by the subscription service.
 
 Products marked with this type are automatically processed as subscription items during checkout, creating recurring billing arrangements in Stripe when purchased.
+
+### Attribute Name Transformation
+
+The connector automatically handles the transformation between the `stripeConnector_` prefixed attribute names used in the product type and the internal field names used by the subscription service. This transformation is handled by the `transformVariantAttributes` utility function.
+
+#### How It Works
+
+1. **Product Type Definition**: Attributes are defined with the `stripeConnector_` prefix in the custom product type
+2. **Automatic Transformation**: When processing subscription data, the `transformVariantAttributes` function automatically strips the `stripeConnector_` prefix
+3. **Internal Processing**: The subscription service receives the clean field names for processing
+4. **Backward Compatibility**: The system supports both prefixed and non-prefixed attribute names
+
+#### Example Transformation
+
+```typescript
+// Product type attributes (with prefix)
+{
+  stripeConnector_description: "Monthly subscription",
+  stripeConnector_recurring_interval: "month",
+  stripeConnector_off_session: true
+}
+
+// Transformed to internal format (prefix removed)
+{
+  description: "Monthly subscription",
+  recurring_interval: "month", 
+  off_session: true
+}
+```
+
+This transformation ensures clean separation between the commercetools product type schema and the internal subscription processing logic while maintaining backward compatibility.
+
+## Enhanced Error Handling with Payment Intent Status
+
+The connector now provides comprehensive error handling for various payment intent statuses, ensuring better user experience and debugging capabilities.
+
+### Payment Intent Status Handling
+
+- **`requires_action` Status**: Properly handles payment intents that require additional authentication or action from the customer
+- **`payment_failed` Status**: Enhanced error handling for failed payments with detailed error information
+- **Structured Error Objects**: Error objects now include additional context such as `next_action` and `last_payment_error` for better debugging
+
+### Error Management Features
+
+- **Detailed Error Messages**: More informative error messages for different payment scenarios
+- **Error Type Classification**: Errors are categorized by type (`requires_action`, `payment_failed`) for better handling
+- **Enhanced Debugging**: Structured error objects provide additional context for troubleshooting
+
+### Technical Implementation
+
+The enhanced error handling is implemented in the enabler's `stripe-service.ts`:
+
+```typescript
+if (paymentIntent.status === "requires_action") {
+  const error: any = new Error("Payment requires additional action");
+  error.type = "requires_action";
+  error.next_action = paymentIntent.next_action;
+  throw error;
+}
+
+if(paymentIntent.last_payment_error) {
+  const error: any = new Error(`${paymentIntent.last_payment_error.message}`);
+  error.type = "payment_failed";
+  error.last_payment_error = paymentIntent.last_payment_error;
+  throw error;
+}
+```
+
+## Mixed Cart Support
+
+The connector now supports mixed carts containing both subscription items and one-time items. This feature allows customers to purchase subscription products alongside regular products in a single transaction, with automatic handling of different billing scenarios.
+
+#### How Mixed Cart Support Works
+
+1. **Cart Analysis**: The system automatically analyzes the cart to identify subscription items and one-time items
+2. **Separate Processing**: Subscription items are processed as recurring billing, while one-time items are processed as immediate invoices
+3. **Invoice Creation**: One-time items are automatically converted to separate Stripe invoices for immediate payment
+4. **Subscription Creation**: Subscription items are processed normally with recurring billing setup
+5. **Unified Experience**: Customers experience a seamless checkout process regardless of cart composition
+
+#### Mixed Cart Processing Flow
+
+```
+Cart with Mixed Items
+├── Subscription Items → Stripe Subscription (recurring billing)
+└── One-Time Items → Stripe Invoice (immediate payment)
+```
+
+#### Key Features
+
+- **Automatic Item Classification**: The system automatically identifies subscription vs. one-time items based on product type
+- **Separate Invoice Creation**: One-time items are processed as separate invoices with proper metadata tracking
+- **Quantity Support**: Proper handling of item quantities for both subscription and one-time items
+- **Error Handling**: Enhanced error handling for scenarios where no subscription product is found
+- **Metadata Tracking**: Comprehensive metadata tracking for both subscription and invoice items
 
 
 ## Getting Started
@@ -511,6 +638,47 @@ Retrieves all subscriptions associated with a specific customer.
 ##### Authentication
 OAuth2 authentication with "manage_project" and "manage_subscriptions" scopes.
 
+##### Example Request
+```bash
+curl -X GET "https://your-connector-url/subscription-api/customer-12345" \
+  -H "Authorization: Bearer <commercetools-oauth2-token>"
+```
+
+##### Example Response
+```json
+{
+  "subscriptions": [
+    {
+      "id": "sub_1234567890",
+      "object": "subscription",
+      "status": "active",
+      "current_period_start": 1640995200,
+      "current_period_end": 1643673600,
+      "customer": "cus_1234567890",
+      "items": {
+        "data": [
+          {
+            "id": "si_1234567890",
+            "object": "subscription_item",
+            "price": {
+              "id": "price_1234567890",
+              "object": "price",
+              "unit_amount": 2500,
+              "currency": "usd"
+            },
+            "quantity": 1
+          }
+        ]
+      },
+      "metadata": {
+        "cartId": "cart-12345",
+        "ctCustomerId": "customer-12345"
+      }
+    }
+  ]
+}
+```
+
 ##### Path Parameters
 - **customerId**: The commercetools customer ID.
 
@@ -527,6 +695,22 @@ Cancels a specific subscription for a customer.
 ##### Authentication
 OAuth2 authentication with "manage_project" and "manage_subscriptions" scopes.
 
+##### Example Request
+```bash
+curl -X DELETE "https://your-connector-url/subscription-api/customer-12345/sub_1234567890" \
+  -H "Authorization: Bearer <commercetools-oauth2-token>"
+```
+
+##### Example Response
+```json
+{
+  "id": "sub_1234567890",
+  "status": "canceled",
+  "outcome": "canceled",
+  "message": "Subscription sub_1234567890 has been successfully canceled."
+}
+```
+
 ##### Path Parameters
 - **customerId**: The commercetools customer ID.
 - **subscriptionId**: The ID of the subscription to cancel.
@@ -538,7 +722,7 @@ OAuth2 authentication with "manage_project" and "manage_subscriptions" scopes.
 - **message**: Optional message with details.
 
 #### Update Customer Subscription
-Updates a specific subscription with new parameters or options.
+Updates a specific subscription with new parameters or options based on the [Stripe documentation](https://docs.stripe.com/api/subscriptions/update?lang=node).
 
 ##### Endpoint
 `POST /subscription-api/:customerId`
@@ -546,13 +730,68 @@ Updates a specific subscription with new parameters or options.
 ##### Authentication
 OAuth2 authentication with "manage_project" and "manage_subscriptions" scopes.
 
+##### Example Request (Update Quantity)
+```bash
+curl -X POST "https://your-connector-url/subscription-api/customer-12345" \
+  -H "Authorization: Bearer <commercetools-oauth2-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "sub_1234567890",
+    "params": {
+      "items": [
+        {
+          "id": "si_1234567890",
+          "quantity": 2
+        }
+      ]
+    }
+  }'
+```
+
+##### Example Request (Update Billing Cycle)
+```bash
+curl -X POST "https://your-connector-url/subscription-api/customer-12345" \
+  -H "Authorization: Bearer <commercetools-oauth2-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "sub_1234567890",
+    "params": {
+      "billing_cycle_anchor": "now",
+      "proration_behavior": "create_prorations"
+    }
+  }'
+```
+
+##### Example Request (Add Coupon)
+```bash
+curl -X POST "https://your-connector-url/subscription-api/customer-12345" \
+  -H "Authorization: Bearer <commercetools-oauth2-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "sub_1234567890",
+    "params": {
+      "coupon": "SAVE20"
+    }
+  }'
+```
+
+##### Example Response
+```json
+{
+  "id": "sub_1234567890",
+  "status": "active",
+  "outcome": "updated",
+  "message": "Subscription sub_1234567890 has been successfully updated."
+}
+```
+
 ##### Path Parameters
 - **customerId**: The commercetools customer ID.
 
 ##### Request Body
 - **id**: The subscription ID to update.
-- **params**: Optional parameters to update.
-- **options**: Optional options to update.
+- **params**: Optional parameters to update (Stripe.SubscriptionUpdateParams).
+- **options**: Optional options to update (Stripe.RequestOptions).
 
 ##### Response Parameters
 - **id**: The subscription ID.

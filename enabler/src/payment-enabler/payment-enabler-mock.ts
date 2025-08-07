@@ -79,6 +79,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
       baseApi: options.processorUrl,
       sessionId: options.sessionId,
     });
+    
     const [cartInfoResponse, configEnvResponse] = await getConfigData(options.paymentElementType);
     const customer = await getCustomerOptions();
     const stripeSDK = await MockPaymentEnabler.getStripeSDK(configEnvResponse);

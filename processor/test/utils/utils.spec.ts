@@ -124,6 +124,20 @@ describe('transformVariantAttributes', () => {
     expect(result).toEqual({ color: 'red', size: 'large' });
   });
 
+  test('should strip stripeConnector_ prefix from attribute names', () => {
+    const attributes = [
+      { name: 'stripeConnector_description', value: 'Test subscription' },
+      { name: 'stripeConnector_recurring_interval', value: { key: 'month' } },
+      { name: 'stripeConnector_off_session', value: true },
+    ];
+    const result = transformVariantAttributes(attributes);
+    expect(result).toEqual({ 
+      description: 'Test subscription', 
+      recurring_interval: 'month',
+      off_session: true 
+    });
+  });
+
   test('should return an empty object for undefined attributes', () => {
     const result = transformVariantAttributes(undefined);
     expect(result).toEqual({});

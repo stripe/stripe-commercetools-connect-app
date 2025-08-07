@@ -148,7 +148,7 @@ describe('Actions test', () => {
     test('should call the function successfully', async () => {
       const loggerId = '[TEST_LOGGER_ID]';
       const startMessage = 'Starting test process';
-      const fn = jest.fn();
+      const fn = jest.fn<() => void>();
       await Actions.handleRequest({ loggerId, startMessage, fn });
 
       expect(Logger.log.info).toHaveBeenCalledWith(`${loggerId} ${startMessage}`);
@@ -159,7 +159,7 @@ describe('Actions test', () => {
       const loggerId = '[TEST_LOGGER_ID]';
       const startMessage = 'Starting test process';
       const error = new Error('Test error');
-      const fn = jest.fn().mockReturnValue(Promise.reject(error));
+      const fn = jest.fn<() => Promise<void>>().mockReturnValue(Promise.reject(error));
       try {
         await Actions.handleRequest({ loggerId, startMessage, fn });
       } catch {
@@ -221,10 +221,19 @@ describe('Actions test', () => {
       const getProductTypeByKeyMock = jest
         .spyOn(ProductTypeClient, 'getProductTypeByKey')
         .mockResolvedValue(mock_ProductType);
+      const getProductsByProductTypeIdMock = jest
+        .spyOn(ProductTypeClient, 'getProductsByProductTypeId')
+        .mockResolvedValue([]);
+      const updateProductTypeMock = jest
+        .spyOn(ProductTypeClient, 'updateProductType')
+        .mockResolvedValue(mock_ProductType);
 
       await Actions.createProductTypeSubscription();
       expect(getProductTypeByKeyMock).toHaveBeenCalled();
-      expect(Logger.log.info).toHaveBeenCalledWith('Product type subscription already exists. Skipping creation.');
+      expect(getProductsByProductTypeIdMock).toHaveBeenCalled();
+      expect(Logger.log.info).toHaveBeenCalledWith('Product type "payment-connector-subscription-information" already exists. Checking if update is needed...');
+      expect(Logger.log.info).toHaveBeenCalledWith('Product type subscription attributes differ from desired. Updating attributes...');
+      expect(updateProductTypeMock).toHaveBeenCalled();
     });
 
     test('should create Product type Subscription successfully', async () => {
@@ -236,7 +245,8 @@ describe('Actions test', () => {
       await Actions.createProductTypeSubscription();
       expect(getProductTypeByKeyMock).toHaveBeenCalled();
       expect(createProductTypeMock).toHaveBeenCalled();
-      expect(Logger.log.info).toHaveBeenCalledTimes(2);
+      expect(Logger.log.info).toHaveBeenCalledWith('Product type "payment-connector-subscription-information" does not exist. Creating new product type...');
+      expect(Logger.log.info).toHaveBeenCalledWith('Product Type "payment-connector-subscription-information" created successfully.');
     });
   });
 

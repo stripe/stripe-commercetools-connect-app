@@ -317,6 +317,10 @@ export const customLineItem: CustomLineItem = {
 
 export const shippingInfo: ShippingInfo = {
   shippingMethodName: 'shippingMethodName1',
+  shippingMethod: {
+    id: 'shipping-method-id',
+    typeId: 'shipping-method',
+  },
   price: {
     type: 'centPrecision',
     currencyCode: 'USD',
