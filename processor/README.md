@@ -638,6 +638,47 @@ Retrieves all subscriptions associated with a specific customer.
 ##### Authentication
 OAuth2 authentication with "manage_project" and "manage_subscriptions" scopes.
 
+##### Example Request
+```bash
+curl -X GET "https://your-connector-url/subscription-api/customer-12345" \
+  -H "Authorization: Bearer <commercetools-oauth2-token>"
+```
+
+##### Example Response
+```json
+{
+  "subscriptions": [
+    {
+      "id": "sub_1234567890",
+      "object": "subscription",
+      "status": "active",
+      "current_period_start": 1640995200,
+      "current_period_end": 1643673600,
+      "customer": "cus_1234567890",
+      "items": {
+        "data": [
+          {
+            "id": "si_1234567890",
+            "object": "subscription_item",
+            "price": {
+              "id": "price_1234567890",
+              "object": "price",
+              "unit_amount": 2500,
+              "currency": "usd"
+            },
+            "quantity": 1
+          }
+        ]
+      },
+      "metadata": {
+        "cartId": "cart-12345",
+        "ctCustomerId": "customer-12345"
+      }
+    }
+  ]
+}
+```
+
 ##### Path Parameters
 - **customerId**: The commercetools customer ID.
 
@@ -653,6 +694,22 @@ Cancels a specific subscription for a customer.
 
 ##### Authentication
 OAuth2 authentication with "manage_project" and "manage_subscriptions" scopes.
+
+##### Example Request
+```bash
+curl -X DELETE "https://your-connector-url/subscription-api/customer-12345/sub_1234567890" \
+  -H "Authorization: Bearer <commercetools-oauth2-token>"
+```
+
+##### Example Response
+```json
+{
+  "id": "sub_1234567890",
+  "status": "canceled",
+  "outcome": "canceled",
+  "message": "Subscription sub_1234567890 has been successfully canceled."
+}
+```
 
 ##### Path Parameters
 - **customerId**: The commercetools customer ID.
@@ -672,6 +729,61 @@ Updates a specific subscription with new parameters or options based on the [Str
 
 ##### Authentication
 OAuth2 authentication with "manage_project" and "manage_subscriptions" scopes.
+
+##### Example Request (Update Quantity)
+```bash
+curl -X POST "https://your-connector-url/subscription-api/customer-12345" \
+  -H "Authorization: Bearer <commercetools-oauth2-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "sub_1234567890",
+    "params": {
+      "items": [
+        {
+          "id": "si_1234567890",
+          "quantity": 2
+        }
+      ]
+    }
+  }'
+```
+
+##### Example Request (Update Billing Cycle)
+```bash
+curl -X POST "https://your-connector-url/subscription-api/customer-12345" \
+  -H "Authorization: Bearer <commercetools-oauth2-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "sub_1234567890",
+    "params": {
+      "billing_cycle_anchor": "now",
+      "proration_behavior": "create_prorations"
+    }
+  }'
+```
+
+##### Example Request (Add Coupon)
+```bash
+curl -X POST "https://your-connector-url/subscription-api/customer-12345" \
+  -H "Authorization: Bearer <commercetools-oauth2-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "sub_1234567890",
+    "params": {
+      "coupon": "SAVE20"
+    }
+  }'
+```
+
+##### Example Response
+```json
+{
+  "id": "sub_1234567890",
+  "status": "active",
+  "outcome": "updated",
+  "message": "Subscription sub_1234567890 has been successfully updated."
+}
+```
 
 ##### Path Parameters
 - **customerId**: The commercetools customer ID.
