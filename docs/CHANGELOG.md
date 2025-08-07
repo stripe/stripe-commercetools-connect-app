@@ -1,6 +1,28 @@
 # Changelog
 
-## [Latest] - Enhanced Subscription Service with Mixed Cart Support and One-Time Item Invoicing
+## Latest
+
+### Enhanced Payment Amount Handling and Error Management
+
+**Added:**
+- **Extended PaymentAmount Type**: Created `ExtendedPaymentAmount` interface that extends the base `PaymentAmount` type to include `totalCentAmount` property for quantity calculations
+- **Enhanced Payment Intent Error Handling**: Added comprehensive error handling for additional payment intent statuses including `requires_action` and `payment_failed`
+
+**Changed:**
+- **`getLineItemPriceId()` Method**: Now uses `ExtendedPaymentAmount` type for better type safety and quantity support
+- **`getSubscriptionPaymentAmount()` Method**: Returns `ExtendedPaymentAmount` with proper quantity calculations
+- **Payment Intent Status Handling**: Enhanced error management for payment intents that require additional action or have failed payments
+
+**Technical Details:**
+- Added `ExtendedPaymentAmount` interface in `processor/src/services/types/stripe-subscription.type.ts`
+- Updated subscription service methods to use the new extended type
+- Enhanced `stripe-service.ts` in enabler to handle `requires_action` and `payment_failed` payment intent statuses
+- Improved error messages and error object structure for better debugging
+
+
+---
+
+### Enhanced Subscription Service with Mixed Cart Support and One-Time Item Invoicing
 
 ### Added
 - **One-Time Item Invoicing**: New functionality to create separate invoices for one-time items in mixed carts, allowing better management of subscription + one-time item scenarios

@@ -121,7 +121,43 @@ The connector automatically handles the transformation between the `stripeConnec
 
 This transformation ensures clean separation between the commercetools product type schema and the internal subscription processing logic while maintaining backward compatibility.
 
-### Mixed Cart Support
+## Enhanced Error Handling with Payment Intent Status
+
+The connector now provides comprehensive error handling for various payment intent statuses, ensuring better user experience and debugging capabilities.
+
+### Payment Intent Status Handling
+
+- **`requires_action` Status**: Properly handles payment intents that require additional authentication or action from the customer
+- **`payment_failed` Status**: Enhanced error handling for failed payments with detailed error information
+- **Structured Error Objects**: Error objects now include additional context such as `next_action` and `last_payment_error` for better debugging
+
+### Error Management Features
+
+- **Detailed Error Messages**: More informative error messages for different payment scenarios
+- **Error Type Classification**: Errors are categorized by type (`requires_action`, `payment_failed`) for better handling
+- **Enhanced Debugging**: Structured error objects provide additional context for troubleshooting
+
+### Technical Implementation
+
+The enhanced error handling is implemented in the enabler's `stripe-service.ts`:
+
+```typescript
+if (paymentIntent.status === "requires_action") {
+  const error: any = new Error("Payment requires additional action");
+  error.type = "requires_action";
+  error.next_action = paymentIntent.next_action;
+  throw error;
+}
+
+if(paymentIntent.last_payment_error) {
+  const error: any = new Error(`${paymentIntent.last_payment_error.message}`);
+  error.type = "payment_failed";
+  error.last_payment_error = paymentIntent.last_payment_error;
+  throw error;
+}
+```
+
+## Mixed Cart Support
 
 The connector now supports mixed carts containing both subscription items and one-time items. This feature allows customers to purchase subscription products alongside regular products in a single transaction, with automatic handling of different billing scenarios.
 
