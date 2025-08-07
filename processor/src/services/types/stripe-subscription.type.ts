@@ -9,6 +9,11 @@ import {
 import { PaymentAmount } from '@commercetools/connect-payments-sdk/dist/commercetools/types/payment.type';
 import Stripe from 'stripe';
 
+
+export interface ExtendedPaymentAmount extends PaymentAmount {
+  totalCentAmount: number;
+}
+
 export interface StripeSubscriptionServiceOptions {
   ctCartService: CommercetoolsCartService;
   ctPaymentService: CommercetoolsPaymentService;

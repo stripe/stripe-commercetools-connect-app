@@ -16,6 +16,7 @@ import {
   CreateSetupIntentProps,
   CreateStripePriceProps,
   CreateStripeShippingPriceProps,
+  ExtendedPaymentAmount,
   FullSubscriptionData,
   GetCurrentPaymentProps,
   StripeSubscriptionServiceOptions,
@@ -340,7 +341,7 @@ export class StripeSubscriptionService {
   }
 
   private async getLineItemPriceId(lineItem: LineItem): Promise<string> {
-    const amount: PaymentAmount = {
+    const amount: ExtendedPaymentAmount = {
       centAmount: lineItem.price.value.centAmount,
       totalCentAmount: lineItem.price.value.centAmount * lineItem.quantity,
       currencyCode: lineItem.price.value.currencyCode,
@@ -769,7 +770,7 @@ export class StripeSubscriptionService {
     return subscriptionLineItem;
   }
 
-  public getSubscriptionPaymentAmount(cart: Cart): PaymentAmount {
+  public getSubscriptionPaymentAmount(cart: Cart): ExtendedPaymentAmount {
     const product = this.findSubscriptionLineItem(cart);
     const { centAmount, currencyCode, fractionDigits } = product.price.value;
 
