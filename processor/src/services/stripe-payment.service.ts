@@ -371,9 +371,9 @@ export class StripePaymentService extends AbstractPaymentService {
           },
           capture_method: config.stripeCaptureMethod as CaptureMethod,
           metadata: this.paymentCreationService.getPaymentMetadata(cart),
-          ...(config.stripeCollectBillingAddress === 'auto' && {
+          /*...(config.stripeCollectBillingAddress === 'auto' && {
             shipping: shippingAddress,
-          }),
+          }),*/
         },
         {
           idempotencyKey: crypto.randomUUID(),
