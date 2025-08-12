@@ -97,7 +97,7 @@ export class StripeShippingService {
     try {
       const lineItems = ctCart.lineItems.map((item) => ({
           name: getLocalizedString(item.name),
-          amount: item.price.value.centAmount * item.quantity,
+          amount: item.totalPrice.centAmount,
       }));
       if (ctCart.shippingInfo && ctCart.shippingInfo.price) {
         lineItems.push({
