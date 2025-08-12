@@ -227,7 +227,7 @@ describe('StripeShippingService', () => {
       expect(result.lineItems).toEqual([
         {
           name: 'Test Product',
-          amount: 1000,
+          amount: 150000,
         },
         {
           name: 'Shipping',
@@ -285,7 +285,7 @@ describe('StripeShippingService', () => {
       expect(result.lineItems).toEqual([
         {
           name: 'Test Product',
-          amount: 1000,
+          amount: 150000,
         },
       ]);
     });
