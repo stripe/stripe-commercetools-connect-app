@@ -5,3 +5,8 @@
 # MCP (Model Context Protocol) configuration and data
 .mcp/
 .DS_Store
+
+#Context documentation
+docs/context7-libraries
+
+context7-config.json

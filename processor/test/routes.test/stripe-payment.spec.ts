@@ -48,10 +48,11 @@ jest.mock('stripe', () => ({
   })),
 }));
 jest.mock('../../src/services/stripe-payment.service');
+jest.mock('../../src/services/stripe-subscription.service');
 jest.mock('../../src/libs/logger/index');
 
 interface FlexibleConfig {
-  [key: string]: string | number | Config.PaymentFeatures;
+  [key: string]: string | number | boolean | Config.PaymentFeatures;
 }
 function setupMockConfig(keysAndValues: Record<string, string>) {
   const mockConfig: FlexibleConfig = {};
@@ -422,6 +423,47 @@ describe('Stripe Payment APIs', () => {
       //Then
       expect(response.statusCode).toEqual(200);
       expect(spiedSubscriptionService.processSubscriptionEvent).toHaveBeenCalled();
+    });
+
+    test('it should handle a invoice.upcoming event gracefully.', async () => {
+      setupMockConfig({
+        stripeSecretKey: 'stripeSecretKey',
+        stripeWebhookSigningSecret: 'stripeWebhookSigningSecret',
+        authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
+      });
+
+      const mockInvoiceUpcomingEvent: Stripe.Event = {
+        id: 'evt_upcoming_123',
+        object: 'event',
+        type: 'invoice.upcoming',
+        data: {
+          object: {
+            id: 'in_upcoming_123',
+            object: 'invoice',
+            subscription: 'sub_123',
+            amount_due: 1000,
+            currency: 'usd',
+          },
+        },
+        created: Date.now(),
+        livemode: false,
+        pending_webhooks: 1,
+        request: { id: null, idempotency_key: null },
+        api_version: '2024-12-18.acacia',
+      } as Stripe.Event;
+
+      Stripe.prototype.webhooks = { constructEvent: jest.fn() } as unknown as Stripe.Webhooks;
+      jest.spyOn(Stripe.prototype.webhooks, 'constructEvent').mockReturnValue(mockInvoiceUpcomingEvent);
+
+      const response = await fastifyApp.inject({
+        method: 'POST',
+        url: `/stripe/webhooks`,
+        headers: {
+          'stripe-signature': 't=123123123,v1=gk2j34gk2j34g2k3j4',
+        },
+      });
+
+      expect(response.statusCode).toEqual(200);
     });
   });
 

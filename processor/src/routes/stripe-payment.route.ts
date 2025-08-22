@@ -137,6 +137,10 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
           log.info(`Processing Stripe Subscription event: ${event.type}`);
           await opts.subscriptionService.processSubscriptionEvent(event);
           break;
+        case StripeSubscriptionEvent.INVOICE_UPCOMING:
+          log.info(`Processing Stripe Subscription event: ${event.type}`);
+          await opts.subscriptionService.processUpcomingSubscriptionEvent(event);
+          break;
         default:
           log.info(`--->>> This Stripe event is not supported: ${event.type}`);
           break;

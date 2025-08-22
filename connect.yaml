@@ -60,6 +60,12 @@ deployAs:
           description: Stripe collect billing address information in Payment Element (example - 'auto' | 'never' | 'if_required').
           default: 'auto'
           required: true
+        - key: STRIPE_SUBSCRIPTION_PAYMENT_HANDLING
+          description: Subscription payment handling strategy (createOrder|addPaymentToOrder).
+          default: createOrder
+        - key: STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED
+          description: Enable automatic price synchronization for subscriptions (true|false). When true, prices are synchronized before invoice creation. When false, prices are updated after payment for next billing cycle.
+          default: 'false'
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
           description: commercetools client secret.

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import Stripe from 'stripe';
 import { Payment } from '@commercetools/connect-payments-sdk';
 import { PaymentTransactions } from '../../src/dtos/operations/payment-intents.dto';
@@ -1669,11 +1670,9 @@ export const mockEvent__invoice_failed__Expanded: Stripe.Event = {
       },
       subscription_details: {
         metadata: {
-          cart_id: '538857cf-aa73-4ce2-810a-c9c9fb7ee5ec',
-          ct_project_key: 'stripe-subscription',
+          cart_id: 'd5f3ab84-5440-47ea-85a7-9a5a9fd63b32',
           ct_customer_id: 'dbde17fe-726c-4271-befb-b3194e3726b8',
-          ct_payment_id: '45517434-00b3-4aa2-a1b2-8e9ffc92709c',
-          ct_order_id: 'deea8c83-3b27-450c-b237-739e8e417470',
+          ct_project_key: 'stripe-subscription',
         },
       },
       subtotal: 1600,
@@ -1823,3 +1822,186 @@ export const mockInvoiceWithAmountDue: Stripe.Response<Stripe.Invoice> = {
   amount_due: 120000,
   amount_paid: 0,
 } as unknown as Stripe.Response<Stripe.Invoice>;
+
+export const mockEvent__invoice_paid__simple: Stripe.Event = {
+  id: 'evt_123',
+  object: 'event',
+  api_version: '2020-08-27',
+  created: Math.floor(Date.now() / 1000),
+  data: {
+    object: {
+      id: 'in_123',
+      object: 'invoice',
+      subscription: 'sub_123',
+      payment_intent: 'pi_123',
+      amount_paid: 1000,
+      amount_due: 0,
+      currency: 'usd',
+      status: 'paid',
+      charge: {
+        id: 'ch_123',
+        billing_details: {
+          address: {
+            city: 'Test City',
+            country: 'US',
+            line1: '123 Test St',
+            line2: '',
+            postal_code: '12345',
+            state: 'CA',
+          },
+        },
+      },
+    },
+  },
+  livemode: false,
+  pending_webhooks: 0,
+  request: null,
+  type: 'invoice.paid',
+} as Stripe.Event;
+
+export const mockEvent__invoice_payment_failed__simple: Stripe.Event = {
+  id: 'evt_123',
+  object: 'event',
+  api_version: '2020-08-27',
+  created: Math.floor(Date.now() / 1000),
+  data: {
+    object: {
+      id: 'in_123',
+      object: 'invoice',
+      subscription: 'sub_123',
+      payment_intent: 'pi_123',
+      amount_paid: 0,
+      amount_due: 1000,
+      currency: 'usd',
+      status: 'open',
+    },
+  },
+  livemode: false,
+  pending_webhooks: 0,
+  request: null,
+  type: 'invoice.payment_failed',
+} as Stripe.Event;
+
+export const mockEvent__invoice_paid__missing_payment_id: Stripe.Event = {
+  id: 'evt_123',
+  object: 'event',
+  api_version: '2020-08-27',
+  created: Math.floor(Date.now() / 1000),
+  data: {
+    object: {
+      id: 'in_123',
+      object: 'invoice',
+      subscription: 'sub_123',
+      payment_intent: 'pi_123',
+    },
+  },
+  livemode: false,
+  pending_webhooks: 0,
+  request: null,
+  type: 'invoice.paid',
+} as Stripe.Event;
+
+export const mockEvent__invoice_paid__missing_cart_id: Stripe.Event = {
+  id: 'evt_123',
+  object: 'event',
+  api_version: '2020-08-27',
+  created: Math.floor(Date.now() / 1000),
+  data: {
+    object: {
+      id: 'in_123',
+      object: 'invoice',
+      subscription: 'sub_123',
+      payment_intent: 'pi_123',
+    },
+  },
+  livemode: false,
+  pending_webhooks: 0,
+  request: null,
+  type: 'invoice.paid',
+} as Stripe.Event;
+
+export const mockEvent__invoice_paid__error_test: Stripe.Event = {
+  id: 'evt_123',
+  object: 'event',
+  api_version: '2020-08-27',
+  created: Math.floor(Date.now() / 1000),
+  data: {
+    object: {
+      id: 'in_123',
+      object: 'invoice',
+      subscription: 'sub_123',
+      payment_intent: 'pi_123',
+    },
+  },
+  livemode: false,
+  pending_webhooks: 0,
+  request: null,
+  type: 'invoice.paid',
+} as Stripe.Event;
+
+export const mockInvoiceExpanded__simple = {
+  id: 'in_123',
+  subscription: {
+    id: 'sub_123',
+    metadata: {
+      ct_payment_id: 'ct_payment_123',
+    },
+  },
+  payment_intent: {
+    id: 'pi_123',
+    object: 'payment_intent',
+    amount: 1000,
+    currency: 'usd',
+    status: 'succeeded',
+  },
+  subscription_details: {
+    metadata: {
+      cart_id: 'cart_123',
+    },
+  },
+  currency: 'usd',
+  amount_paid: 1000,
+  amount_due: 1000,
+} as any;
+
+export const mockInvoiceExpanded__missing_payment_id = {
+  id: 'in_123',
+  subscription: {
+    id: 'sub_123',
+    metadata: {},
+  },
+  payment_intent: 'pi_123',
+} as any;
+
+export const mockInvoiceExpanded__missing_cart_id = {
+  id: 'in_123',
+  subscription: {
+    id: 'sub_123',
+    metadata: {
+      ct_payment_id: 'ct_payment_123',
+    },
+  },
+  payment_intent: {
+    id: 'pi_123',
+    object: 'payment_intent',
+    amount: 1000,
+    currency: 'usd',
+    status: 'succeeded',
+  },
+  subscription_details: {
+    metadata: {},
+  },
+} as any;
+
+export const mockEvent__invoice_upcoming__simple: Stripe.Event = {
+  ...mockEvent__invoice_paid__simple,
+  id: 'evt_upcoming_123',
+  type: 'invoice.upcoming',
+  data: {
+    object: {
+      ...mockEvent__invoice_paid__simple.data.object,
+      id: 'in_upcoming_123',
+      subscription: 'sub_123',
+    },
+  },
+} as Stripe.Event;

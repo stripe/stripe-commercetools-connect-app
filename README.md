@@ -102,36 +102,58 @@ Each diagram details the interactions and steps involved in processing the respe
 
 ## Recent Updates and Improvements
 
-### Subscription Service Enhancements (Latest)
+### Enhanced Subscription Service Architecture and Testing Infrastructure (Latest)
 
-The subscription service has been significantly enhanced with the following improvements:
+The subscription service has undergone major architectural improvements with comprehensive testing enhancements:
 
 #### 🚀 New Features
+- **New Price Client Service**: Added dedicated `price-client.ts` service for enhanced product price management and retrieval
+- **Modular Test Architecture**: Restructured subscription service tests into focused, maintainable modules:
+  - Business logic and payment handling tests
+  - Core subscription functionality tests  
+  - Subscription lifecycle management tests
+  - Payment processing and confirmation tests
+  - Price management and calculation tests
+  - Utility functions and helper method tests
+- **Enhanced Configuration Management**: Added comprehensive configuration testing and validation
+- **Advanced Payment Intent Handling**: Enhanced error handling for payment intents with additional status checks
+- **Improved Subscription Metadata Management**: Enhanced metadata tracking with comprehensive field mapping
+
+#### 🔧 Technical Improvements
+- **Subscription Service Refactoring**: Major architectural improvements with better separation of concerns
+- **Enhanced Test Coverage**: Achieved comprehensive test coverage across all subscription service methods and edge cases
+- **Improved Mock Data Management**: Enhanced mock data structures for better test reliability and coverage
+- **Better Error Handling**: Comprehensive error management throughout the subscription service with detailed logging
+- **Payment Processing Enhancements**: Improved payment intent configuration with conditional shipping and advanced payment method options
+- **New Price Management Methods**: 
+  - `getProductById()`: Retrieves products with expanded price information
+  - `getProductMasterPrice()`: Gets current price from product master variant
+
+#### 🧪 Testing Infrastructure Enhancements
+- **Modular Test Structure**: Tests organized by functionality for better maintainability and faster execution
+- **Comprehensive Coverage**: All subscription service methods now have dedicated test coverage
+- **Enhanced Mock Data**: Improved mock data for realistic testing scenarios
+- **Better Test Organization**: Clear separation between unit tests and integration tests
+- **Configuration Testing**: Added dedicated tests for configuration validation
+
+#### 📚 Documentation and Architecture Updates
+- **Enhanced Code Organization**: Better separation of concerns in subscription service architecture
+- **Improved Type Safety**: Updated method signatures and type definitions for better development experience
+- **Better Logging**: Enhanced logging throughout the service for improved debugging capabilities
+- **Optimized Performance**: More efficient product price management and test execution
+
+### Previous Enhancements
+
+#### Subscription Service Core Features
 - **Recurring Shipping Fee Support**: Added comprehensive support for recurring shipping fees in subscriptions
 - **Automatic Shipping Price Management**: Automatic creation and management of Stripe shipping prices
 - **Enhanced Metadata Tracking**: Improved metadata handling for shipping methods and prices
-- **Comprehensive Test Coverage**: Added extensive test coverage for all subscription operations
-
-#### 🔧 Technical Improvements
-- **Method Signature Updates**: Updated method signatures to use proper object parameters for better type safety
 - **Shipping Price Integration**: New methods for managing shipping prices within subscriptions:
   - `getSubscriptionShippingPriceId()`: Retrieves or creates shipping price IDs
   - `getStripeShippingPriceByMetadata()`: Searches for existing shipping prices
   - `createStripeShippingPrice()`: Creates new Stripe shipping prices
 - **Enhanced Type Definitions**: Added new TypeScript interfaces for shipping price management
-- **Improved Error Handling**: Better error handling and logging throughout the subscription service
 - **Enabler Enhancements**: Improved payment mode handling and comprehensive debugging
-- **Payment Service Improvements**: Enhanced payment intent configuration with conditional shipping and advanced payment method options
-
-#### 🧪 Testing Enhancements
-- **Comprehensive Test Suite**: Added tests for all subscription service methods
-- **Mock Data Improvements**: Enhanced mock data for shipping information and Stripe API responses
-- **Test Coverage**: Achieved comprehensive test coverage for subscription operations
-
-#### 📚 Documentation Updates
-- **API Documentation**: Updated API documentation to reflect Stripe API compliance
-- **Feature Documentation**: Added detailed documentation for shipping fee functionality
-- **Testing Documentation**: Added comprehensive testing documentation and examples
 
 For detailed information about these improvements, see the [Processor Documentation](./processor/README.md#subscription-shipping-fee-support).
 
@@ -151,6 +173,7 @@ The following webhooks are currently supported, and the payment transactions in 
 - **charge.captured**: Logs the information in the connector app inside the Processor logs.
 - **invoice.paid**: If payment charge is pending, we update the payment transaction to Charge:Success. If charge is not pending, we update the payment transaction to Authorization:Success and create a payment transaction Charge:Success.
 - **invoice.payment_failed**: If payment charge is pending, we update the payment transaction to Charge:Failure. If charge is not pending, we update the payment transaction to Authorization:Failure and create a payment transaction Charge:Failure.
+- **invoice.upcoming**: Handles upcoming invoice events for subscription payments, supporting the new subscription payment handling strategy.
 
 
 ## Prerequisite
@@ -325,6 +348,12 @@ deployAs:
           description: Stripe collect billing address information in Payment Element (example - 'auto' | 'never' | 'if_required').
           default: 'auto'
           required: true
+        - key: STRIPE_SUBSCRIPTION_PAYMENT_HANDLING
+          description: Subscription payment handling strategy (createOrder|addPaymentToOrder).
+          default: createOrder
+        - key: STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED
+          description: Enable automatic price synchronization for subscriptions (true|false).
+          default: false
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
           description: commercetools client secret.
@@ -363,6 +392,12 @@ Here, you can see the details about various variables in the configuration
 - `MERCHANT_RETURN_URL`: Merchant return URL used on the [confirmPayment](https://docs.stripe.com/js/payment_intents/confirm_payment) return_url parameter. The Buy Now Pay Later payment methods will send the Stripe payment_intent in the URL; the Merchant will need to retrieve the payment intent and look for the metadata `ct_payment_id` to be added in the commercetools Checkout SDK `paymentReference`.
 - `STRIPE_SAVED_PAYMENT_METHODS_CONFIG`: Stripe allows you to configure the saved payment methods in the Payment Element, refer to [docs](https://docs.stripe.com/api/customer_sessions/object#customer_session_object-components-payment_element-features). This feature is disabled by default. To enable it, you need to add the expected customer session object. Default value is `{"payment_method_save":"disabled"}`
 - `STRIPE_COLLECT_BILLING_ADDRESS`: Stripe allows you to collect the shipping address in the Payment Element. If you want to collect the shipping address, you need to set this value to `never`. The default value is `auto`. More information can be found [here](https://docs.stripe.com/payments/payment-element/control-billing-details-collection).
+- `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING`: Defines the strategy for handling subscription payments. Options are:
+  - `createOrder` (creates a new order for each subscription payment - default)
+  - `addPaymentToOrder` (adds payment to existing order)
+- `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED`: Enables automatic price synchronization for subscriptions. 
+  - `true`: Subscription prices are automatically synchronized with current commercetools product prices **before** each invoice is created via `invoice.upcoming` webhook events (price changes take effect in current billing cycle)
+  - `false` (default): Price updates happen **after** invoice payment via `createOrder` method (price changes take effect in next billing cycle)
 
 ## Development
 

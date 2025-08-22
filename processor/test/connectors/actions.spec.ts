@@ -84,6 +84,10 @@ describe('Actions test', () => {
 
       expect(Logger.log.info).toHaveBeenCalled();
       expect(Stripe.prototype.webhookEndpoints.update).toHaveBeenCalled();
+
+      const updateCall = (Stripe.prototype.webhookEndpoints.update as jest.Mock).mock.calls[0];
+      const webhookConfig = updateCall[1] as { enabled_events: string[]; url: string };
+      expect(webhookConfig.enabled_events).toContain('invoice.upcoming');
     });
 
     test('should throw an error when Stripe throws an error', async () => {
@@ -231,8 +235,12 @@ describe('Actions test', () => {
       await Actions.createProductTypeSubscription();
       expect(getProductTypeByKeyMock).toHaveBeenCalled();
       expect(getProductsByProductTypeIdMock).toHaveBeenCalled();
-      expect(Logger.log.info).toHaveBeenCalledWith('Product type "payment-connector-subscription-information" already exists. Checking if update is needed...');
-      expect(Logger.log.info).toHaveBeenCalledWith('Product type subscription attributes differ from desired. Updating attributes...');
+      expect(Logger.log.info).toHaveBeenCalledWith(
+        'Product type "payment-connector-subscription-information" already exists. Checking if update is needed...',
+      );
+      expect(Logger.log.info).toHaveBeenCalledWith(
+        'Product type subscription attributes differ from desired. Updating attributes...',
+      );
       expect(updateProductTypeMock).toHaveBeenCalled();
     });
 
@@ -245,8 +253,12 @@ describe('Actions test', () => {
       await Actions.createProductTypeSubscription();
       expect(getProductTypeByKeyMock).toHaveBeenCalled();
       expect(createProductTypeMock).toHaveBeenCalled();
-      expect(Logger.log.info).toHaveBeenCalledWith('Product type "payment-connector-subscription-information" does not exist. Creating new product type...');
-      expect(Logger.log.info).toHaveBeenCalledWith('Product Type "payment-connector-subscription-information" created successfully.');
+      expect(Logger.log.info).toHaveBeenCalledWith(
+        'Product type "payment-connector-subscription-information" does not exist. Creating new product type...',
+      );
+      expect(Logger.log.info).toHaveBeenCalledWith(
+        'Product Type "payment-connector-subscription-information" created successfully.',
+      );
     });
   });
 

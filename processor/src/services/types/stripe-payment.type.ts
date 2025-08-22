@@ -46,6 +46,7 @@ export enum StripeSubscriptionEvent {
   INVOICE_PAID = 'invoice.paid',
   INVOICE_PAYMENT_FAILED = 'invoice.payment_failed',
   CUSTOMER_SUBSCRIPTION_DELETED = 'customer.subscription.deleted', //TODO when canceled subscription
+  INVOICE_UPCOMING = 'invoice.upcoming',
 }
 
 export enum PaymentStatus {

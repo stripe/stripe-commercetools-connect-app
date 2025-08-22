@@ -353,6 +353,7 @@ export class StripePaymentService extends AbstractPaymentService {
       const setupFutureUsage = config.stripeSavedPaymentMethodConfig?.payment_method_save_usage;
       const customer = await this.customerService.getCtCustomer(cart.customerId!);
       const amountPlanned = await this.ctCartService.getPaymentAmount({ cart });
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const shippingAddress = this.customerService.getStripeCustomerAddress(
         cart.shippingAddress,
         customer?.addresses[0],

@@ -73,6 +73,7 @@ export async function updateWebhookEndpoint(weId: string, weAppUrl: string): Pro
         'payment_intent.requires_action',
         'invoice.paid',
         'invoice.payment_failed',
+        'invoice.upcoming',
       ],
       url: weAppUrl,
     });
@@ -123,7 +124,7 @@ export async function createProductTypeSubscription(): Promise<void> {
       const productType = await getProductTypeByKey(productTypeSubscription.key!);
       if (productType) {
         log.info(`Product type "${productTypeSubscription.key}" already exists. Checking if update is needed...`);
-        
+
         const existingAttributes = productType.attributes || [];
         const desiredAttributes = productTypeSubscription.attributes || [];
 
@@ -131,10 +132,12 @@ export async function createProductTypeSubscription(): Promise<void> {
 
         if (!attributesAreEqual) {
           log.info('Product type subscription attributes differ from desired. Updating attributes...');
-          
+
           const products = await getProductsByProductTypeId(productType.id);
           if (products.length > 0) {
-            log.warn(`Cannot update product type "${productTypeSubscription.key}" because it is used by ${products.length} product(s). Skipping update.`);
+            log.warn(
+              `Cannot update product type "${productTypeSubscription.key}" because it is used by ${products.length} product(s). Skipping update.`,
+            );
             return;
           }
           try {

@@ -9,7 +9,6 @@ import {
 import { PaymentAmount } from '@commercetools/connect-payments-sdk/dist/commercetools/types/payment.type';
 import Stripe from 'stripe';
 
-
 export interface ExtendedPaymentAmount extends PaymentAmount {
   totalCentAmount: number;
 }
@@ -61,6 +60,14 @@ export interface GetCurrentPaymentProps {
   paymentReference: string;
   invoice: Stripe.Invoice;
   subscriptionParams: Stripe.SubscriptionCreateParams;
+}
+
+export interface UpdateSubscriptionMetadataProps {
+  subscriptionId: string;
+  cart?: Cart;
+  ctPaymentId?: string;
+  customerId?: string;
+  orderId?: string;
 }
 
 export interface BasicSubscriptionData {
