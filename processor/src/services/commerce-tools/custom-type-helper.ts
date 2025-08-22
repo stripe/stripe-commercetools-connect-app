@@ -73,6 +73,71 @@ export async function addOrUpdateCustomType(customType: TypeDraft): Promise<void
   }
 }
 
+/**
+ * Gets the field names that need to be removed from a custom type
+ */
+function getFieldsToRemove(customType: TypeDraft, type: Type): string[] {
+  return (customType.fieldDefinitions ?? []).filter(({ name }) => hasField(type, name)).map(({ name }) => name);
+}
+
+/**
+ * Checks if the custom type has fields beyond the ones we want to remove
+ */
+function hasAdditionalFields(type: Type, fieldsToRemove: string[]): boolean {
+  return type.fieldDefinitions?.some((field) => !fieldsToRemove.includes(field.name)) ?? false;
+}
+
+/**
+ * Removes specific fields from a custom type while keeping the type itself
+ */
+async function removeFieldsFromType(key: string, version: number, fieldsToRemove: string[]): Promise<void> {
+  const fieldUpdates: TypeRemoveFieldDefinitionAction[] = fieldsToRemove.map((name) => ({
+    action: 'removeFieldDefinition',
+    fieldName: name,
+  }));
+
+  await updateCustomTypeByKey({ key, version, actions: fieldUpdates });
+  log.info(
+    `Removed ${fieldsToRemove.length} field(s) from Custom Type "${key}", but kept the type as it contains additional fields.`,
+  );
+}
+
+/**
+ * Attempts to delete a custom type, handling the case where it's still referenced
+ */
+async function deleteCustomTypeIfPossible(key: string, version: number): Promise<void> {
+  try {
+    await deleteCustomTypeByKey({ key, version });
+    log.info(`Custom Type "${key}" deleted successfully as it contained only our fields.`);
+  } catch (error) {
+    const referencedMessage = 'Can not delete a type while it is referenced';
+    if (error instanceof Error && error.message.includes(referencedMessage)) {
+      log.warn(`Custom Type "${key}" is referenced by at least one customer. Skipping deletion.`);
+    } else {
+      throw error;
+    }
+  }
+}
+
+/**
+ * Processes a single custom type for deletion or field removal
+ */
+async function processCustomType(customType: TypeDraft, type: Type): Promise<void> {
+  const { key, version } = type;
+  const fieldsToRemove = getFieldsToRemove(customType, type);
+
+  if (!fieldsToRemove.length) {
+    log.info(`Custom Type "${key}" has no matching fields to remove. Skipping deletion.`);
+    return;
+  }
+
+  if (hasAdditionalFields(type, fieldsToRemove)) {
+    await removeFieldsFromType(key, version, fieldsToRemove);
+  } else {
+    await deleteCustomTypeIfPossible(key, version);
+  }
+}
+
 export async function deleteOrUpdateCustomType(customType: TypeDraft): Promise<void> {
   const resourceTypeId = customType.resourceTypeIds[0];
   const types = await getTypesByResourceTypeId(resourceTypeId);
@@ -83,41 +148,7 @@ export async function deleteOrUpdateCustomType(customType: TypeDraft): Promise<v
   }
 
   for (const type of types) {
-    const { key, version } = type;
-    const fieldsToRemove = (customType.fieldDefinitions ?? [])
-      .filter(({ name }) => hasField(type, name))
-      .map(({ name }) => name);
-
-    if (!fieldsToRemove.length) {
-      log.info(`Custom Type "${key}" has no matching fields to remove. Skipping deletion.`);
-      continue;
-    }
-
-    const hasAdditionalFields = type.fieldDefinitions?.some((field) => !fieldsToRemove.includes(field.name));
-
-    if (hasAdditionalFields) {
-      const fieldUpdates: TypeRemoveFieldDefinitionAction[] = fieldsToRemove.map((name) => ({
-        action: 'removeFieldDefinition',
-        fieldName: name,
-      }));
-
-      await updateCustomTypeByKey({ key, version, actions: fieldUpdates });
-      log.info(
-        `Removed ${fieldsToRemove.length} field(s) from Custom Type "${key}", but kept the type as it contains additional fields.`,
-      );
-    } else {
-      try {
-        await deleteCustomTypeByKey({ key, version });
-        log.info(`Custom Type "${key}" deleted successfully as it contained only our fields.`);
-      } catch (error) {
-        const referencedMessage = 'Can not delete a type while it is referenced';
-        if (error instanceof Error && error.message.includes(referencedMessage)) {
-          log.warn(`Custom Type "${key}" is referenced by at least one customer. Skipping deletion.`);
-        } else {
-          throw error;
-        }
-      }
-    }
+    await processCustomType(customType, type);
   }
 }
 

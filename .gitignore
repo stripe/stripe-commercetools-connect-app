@@ -10,3 +10,6 @@
 docs/context7-libraries
 
 context7-config.json
+
+# Connect CLI generated files
+.connect

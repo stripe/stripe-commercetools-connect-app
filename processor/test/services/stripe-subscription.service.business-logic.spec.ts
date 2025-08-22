@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 jest.mock('stripe', () => ({
   __esModule: true,
   default: jest.fn().mockImplementation(() => {}),
@@ -40,19 +41,6 @@ jest.mock('../../src/payment-sdk', () => ({
   },
 }));
 
-interface FlexibleConfig {
-  [key: string]: string | number | boolean | Config.PaymentFeatures;
-}
-
-function setupMockConfig(keysAndValues: Record<string, string | boolean>) {
-  const mockConfig: FlexibleConfig = {};
-  Object.keys(keysAndValues).forEach((key) => {
-    mockConfig[key] = keysAndValues[key];
-  });
-
-  jest.spyOn(Config, 'getConfig').mockReturnValue(mockConfig as ReturnType<typeof Config.getConfig>);
-}
-
 describe('stripe-subscription.service.business-logic', () => {
   const opts = {
     ctCartService: paymentSDK.ctCartService,
@@ -83,6 +71,7 @@ describe('stripe-subscription.service.business-logic', () => {
 
     Stripe.prototype.products = {
       retrieve: jest.fn(),
+      search: jest.fn(),
     } as unknown as Stripe.ProductsResource;
   });
 
@@ -92,18 +81,10 @@ describe('stripe-subscription.service.business-logic', () => {
 
   describe('method processUpcomingSubscriptionEvent', () => {
     test('should process upcoming subscription event successfully when price sync is enabled', async () => {
-      setupMockConfig({
-        projectKey: 'test-project-key',
-        stripeCollectBillingAddress: 'auto',
-        stripeSecretKey: 'sk_test_123',
-        authUrl: 'https://auth.test.com',
-        apiUrl: 'https://api.test.com',
-        clientId: 'test-client-id',
-        clientSecret: 'test-client-secret',
-        scope: 'test-scope',
-        region: 'test-region',
+      jest.spyOn(Config, 'getConfig').mockReturnValue({
+        ...Config.getConfig(),
         subscriptionPriceSyncEnabled: true,
-      });
+      } as ReturnType<typeof Config.getConfig>);
 
       const mockEvent = {
         id: 'evt_123',
@@ -144,10 +125,78 @@ describe('stripe-subscription.service.business-logic', () => {
         .spyOn(Stripe.prototype.subscriptions, 'retrieve')
         .mockResolvedValue(mockResponse as Stripe.Response<Stripe.Subscription>);
 
+      const mockProduct = {
+        id: 'prod_123',
+        object: 'product',
+        active: true,
+        created: Date.now() / 1000,
+        description: 'Test product',
+        livemode: false,
+        name: 'Test Product',
+        updated: Date.now() / 1000,
+        images: [],
+        marketing_features: [],
+        package_dimensions: null,
+        shippable: false,
+        type: 'service',
+        unit_label: null,
+        url: null,
+        metadata: {
+          ct_product_id: 'test-product-id',
+        },
+      } as unknown as Stripe.Product;
+
+      const stripeProductRetrieveMock = jest
+        .spyOn(Stripe.prototype.products, 'retrieve')
+        .mockResolvedValue(mockProduct as Stripe.Response<Stripe.Product>);
+
+      // Mock the price client
+      const mockPrice = { centAmount: 1500, currencyCode: 'USD', fractionDigits: 2 };
+      jest
+        .spyOn(require('../../src/services/commerce-tools/price-client'), 'getProductMasterPrice')
+        .mockResolvedValue(mockPrice);
+
+      // Mock price search
+      jest.spyOn(Stripe.prototype.prices, 'search').mockResolvedValue({
+        data: [],
+        object: 'search_result',
+        has_more: false,
+        next_page: null,
+        url: '/v1/prices/search',
+        lastResponse: {
+          headers: {},
+          requestId: 'req_123',
+          statusCode: 200,
+        },
+      } as unknown as Stripe.Response<Stripe.ApiSearchResult<Stripe.Price>>);
+
+      // Mock price creation
+      const mockNewPrice = { id: 'price_new_123' } as Stripe.Price;
+      jest.spyOn(Stripe.prototype.prices, 'create').mockResolvedValue(mockNewPrice as Stripe.Response<Stripe.Price>);
+
+      // Mock subscription update
+      jest
+        .spyOn(Stripe.prototype.subscriptions, 'update')
+        .mockResolvedValue(mockSubscription as Stripe.Response<Stripe.Subscription>);
+
+      // Mock product search
+      jest.spyOn(Stripe.prototype.products, 'search').mockResolvedValue({
+        data: [mockProduct],
+        object: 'search_result',
+        has_more: false,
+        next_page: null,
+        url: '/v1/products/search',
+        lastResponse: {
+          headers: {},
+          requestId: 'req_123',
+          statusCode: 200,
+        },
+      } as unknown as Stripe.Response<Stripe.ApiSearchResult<Stripe.Product>>);
+
       await stripeSubscriptionService.processUpcomingSubscriptionEvent(mockEvent);
 
       expect(stripeSubscriptionRetrieveMock).toHaveBeenCalled();
-      expect(Stripe.prototype.products.retrieve).toHaveBeenCalledWith('prod_123');
+      expect(stripeProductRetrieveMock).toHaveBeenCalledWith('prod_123');
     });
 
     test('should skip processing when price sync is disabled', async () => {
@@ -597,12 +646,10 @@ describe('stripe-subscription.service.business-logic', () => {
     ])('should $name', async ({ mockPrice, shouldError }) => {
       if (shouldError) {
         jest
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
           .spyOn(require('../../src/services/commerce-tools/price-client'), 'getProductMasterPrice')
           .mockRejectedValue(new Error('Price fetch error'));
       } else {
         jest
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
           .spyOn(require('../../src/services/commerce-tools/price-client'), 'getProductMasterPrice')
           .mockResolvedValue(mockPrice);
       }

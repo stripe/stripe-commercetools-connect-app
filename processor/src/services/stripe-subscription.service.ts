@@ -1124,7 +1124,7 @@ export class StripeSubscriptionService {
 
   public async processUpcomingSubscriptionEvent(event: Stripe.Event): Promise<void> {
     const config = getConfig();
-    if (config.subscriptionPriceSyncEnabled) {
+    if (!config.subscriptionPriceSyncEnabled) {
       log.info(
         'Skipping upcoming subscription price synchronization because STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED is not set to true',
       );
@@ -1133,6 +1133,12 @@ export class StripeSubscriptionService {
 
     try {
       const subscriptionId = (event.data.object as Stripe.Invoice).subscription;
+
+      if (!subscriptionId) {
+        log.warn('Skipping upcoming subscription price synchronization: no subscription ID found in event');
+        return;
+      }
+
       const subscription = await stripe.subscriptions.retrieve(subscriptionId as string);
 
       await this.synchronizeSubscriptionPrice(subscription);
@@ -1568,7 +1574,7 @@ export class StripeSubscriptionService {
           // If using Stripe Test Clock, wait for 5 seconds to allow clock advancement in test environments.
           // This helps ensure Stripe's test clock events are processed before updating the subscription.
           // Uncomment this line for testing purposes when using Stripe Test Clock.
-          await new Promise((resolve) => setTimeout(resolve, 8000));
+          // await new Promise((resolve) => setTimeout(resolve, 8000));
 
           await stripe.subscriptions.update(subscription.id, {
             items: [

@@ -119,7 +119,7 @@ describe('stripe-subscription.service.payment', () => {
         clientSecret: 'test-client-secret',
         scope: 'test-scope',
         region: 'test-region',
-        subscriptionPaymentHandling: 'upcomingInvoice',
+        subscriptionPaymentHandling: 'createOrder',
       });
       const mockCart = mockGetSubscriptionCartWithVariant(1);
       const mockSubscription = {

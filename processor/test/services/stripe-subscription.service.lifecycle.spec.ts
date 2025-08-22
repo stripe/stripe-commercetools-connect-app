@@ -139,7 +139,7 @@ describe('stripe-subscription.service.lifecycle', () => {
         clientSecret: 'test-client-secret',
         scope: 'test-scope',
         region: 'test-region',
-        subscriptionPaymentHandling: 'upcomingInvoice',
+        subscriptionPaymentHandling: 'createOrder',
       });
       const customerId = 'customer_123';
       const mockSubscriptions = [subscriptionResponseMock];

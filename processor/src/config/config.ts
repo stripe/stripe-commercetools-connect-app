@@ -65,7 +65,7 @@ export const config = {
    *
    * Environment variable: STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED
    */
-  subscriptionPriceSyncEnabled: process.env.STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED === 'true',
+  subscriptionPriceSyncEnabled: process.env.STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED === 'true' || false,
 };
 
 export const getConfig = () => {

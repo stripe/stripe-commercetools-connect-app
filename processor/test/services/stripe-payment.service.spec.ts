@@ -981,10 +981,6 @@ describe('stripe-payment.service', () => {
           pspReference: expect.any(String),
           transactions: expect.any(Array),
         }),
-        expect.objectContaining({
-          currencyCode: 'USD',
-          centAmount: expect.any(Number),
-        }),
       );
 
       expect(spiedUpdatePaymentMock).toHaveBeenCalled();

@@ -166,7 +166,7 @@ describe('stripe-subscription.service.core', () => {
         clientSecret: 'test-client-secret',
         scope: 'test-scope',
         region: 'test-region',
-        subscriptionPaymentHandling: 'upcomingInvoice',
+        subscriptionPaymentHandling: 'createOrder',
       });
       const spiedPrepareSubscriptionDataMock = jest
         .spyOn(StripeSubscriptionService.prototype, 'prepareSubscriptionData')
