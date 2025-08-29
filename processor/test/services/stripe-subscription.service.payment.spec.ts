@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 jest.mock('stripe', () => ({
   __esModule: true,
   default: jest.fn().mockImplementation(() => {}),
@@ -6,7 +8,9 @@ jest.mock('stripe', () => ({
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { StripeSubscriptionService } from '../../src/services/stripe-subscription.service';
 import { CtPaymentCreationService } from '../../src/services/ct-payment-creation.service';
+import { StripePaymentService } from '../../src/services/stripe-payment.service';
 import { paymentSDK } from '../../src/payment-sdk';
+import { SubscriptionEventConverter } from '../../src/services/converters/subscriptionEventConverter';
 import { mockGetSubscriptionCartWithVariant } from '../utils/mock-cart-data';
 import {
   mockEvent__invoice_paid__simple,
@@ -20,8 +24,12 @@ import { mockStripeCustomerId } from '../utils/mock-customer-data';
 import * as Config from '../../src/config/config';
 import Stripe from 'stripe';
 import { Payment } from '@commercetools/connect-payments-sdk';
+import { METADATA_PAYMENT_ID_FIELD, METADATA_CUSTOMER_ID_FIELD, METADATA_CART_ID_FIELD } from '../../src/constants';
 
 jest.mock('../../src/libs/logger');
+jest.mock('../../src/services/commerce-tools/customer-client', () => ({
+  getCustomerById: jest.fn(),
+}));
 
 interface FlexibleConfig {
   [key: string]: string | number | boolean | Config.PaymentFeatures;
@@ -47,6 +55,21 @@ describe('stripe-subscription.service.payment', () => {
   beforeEach(async () => {
     jest.setTimeout(10000);
     jest.resetAllMocks();
+
+    jest.spyOn(SubscriptionEventConverter.prototype, 'convert').mockReturnValue({
+      id: 'payment_123',
+      pspReference: 'in_123',
+      paymentMethod: 'card',
+      pspInteraction: { response: '{}' },
+      transactions: [
+        {
+          amount: { centAmount: 1000, currencyCode: 'USD' },
+          interactionId: 'in_123',
+          state: 'Success',
+          type: 'Charge',
+        },
+      ],
+    });
 
     Stripe.prototype.products = {
       search: jest.fn(),
@@ -154,7 +177,7 @@ describe('stripe-subscription.service.payment', () => {
 
       const spiedSaveSubscriptionIdMock = jest
         .spyOn(StripeSubscriptionService.prototype, 'saveSubscriptionId')
-        .mockResolvedValue();
+        .mockResolvedValue(undefined);
       const spiedHandleCtPaymentCreationMock = jest
         .spyOn(CtPaymentCreationService.prototype, 'handleCtPaymentCreation')
         .mockResolvedValue('ref_123');
@@ -179,7 +202,7 @@ describe('stripe-subscription.service.payment', () => {
     });
   });
 
-  describe('method processSubscriptionEvent', () => {
+  describe('method processSubscriptionEventPaid', () => {
     test('should process subscription invoice.paid successfully updating the payment state', async () => {
       const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
 
@@ -196,7 +219,7 @@ describe('stripe-subscription.service.payment', () => {
         .spyOn(DefaultPaymentService.prototype, 'hasTransactionInState')
         .mockReturnValue(true);
 
-      await stripeSubscriptionService.processSubscriptionEvent(mockEvent);
+      await stripeSubscriptionService.processSubscriptionEventPaid(mockEvent);
 
       expect(spiedGetStripeInvoiceExpandedMock).toHaveBeenCalledWith((mockEvent.data.object as Stripe.Invoice).id);
       expect(spiedGetPaymentMock).toHaveBeenCalled();
@@ -222,9 +245,287 @@ describe('stripe-subscription.service.payment', () => {
         .spyOn(CtPaymentCreationService.prototype, 'getStripeInvoiceExpanded')
         .mockResolvedValue(mockInvoiceWithoutPaymentId);
 
-      await stripeSubscriptionService.processSubscriptionEvent(mockEvent);
+      await stripeSubscriptionService.processSubscriptionEventPaid(mockEvent);
 
       expect(spiedGetStripeInvoiceExpandedMock).toHaveBeenCalled();
+    });
+
+    test('should handle createOrder configuration path', async () => {
+      setupMockConfig({
+        subscriptionPaymentHandling: 'createOrder',
+      });
+
+      const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
+      const mockInvoiceWithCustomerId = {
+        ...mockInvoiceExpanded__simple,
+        subscription: {
+          ...mockInvoiceExpanded__simple.subscription,
+          metadata: {
+            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+          },
+        },
+        subscription_details: {
+          metadata: {
+            [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+          },
+        },
+        payment_intent: null,
+        charge: null,
+      };
+
+      const mockPayment = {
+        ...mockPayment__subscription_success,
+        transactions: [],
+      };
+
+      jest
+        .spyOn(CtPaymentCreationService.prototype, 'getStripeInvoiceExpanded')
+        .mockResolvedValue(mockInvoiceWithCustomerId);
+      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockResolvedValue(mockPayment);
+      jest.spyOn(DefaultPaymentService.prototype, 'findPaymentsByInterfaceId').mockResolvedValue([]);
+      jest.spyOn(DefaultPaymentService.prototype, 'hasTransactionInState').mockReturnValue(false); // Not pending, so will create new order
+
+      jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockResolvedValue(mockPayment);
+
+      jest.spyOn(paymentSDK.ctCartService, 'getCartByPaymentId').mockResolvedValue({
+        cartState: 'Active',
+        id: 'cart_123',
+      } as any);
+      jest.spyOn(paymentSDK.ctOrderService, 'getOrderByPaymentId').mockRejectedValue(new Error('Order not found'));
+
+      await stripeSubscriptionService.processSubscriptionEventPaid(mockEvent);
+
+      expect(paymentSDK.ctOrderService.getOrderByPaymentId).toHaveBeenCalledWith({ paymentId: 'payment_123' });
+    });
+
+    test('should add payment to existing order when subscriptionPaymentHandling is not createOrder', async () => {
+      setupMockConfig({
+        subscriptionPaymentHandling: 'addToOrder',
+      });
+
+      const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
+      const mockInvoiceWithCartId = {
+        ...mockInvoiceExpanded__simple,
+        subscription: {
+          ...mockInvoiceExpanded__simple.subscription,
+          metadata: {
+            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+          },
+        },
+        subscription_details: {
+          metadata: {
+            [METADATA_CART_ID_FIELD]: 'cart_123',
+          },
+        },
+        charge: {
+          id: 'ch_123',
+          billing_details: {
+            address: {
+              city: 'Test City',
+              country: 'US',
+              line1: '123 Test St',
+              postal_code: '12345',
+              state: 'CA',
+            },
+          },
+        },
+      };
+
+      const mockCart = {
+        id: 'cart_123',
+        lineItems: [],
+        totalPrice: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
+      };
+
+      const mockUpdatedCart = {
+        ...mockCart,
+        shippingAddress: {
+          city: 'Test City',
+          country: 'US',
+          streetName: '123 Test St',
+          postalCode: '12345',
+          state: 'CA',
+        },
+      };
+
+      jest
+        .spyOn(CtPaymentCreationService.prototype, 'getStripeInvoiceExpanded')
+        .mockResolvedValue(mockInvoiceWithCartId as any);
+      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockResolvedValue(mockPayment__subscription_success);
+      jest.spyOn(DefaultPaymentService.prototype, 'findPaymentsByInterfaceId').mockResolvedValue([]);
+      jest.spyOn(DefaultPaymentService.prototype, 'hasTransactionInState').mockReturnValue(false); // Not pending, so will add to existing order
+
+      jest.spyOn(paymentSDK.ctCartService, 'getCart').mockResolvedValue(mockCart as any);
+
+      jest.spyOn(CtPaymentCreationService.prototype, 'handleCtPaymentCreation').mockResolvedValue('new_payment_123');
+
+      jest.spyOn(StripePaymentService.prototype, 'updateCartAddress').mockResolvedValue(mockUpdatedCart as any);
+      jest.spyOn(StripePaymentService.prototype, 'createOrder').mockResolvedValue(undefined);
+      jest.spyOn(StripePaymentService.prototype, 'addPaymentToOrder').mockResolvedValue(undefined);
+
+      jest.spyOn(paymentSDK.ctCartService, 'getCartByPaymentId').mockResolvedValue(mockCart as any);
+
+      await stripeSubscriptionService.processSubscriptionEventPaid(mockEvent);
+
+
+      expect(paymentSDK.ctCartService.getCart).toHaveBeenCalledWith({ id: 'cart_123' });
+    });
+
+    test('should handle missing customer ID when creating new order', async () => {
+      setupMockConfig({
+        subscriptionPaymentHandling: 'createOrder',
+      });
+
+      const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
+      const mockInvoiceWithoutCustomerId = {
+        ...mockInvoiceExpanded__simple,
+        subscription: {
+          ...mockInvoiceExpanded__simple.subscription,
+          metadata: {
+            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+          },
+        },
+        subscription_details: {
+          metadata: {},
+        },
+      };
+
+      jest
+        .spyOn(CtPaymentCreationService.prototype, 'getStripeInvoiceExpanded')
+        .mockResolvedValue(mockInvoiceWithoutCustomerId as any);
+      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockResolvedValue(mockPayment__subscription_success);
+      jest.spyOn(DefaultPaymentService.prototype, 'findPaymentsByInterfaceId').mockResolvedValue([]);
+      jest.spyOn(DefaultPaymentService.prototype, 'hasTransactionInState').mockReturnValue(false);
+
+      jest.spyOn(paymentSDK.ctOrderService, 'getOrderByPaymentId').mockResolvedValue({} as any);
+
+      await stripeSubscriptionService.processSubscriptionEventPaid(mockEvent);
+    });
+
+    test('should handle customer not found when creating new order', async () => {
+      setupMockConfig({
+        subscriptionPaymentHandling: 'createOrder',
+      });
+
+      const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
+      const mockInvoiceWithCustomerId = {
+        ...mockInvoiceExpanded__simple,
+        subscription: {
+          ...mockInvoiceExpanded__simple.subscription,
+          metadata: {
+            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+          },
+        },
+        subscription_details: {
+          metadata: {
+            [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+          },
+        },
+      };
+
+      jest
+        .spyOn(CtPaymentCreationService.prototype, 'getStripeInvoiceExpanded')
+        .mockResolvedValue(mockInvoiceWithCustomerId as any);
+      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockResolvedValue(mockPayment__subscription_success);
+      jest.spyOn(DefaultPaymentService.prototype, 'findPaymentsByInterfaceId').mockResolvedValue([]);
+      jest.spyOn(DefaultPaymentService.prototype, 'hasTransactionInState').mockReturnValue(false);
+
+      jest.spyOn(paymentSDK.ctOrderService, 'getOrderByPaymentId').mockResolvedValue({} as any);
+      const { getCustomerById } = require('../../src/services/commerce-tools/customer-client');
+      getCustomerById.mockResolvedValue(null); // Customer not found
+
+      await stripeSubscriptionService.processSubscriptionEventPaid(mockEvent);
+    });
+  });
+
+  describe('method processSubscriptionEventFailed', () => {
+    test('should process subscription invoice.failed successfully updating the payment state', async () => {
+      const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
+
+      const spiedGetStripeInvoiceExpandedMock = jest
+        .spyOn(CtPaymentCreationService.prototype, 'getStripeInvoiceExpanded')
+        .mockResolvedValue(mockInvoiceExpanded__simple);
+      const spiedGetPaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'getPayment')
+        .mockResolvedValue(mockPayment__subscription_success);
+      const spiedFindPaymentsByInterfaceIdMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'findPaymentsByInterfaceId')
+        .mockResolvedValue([]);
+      const spiedHasTransactionInStateMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'hasTransactionInState')
+        .mockReturnValue(true);
+
+      await stripeSubscriptionService.processSubscriptionEventFailed(mockEvent);
+
+      expect(spiedGetStripeInvoiceExpandedMock).toHaveBeenCalledWith((mockEvent.data.object as Stripe.Invoice).id);
+      expect(spiedGetPaymentMock).toHaveBeenCalled();
+      expect(spiedFindPaymentsByInterfaceIdMock).toHaveBeenCalled();
+      expect(spiedHasTransactionInStateMock).toHaveBeenCalledWith({
+        payment: mockPayment__subscription_success,
+        transactionType: 'Charge',
+        states: ['Pending'],
+      });
+    });
+
+    test('should handle missing payment ID gracefully', async () => {
+      const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
+      const mockInvoiceWithoutPaymentId = {
+        ...mockInvoiceExpanded__simple,
+        subscription: {
+          ...mockInvoiceExpanded__simple.subscription,
+          metadata: {},
+        },
+      };
+
+      const spiedGetStripeInvoiceExpandedMock = jest
+        .spyOn(CtPaymentCreationService.prototype, 'getStripeInvoiceExpanded')
+        .mockResolvedValue(mockInvoiceWithoutPaymentId);
+
+      await stripeSubscriptionService.processSubscriptionEventFailed(mockEvent);
+
+      expect(spiedGetStripeInvoiceExpandedMock).toHaveBeenCalled();
+    });
+
+    test('should handle createOrder configuration path', async () => {
+      setupMockConfig({
+        subscriptionPaymentHandling: 'createOrder',
+      });
+
+      const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
+      const mockInvoiceWithCustomerId = {
+        ...mockInvoiceExpanded__simple,
+        subscription: {
+          ...mockInvoiceExpanded__simple.subscription,
+          metadata: {
+            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+          },
+        },
+        subscription_details: {
+          metadata: {
+            [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+          },
+        },
+      };
+
+      jest
+        .spyOn(CtPaymentCreationService.prototype, 'getStripeInvoiceExpanded')
+        .mockResolvedValue(mockInvoiceWithCustomerId);
+      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockResolvedValue(mockPayment__subscription_success);
+      jest.spyOn(DefaultPaymentService.prototype, 'findPaymentsByInterfaceId').mockResolvedValue([]);
+      jest.spyOn(DefaultPaymentService.prototype, 'hasTransactionInState').mockReturnValue(false); // Not pending, so will create new order
+
+      jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockResolvedValue(mockPayment__subscription_success);
+
+      jest.spyOn(paymentSDK.ctOrderService, 'getOrderByPaymentId').mockRejectedValue(new Error('Order not found'));
+
+      jest.spyOn(paymentSDK.ctCartService, 'getCartByPaymentId').mockResolvedValue({
+        cartState: 'Active',
+        id: 'cart_123',
+      } as any);
+
+      await stripeSubscriptionService.processSubscriptionEventFailed(mockEvent);
+
+      expect(paymentSDK.ctOrderService.getOrderByPaymentId).toHaveBeenCalledWith({ paymentId: 'payment_123' });
     });
   });
 

@@ -855,7 +855,7 @@ describe('stripe-payment.service', () => {
     });
   });
 
-  describe('method processSubscriptionEvent', () => {
+  describe('method processSubscriptionEventPaid', () => {
     test('should process subscription invoice.paid successfully updating the payment state', async () => {
       const mockEvent: Stripe.Event = mockEvent__invoice_paid__Expanded_Paymnet_intent__amount_paid;
       const mockedCart = mockGetCartResult();
@@ -882,7 +882,7 @@ describe('stripe-payment.service', () => {
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
 
-      await subscriptionService.processSubscriptionEvent(mockEvent);
+      await subscriptionService.processSubscriptionEventPaid(mockEvent);
 
       const mockedInvoice = mockEvent.data.object as Stripe.Invoice;
       const mockedSubscription = mockedInvoice.subscription as Stripe.Subscription;
@@ -961,7 +961,7 @@ describe('stripe-payment.service', () => {
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
 
-      await subscriptionService.processSubscriptionEvent(mockEvent);
+      await subscriptionService.processSubscriptionEventPaid(mockEvent);
 
       expect(spiedStripeInvoiceExpandedMock).toHaveBeenCalledWith((mockEvent.data.object as Stripe.Invoice).id);
       expect(spiedPaymentMock).toHaveBeenCalled();
@@ -976,7 +976,6 @@ describe('stripe-payment.service', () => {
         expect.any(Object),
         mockStripeInvoicesRetrievedExpanded,
         expect.objectContaining({
-          id: mockGetPaymentResult.id,
           paymentMethod: expect.any(String),
           pspReference: expect.any(String),
           transactions: expect.any(Array),
@@ -1020,7 +1019,7 @@ describe('stripe-payment.service', () => {
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
 
-      await subscriptionService.processSubscriptionEvent(mockEvent);
+      await subscriptionService.processSubscriptionEventPaid(mockEvent);
 
       expect(spiedStripeInvoiceExpandedMock).toHaveBeenCalledWith((mockEvent.data.object as Stripe.Invoice).id);
       expect(spiedPaymentMock).toHaveBeenCalled();
@@ -1070,7 +1069,7 @@ describe('stripe-payment.service', () => {
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
 
-      await subscriptionService.processSubscriptionEvent(mockEvent);
+      await subscriptionService.processSubscriptionEventPaid(mockEvent);
 
       const mockedInvoice = mockEvent.data.object as Stripe.Invoice;
       const mockedSubscription = mockedInvoice.subscription as Stripe.Subscription;
@@ -1102,6 +1101,204 @@ describe('stripe-payment.service', () => {
             }),
           ]),
         },
+        transactionType: 'Charge',
+        states: ['Pending'],
+      });
+      expect(spiedHasTransactionInState.mock.results[0].value).toBe(false);
+      expect(spiedGetCartMock).toHaveBeenCalledTimes(0);
+      expect(spiedHandleCtPaymentSubscription).toHaveBeenCalledTimes(0);
+      expect(spiedHandleCtPaymentSubscription).toHaveBeenCalledTimes(0);
+      expect(spiedGetOrderByPaymentId).toHaveBeenCalledTimes(0);
+
+      for (const call of spiedUpdatePaymentMock.mock.calls) {
+        const updateData = call[0];
+        expect(updateData.pspReference).toMatch(/^(in_|sub_|pi_)/);
+        if (updateData.transaction) {
+          expect(updateData.transaction).toHaveProperty('type');
+          expect(updateData.transaction).toHaveProperty('state');
+          expect(updateData.transaction).toHaveProperty('amount');
+          expect(updateData.transaction.amount.centAmount).toBe(mockedInvoice.amount_paid);
+          expect(updateData.transaction).toHaveProperty('interactionId');
+          expect(updateData.transaction.interactionId).toMatch(/^(pi_)/);
+          expect(
+            (updateData.transaction.type === PaymentTransactions.AUTHORIZATION &&
+              updateData.transaction.state === PaymentStatus.SUCCESS) ||
+              (updateData.transaction.type === PaymentTransactions.CHARGE &&
+                updateData.transaction.state === PaymentStatus.SUCCESS),
+          ).toBe(true);
+        }
+      }
+    });
+  });
+
+  describe('method processSubscriptionEventFailed', () => {
+    test('should process subscription invoice.payment_failed successfully creating an update in the failed payment', async () => {
+      const mockEvent: Stripe.Event = mockEvent__invoice_paid__Expanded_Paymnet_intent__amount_paid;
+      const mockedCart = mockGetCartResult();
+      const spiedStripeInvoiceExpandedMock = jest
+        .spyOn(CtPaymentCreationService.prototype, 'getStripeInvoiceExpanded')
+        .mockReturnValue(Promise.resolve(mockStripeInvoicesRetrievedExpanded));
+      const spiedPaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'getPayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
+      const spiedFindPaymentInterfaceIdMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'findPaymentsByInterfaceId')
+        .mockResolvedValue(mockFindPaymentsByInterfaceId__Charge_Failure);
+      const spiedHasTransactionInState = jest
+        .spyOn(DefaultPaymentService.prototype, 'hasTransactionInState')
+        .mockReturnValue(false);
+      const spiedGetCartMock = jest.spyOn(DefaultCartService.prototype, 'getCart').mockResolvedValue(mockedCart);
+      const spiedHandleCtPaymentSubscription = jest
+        .spyOn(CtPaymentCreationService.prototype, 'handleCtPaymentSubscription')
+        .mockResolvedValue('paymentIdUpdated');
+      const spiedGetOrderByPaymentId = jest
+        .spyOn(StripePaymentService.prototype, 'addPaymentToOrder')
+        .mockResolvedValue(undefined);
+      const spiedUpdatePaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
+
+      await subscriptionService.processSubscriptionEventFailed(mockEvent);
+
+      const mockedInvoice = mockEvent.data.object as Stripe.Invoice;
+      const mockedSubscription = mockedInvoice.subscription as Stripe.Subscription;
+      const mockedPaymentIntent = mockedInvoice.payment_intent as Stripe.PaymentIntent;
+      expect(spiedStripeInvoiceExpandedMock).toHaveBeenCalled();
+
+      expect(spiedPaymentMock).toHaveBeenCalled();
+      expect(spiedPaymentMock).toHaveBeenCalledWith({
+        id: mockedSubscription.metadata.ct_payment_id,
+      });
+
+      expect(spiedFindPaymentInterfaceIdMock).toHaveBeenCalled();
+      expect(spiedFindPaymentInterfaceIdMock).toHaveBeenCalledWith({
+        interfaceId: mockedPaymentIntent.id,
+      });
+      expect(spiedFindPaymentInterfaceIdMock).toHaveBeenCalled();
+      expect(await spiedFindPaymentInterfaceIdMock.mock.results[0].value).toEqual(
+        mockFindPaymentsByInterfaceId__Charge_Failure,
+      );
+
+      expect(spiedHasTransactionInState).toHaveBeenCalled();
+      expect(spiedHasTransactionInState.mock.calls[0][0]).toMatchObject({
+        payment: {
+          id: 'failedPaymentId',
+          transactions: expect.arrayContaining([
+            expect.objectContaining({
+              type: 'Charge',
+              state: 'Failure',
+            }),
+          ]),
+        },
+        transactionType: 'Charge',
+        states: ['Pending'],
+      });
+      expect(spiedHasTransactionInState.mock.results[0].value).toBe(false);
+      expect(spiedGetCartMock).toHaveBeenCalledTimes(0);
+      expect(spiedHandleCtPaymentSubscription).toHaveBeenCalledTimes(0);
+      expect(spiedHandleCtPaymentSubscription).toHaveBeenCalledTimes(0);
+      expect(spiedGetOrderByPaymentId).toHaveBeenCalledTimes(0);
+
+      for (const call of spiedUpdatePaymentMock.mock.calls) {
+        const updateData = call[0];
+        expect(updateData.pspReference).toMatch(/^(in_|sub_|pi_)/);
+        if (updateData.transaction) {
+          expect(updateData.transaction).toHaveProperty('type');
+          expect(updateData.transaction).toHaveProperty('state');
+          expect(updateData.transaction).toHaveProperty('amount');
+          expect(updateData.transaction.amount.centAmount).toBe(mockedInvoice.amount_paid);
+          expect(updateData.transaction).toHaveProperty('interactionId');
+          expect(updateData.transaction.interactionId).toMatch(/^(pi_)/);
+          expect(
+            (updateData.transaction.type === PaymentTransactions.AUTHORIZATION &&
+              updateData.transaction.state === PaymentStatus.SUCCESS) ||
+              (updateData.transaction.type === PaymentTransactions.CHARGE &&
+                updateData.transaction.state === PaymentStatus.SUCCESS),
+          ).toBe(true);
+        }
+      }
+    });
+  });
+
+  describe('method processSubscriptionEventUpcoming', () => {
+    test('should process subscription invoice.upcoming successfully creating an update in the upcoming payment', async () => {
+      const mockEvent: Stripe.Event = mockEvent__invoice_paid__Expanded_Paymnet_intent__amount_paid;
+      const spiedStripeInvoiceExpandedMock = jest
+        .spyOn(CtPaymentCreationService.prototype, 'getStripeInvoiceExpanded')
+        .mockReturnValue(Promise.resolve(mockStripeInvoicesRetrievedExpanded));
+      const spiedPaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'getPayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
+      const spiedFindPaymentInterfaceIdMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'findPaymentsByInterfaceId')
+        .mockResolvedValue([]);
+      const spiedHasTransactionInState = jest
+        .spyOn(DefaultPaymentService.prototype, 'hasTransactionInState')
+        .mockReturnValue(false);
+      const spiedHandleSubscriptionPaymentCreateNewOrder = jest
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .spyOn(StripeSubscriptionService.prototype as any, 'handleSubscriptionPaymentCreateNewOrder')
+        .mockResolvedValue(undefined);
+      const spiedUpdatePaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
+
+      await subscriptionService.processSubscriptionEventUpcoming(mockEvent);
+
+      // The processSubscriptionEventUpcoming method doesn't call getStripeInvoiceExpanded
+      // It only retrieves the subscription and synchronizes price
+      expect(spiedStripeInvoiceExpandedMock).not.toHaveBeenCalled();
+      expect(spiedPaymentMock).not.toHaveBeenCalled();
+      expect(spiedFindPaymentInterfaceIdMock).not.toHaveBeenCalled();
+      expect(spiedHasTransactionInState).not.toHaveBeenCalled();
+      expect(spiedHandleSubscriptionPaymentCreateNewOrder).not.toHaveBeenCalled();
+      expect(spiedUpdatePaymentMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('method processSubscriptionEventChargedRefund', () => {
+    test('should process subscription invoice.charged_refund successfully creating an update in the refunded payment', async () => {
+      const mockEvent: Stripe.Event = mockEvent__invoice_paid__Expanded_Paymnet_intent__amount_paid;
+      const mockedCart = mockGetCartResult();
+      const spiedStripeInvoiceExpandedMock = jest
+        .spyOn(CtPaymentCreationService.prototype, 'getStripeInvoiceExpanded')
+        .mockReturnValue(Promise.resolve(mockStripeInvoicesRetrievedExpanded));
+      const spiedPaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'getPayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
+      const spiedFindPaymentInterfaceIdMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'findPaymentsByInterfaceId')
+        .mockResolvedValue(mockFindPaymentsByInterfaceId__Charge_Failure);
+      const spiedHasTransactionInState = jest
+        .spyOn(DefaultPaymentService.prototype, 'hasTransactionInState')
+        .mockReturnValue(false);
+      const spiedGetCartMock = jest.spyOn(DefaultCartService.prototype, 'getCart').mockResolvedValue(mockedCart);
+      const spiedHandleCtPaymentSubscription = jest
+        .spyOn(CtPaymentCreationService.prototype, 'handleCtPaymentSubscription')
+        .mockResolvedValue('paymentIdUpdated');
+      const spiedGetOrderByPaymentId = jest
+        .spyOn(StripePaymentService.prototype, 'addPaymentToOrder')
+        .mockResolvedValue(undefined);
+      const spiedUpdatePaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
+
+      await subscriptionService.processSubscriptionEventChargedRefund(mockEvent);
+
+      const mockedInvoice = mockEvent.data.object as Stripe.Invoice;
+      const mockedSubscription = mockedInvoice.subscription as Stripe.Subscription;
+      expect(spiedStripeInvoiceExpandedMock).toHaveBeenCalled();
+
+      expect(spiedPaymentMock).toHaveBeenCalled();
+      expect(spiedPaymentMock).toHaveBeenCalledWith({
+        id: mockedSubscription.metadata.ct_payment_id,
+      });
+
+      expect(spiedFindPaymentInterfaceIdMock).not.toHaveBeenCalled();
+
+      expect(spiedHasTransactionInState).toHaveBeenCalled();
+      expect(spiedHasTransactionInState.mock.calls[0][0]).toMatchObject({
+        payment: mockGetPaymentResult,
         transactionType: 'Charge',
         states: ['Pending'],
       });

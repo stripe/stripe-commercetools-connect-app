@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 jest.mock('stripe', () => ({
   __esModule: true,
   default: jest.fn().mockImplementation(() => {}),
@@ -17,6 +18,7 @@ import { SubscriptionEventConverter } from '../../src/services/converters/subscr
 import { BasicSubscriptionData } from '../../src/services/types/stripe-subscription.type';
 import Stripe from 'stripe';
 import * as CartClient from '../../src/services/commerce-tools/cart-client';
+import { ShippingInfo } from '@commercetools/platform-sdk';
 
 jest.mock('../../src/libs/logger');
 
@@ -283,7 +285,7 @@ describe('stripe-subscription.service', () => {
         ],
       });
 
-      await stripeSubscriptionService.processSubscriptionEvent(mockEvent);
+      await stripeSubscriptionService.processSubscriptionEventPaid(mockEvent);
 
       expect(CtPaymentCreationService.prototype.getStripeInvoiceExpanded).toHaveBeenCalled();
       expect(DefaultPaymentService.prototype.getPayment).toHaveBeenCalled();
@@ -320,6 +322,463 @@ describe('stripe-subscription.service', () => {
       const result = await stripeSubscriptionService.saveSubscriptionId(mockCart, mockSubscriptionId);
 
       expect(result).toBeUndefined();
+    });
+  });
+
+  describe('method createSubscriptionFromSetupIntent - validation branches', () => {
+    test('should throw error when paymentMethodId is missing', async () => {
+      const mockCart = mockGetSubscriptionCartWithVariant(1);
+
+      jest.spyOn(Stripe.prototype.setupIntents, 'retrieve').mockResolvedValue({
+        payment_method: null, // Missing payment method
+      } as Stripe.Response<Stripe.SetupIntent>);
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'prepareSubscriptionData').mockResolvedValue({
+        cart: mockCart,
+        stripeCustomerId: 'cus_123',
+        subscriptionParams: { customer: 'cus_123' },
+        billingAddress: '123 Main St',
+        merchantReturnUrl: 'http://example.com',
+        lineItemAmount: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
+        amountPlanned: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
+        priceId: 'price_123',
+        shippingPriceId: undefined,
+      } as BasicSubscriptionData);
+
+      await expect(stripeSubscriptionService.createSubscriptionFromSetupIntent('setup_intent_123')).rejects.toThrow(
+        'Failed to create Subscription. Invalid setup intent.',
+      );
+    });
+
+    test('should throw error when paymentMethodId is not a string', async () => {
+      const mockCart = mockGetSubscriptionCartWithVariant(1);
+
+      jest.spyOn(Stripe.prototype.setupIntents, 'retrieve').mockResolvedValue({
+        payment_method: 123, // Not a string
+      } as any);
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'prepareSubscriptionData').mockResolvedValue({
+        cart: mockCart,
+        stripeCustomerId: 'cus_123',
+        subscriptionParams: { customer: 'cus_123' },
+        billingAddress: '123 Main St',
+        merchantReturnUrl: 'http://example.com',
+        lineItemAmount: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
+        amountPlanned: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
+        priceId: 'price_123',
+        shippingPriceId: undefined,
+      } as BasicSubscriptionData);
+
+      await expect(stripeSubscriptionService.createSubscriptionFromSetupIntent('setup_intent_123')).rejects.toThrow(
+        'Failed to create Subscription. Invalid setup intent.',
+      );
+    });
+
+    test('should handle one-time items when present', async () => {
+      const mockCart = mockGetSubscriptionCartWithVariant(1);
+
+      jest.spyOn(Stripe.prototype.setupIntents, 'retrieve').mockResolvedValue({
+        payment_method: 'pm_123',
+      } as Stripe.Response<Stripe.SetupIntent>);
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'prepareSubscriptionData').mockResolvedValue({
+        cart: mockCart,
+        stripeCustomerId: 'cus_123',
+        subscriptionParams: { customer: 'cus_123' },
+        billingAddress: '123 Main St',
+        merchantReturnUrl: 'http://example.com',
+        lineItemAmount: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
+        amountPlanned: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
+        priceId: 'price_123',
+        shippingPriceId: undefined,
+      } as BasicSubscriptionData);
+
+      // Mock one-time items to be present
+      jest
+        .spyOn(stripeSubscriptionService as any, 'getAllLineItemPrices')
+        .mockResolvedValue([{ price: 'price_123', quantity: 1 }]);
+
+      jest.spyOn(stripeSubscriptionService as any, 'createOneTimeItemsInvoice').mockResolvedValue(undefined);
+
+      jest.spyOn(Stripe.prototype.subscriptions, 'create').mockResolvedValue({
+        id: 'sub_123',
+        latest_invoice: { id: 'in_123' },
+      } as Stripe.Response<Stripe.Subscription>);
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'saveSubscriptionId').mockResolvedValue();
+      jest.spyOn(CtPaymentCreationService.prototype, 'handleCtPaymentCreation').mockResolvedValue('payment_ref_123');
+
+      const result = await stripeSubscriptionService.createSubscriptionFromSetupIntent('setup_intent_123');
+
+      expect(result).toEqual({
+        subscriptionId: 'sub_123',
+        paymentReference: 'payment_ref_123',
+      });
+      expect((stripeSubscriptionService as any).createOneTimeItemsInvoice).toHaveBeenCalled();
+    });
+
+    test('should handle invoice status variations correctly', async () => {
+      const mockCart = mockGetSubscriptionCartWithVariant(1);
+
+      jest.spyOn(Stripe.prototype.setupIntents, 'retrieve').mockResolvedValue({
+        payment_method: 'pm_123',
+      } as Stripe.Response<Stripe.SetupIntent>);
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'prepareSubscriptionData').mockResolvedValue({
+        cart: mockCart,
+        stripeCustomerId: 'cus_123',
+        subscriptionParams: {
+          customer: 'cus_123',
+          send_invoice: true,
+        },
+        billingAddress: '123 Main St',
+        merchantReturnUrl: 'http://example.com',
+        lineItemAmount: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
+        amountPlanned: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
+        priceId: 'price_123',
+        shippingPriceId: undefined,
+      } as BasicSubscriptionData);
+
+      jest.spyOn(stripeSubscriptionService as any, 'getAllLineItemPrices').mockResolvedValue([]);
+
+      jest.spyOn(Stripe.prototype.subscriptions, 'create').mockResolvedValue({
+        id: 'sub_123',
+        latest_invoice: { id: 'in_123' },
+      } as Stripe.Response<Stripe.Subscription>);
+
+      jest.spyOn(Stripe.prototype.invoices, 'sendInvoice').mockResolvedValue({
+        id: 'in_123',
+        status: 'open',
+      } as Stripe.Response<Stripe.Invoice>);
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'saveSubscriptionId').mockResolvedValue();
+      jest.spyOn(CtPaymentCreationService.prototype, 'handleCtPaymentCreation').mockResolvedValue('payment_ref_123');
+
+      const result = await stripeSubscriptionService.createSubscriptionFromSetupIntent('setup_intent_123');
+
+      expect(result).toBeDefined();
+    });
+  });
+
+  describe('method prepareSubscriptionData - conditional branches', () => {
+    test('should return basic data when basicData flag is true', async () => {
+      const mockCart = mockGetSubscriptionCartWithVariant(1);
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'prepareSubscriptionData').mockResolvedValue({
+        cart: mockCart,
+        stripeCustomerId: 'cus_123',
+        subscriptionParams: { customer: 'cus_123' },
+        billingAddress: '123 Main St',
+        merchantReturnUrl: 'http://example.com',
+      } as BasicSubscriptionData);
+
+      const result = await stripeSubscriptionService.prepareSubscriptionData({ basicData: true });
+
+      expect(result).toHaveProperty('cart');
+      expect(result).toHaveProperty('stripeCustomerId');
+      expect(result).toHaveProperty('subscriptionParams');
+      expect(result).toHaveProperty('billingAddress');
+      expect(result).toHaveProperty('merchantReturnUrl');
+      expect(result).not.toHaveProperty('lineItemAmount');
+      expect(result).not.toHaveProperty('priceId');
+    });
+
+    test('should return full data when basicData flag is false', async () => {
+      const mockCart = mockGetSubscriptionCartWithVariant(1);
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'prepareSubscriptionData').mockResolvedValue({
+        cart: mockCart,
+        stripeCustomerId: 'cus_123',
+        subscriptionParams: { customer: 'cus_123' },
+        billingAddress: '123 Main St',
+        merchantReturnUrl: 'http://example.com',
+        lineItemAmount: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
+        amountPlanned: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
+        priceId: 'price_123',
+        shippingPriceId: undefined,
+      } as BasicSubscriptionData);
+
+      const result = await stripeSubscriptionService.prepareSubscriptionData();
+
+      expect(result).toHaveProperty('lineItemAmount');
+      expect(result).toHaveProperty('priceId');
+      expect(result).toHaveProperty('amountPlanned');
+    });
+
+    test('should return full data when basicData flag is not provided', async () => {
+      const mockCart = mockGetSubscriptionCartWithVariant(1);
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'prepareSubscriptionData').mockResolvedValue({
+        cart: mockCart,
+        stripeCustomerId: 'cus_123',
+        subscriptionParams: { customer: 'cus_123' },
+        billingAddress: '123 Main St',
+        merchantReturnUrl: 'http://example.com',
+        lineItemAmount: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
+        amountPlanned: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
+        priceId: 'price_123',
+        shippingPriceId: undefined,
+      } as BasicSubscriptionData);
+
+      const result = await stripeSubscriptionService.prepareSubscriptionData();
+
+      expect(result).toHaveProperty('lineItemAmount');
+      expect(result).toHaveProperty('priceId');
+      expect(result).toHaveProperty('amountPlanned');
+    });
+  });
+
+  describe('method validateSubscription - error branches', () => {
+    test('should throw error when latest_invoice is a string', async () => {
+      const mockSubscription = {
+        id: 'sub_123',
+        latest_invoice: 'in_123',
+      } as Stripe.Subscription;
+
+      expect(() => stripeSubscriptionService.validateSubscription(mockSubscription)).toThrow(
+        'Failed to create Subscription, missing Payment Intent.',
+      );
+    });
+
+    test('should throw error when payment_intent is a string', async () => {
+      const mockSubscription = {
+        id: 'sub_123',
+        latest_invoice: {
+          id: 'in_123',
+          payment_intent: 'pi_123',
+        },
+      } as Stripe.Subscription;
+
+      expect(() => stripeSubscriptionService.validateSubscription(mockSubscription)).toThrow(
+        'Failed to create Subscription, missing Payment Intent.',
+      );
+    });
+
+    test('should throw error when client_secret is missing', async () => {
+      const mockSubscription = {
+        id: 'sub_123',
+        latest_invoice: {
+          id: 'in_123',
+          payment_intent: {
+            id: 'pi_123',
+          },
+        },
+      } as Stripe.Subscription;
+
+      expect(() => stripeSubscriptionService.validateSubscription(mockSubscription)).toThrow(
+        'Failed to create Subscription, missing Payment Intent.',
+      );
+    });
+
+    test('should return payment intent data when validation passes', async () => {
+      const mockSubscription = {
+        id: 'sub_123',
+        latest_invoice: {
+          id: 'in_123',
+          payment_intent: {
+            id: 'pi_123',
+            client_secret: 'pi_secret_123',
+          },
+        },
+      } as Stripe.Subscription;
+
+      const result = stripeSubscriptionService.validateSubscription(mockSubscription);
+
+      expect(result).toEqual({
+        paymentIntentId: 'pi_123',
+        clientSecret: 'pi_secret_123',
+      });
+    });
+  });
+
+  describe('method getCreateSubscriptionPriceId - conditional branches', () => {
+    test('should reuse existing price when conditions match', async () => {
+      const mockCart = mockGetSubscriptionCartWithVariant(1);
+      const mockAmount = { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 };
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'getStripePriceByMetadata').mockResolvedValue({
+        data: [
+          {
+            id: 'price_123',
+            active: true,
+            unit_amount: 1000,
+            recurring: {
+              interval: 'month',
+              interval_count: 1,
+            },
+          },
+        ],
+        object: 'search_result',
+        has_more: false,
+        next_page: null,
+        url: '/v1/prices/search',
+        lastResponse: {
+          headers: {},
+          requestId: 'req_123',
+          statusCode: 200,
+        },
+      } as Stripe.Response<Stripe.ApiSearchResult<Stripe.Price>>);
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'getStripeProduct').mockResolvedValue('prod_123');
+      jest.spyOn(StripeSubscriptionService.prototype, 'createStripePrice').mockResolvedValue('price_new_123');
+
+      const result = await stripeSubscriptionService.getCreateSubscriptionPriceId(mockCart, mockAmount);
+
+      expect(result).toBe('price_123');
+      expect(StripeSubscriptionService.prototype.createStripePrice).not.toHaveBeenCalled();
+    });
+
+    test('should create new price when existing price conditions do not match', async () => {
+      const mockCart = mockGetSubscriptionCartWithVariant(1);
+      const mockAmount = { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 };
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'getStripePriceByMetadata').mockResolvedValue({
+        data: [
+          {
+            id: 'price_123',
+            active: false,
+            unit_amount: 1000,
+            recurring: {
+              interval: 'month',
+              interval_count: 1,
+            },
+          },
+        ],
+        object: 'search_result',
+        has_more: false,
+        next_page: null,
+        url: '/v1/prices/search',
+        lastResponse: {
+          headers: {},
+          requestId: 'req_123',
+          statusCode: 200,
+        },
+      } as Stripe.Response<Stripe.ApiSearchResult<Stripe.Price>>);
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'disableStripePrice').mockResolvedValue();
+      jest.spyOn(StripeSubscriptionService.prototype, 'getStripeProduct').mockResolvedValue('prod_123');
+      jest.spyOn(StripeSubscriptionService.prototype, 'createStripePrice').mockResolvedValue('price_new_123');
+
+      const result = await stripeSubscriptionService.getCreateSubscriptionPriceId(mockCart, mockAmount);
+
+      expect(result).toBe('price_new_123');
+      expect(StripeSubscriptionService.prototype.disableStripePrice).toHaveBeenCalled();
+      expect(StripeSubscriptionService.prototype.createStripePrice).toHaveBeenCalled();
+    });
+
+    test('should create new price when no existing price found', async () => {
+      const mockCart = mockGetSubscriptionCartWithVariant(1);
+      const mockAmount = { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 };
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'getStripePriceByMetadata').mockResolvedValue({
+        data: [],
+        object: 'search_result',
+        has_more: false,
+        next_page: null,
+        url: '/v1/prices/search',
+        lastResponse: {
+          headers: {},
+          requestId: 'req_123',
+          statusCode: 200,
+        },
+      } as Stripe.Response<Stripe.ApiSearchResult<Stripe.Price>>);
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'getStripeProduct').mockResolvedValue('prod_123');
+      jest.spyOn(StripeSubscriptionService.prototype, 'createStripePrice').mockResolvedValue('price_new_123');
+
+      const result = await stripeSubscriptionService.getCreateSubscriptionPriceId(mockCart, mockAmount);
+
+      expect(result).toBe('price_new_123');
+      expect(StripeSubscriptionService.prototype.createStripePrice).toHaveBeenCalled();
+    });
+  });
+
+  describe('method getSubscriptionShippingPriceId - conditional branches', () => {
+    test('should return undefined when no shipping info', async () => {
+      const mockCart = {
+        ...mockGetSubscriptionCartWithVariant(1),
+        shippingInfo: undefined,
+      };
+
+      const result = await stripeSubscriptionService.getSubscriptionShippingPriceId(mockCart);
+
+      expect(result).toBeUndefined();
+    });
+
+    test('should reuse existing shipping price when active', async () => {
+      const mockCart = {
+        ...mockGetSubscriptionCartWithVariant(1),
+        shippingInfo: {
+          shippingMethod: { id: 'shipping_123' },
+          price: { centAmount: 500, currencyCode: 'USD' },
+        } as ShippingInfo,
+      };
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'getStripeProduct').mockResolvedValue('prod_123');
+      jest.spyOn(StripeSubscriptionService.prototype, 'getStripeShippingPriceByMetadata').mockResolvedValue({
+        data: [
+          {
+            id: 'price_shipping_123',
+            active: true,
+          },
+        ],
+        object: 'search_result',
+        has_more: false,
+        next_page: null,
+        url: '/v1/prices/search',
+        lastResponse: {
+          headers: {},
+          requestId: 'req_123',
+          statusCode: 200,
+        },
+      } as Stripe.Response<Stripe.ApiSearchResult<Stripe.Price>>);
+
+      jest
+        .spyOn(StripeSubscriptionService.prototype, 'createStripeShippingPrice')
+        .mockResolvedValue('price_shipping_new_123');
+
+      const result = await stripeSubscriptionService.getSubscriptionShippingPriceId(mockCart);
+
+      expect(result).toBe('price_shipping_123');
+      expect(StripeSubscriptionService.prototype.createStripeShippingPrice).not.toHaveBeenCalled();
+    });
+
+    test('should create new shipping price when existing price is inactive', async () => {
+      const mockCart = {
+        ...mockGetSubscriptionCartWithVariant(1),
+        shippingInfo: {
+          shippingMethod: { id: 'shipping_123' },
+          price: { centAmount: 500, currencyCode: 'USD' },
+        } as ShippingInfo,
+      };
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'getStripeProduct').mockResolvedValue('prod_123');
+      jest.spyOn(StripeSubscriptionService.prototype, 'getStripeShippingPriceByMetadata').mockResolvedValue({
+        data: [
+          {
+            id: 'price_shipping_123',
+            active: false,
+          },
+        ],
+        object: 'search_result',
+        has_more: false,
+        next_page: null,
+        url: '/v1/prices/search',
+        lastResponse: {
+          headers: {},
+          requestId: 'req_123',
+          statusCode: 200,
+        },
+      } as Stripe.Response<Stripe.ApiSearchResult<Stripe.Price>>);
+
+      jest
+        .spyOn(StripeSubscriptionService.prototype, 'createStripeShippingPrice')
+        .mockResolvedValue('price_shipping_new_123');
+
+      const result = await stripeSubscriptionService.getSubscriptionShippingPriceId(mockCart);
+
+      expect(result).toBe('price_shipping_new_123');
+      expect(StripeSubscriptionService.prototype.createStripeShippingPrice).toHaveBeenCalled();
     });
   });
 });

@@ -4,6 +4,7 @@ import {
   getBillingAnchor,
   getTrialSettings,
   getCancelAt,
+  getSubscriptionUpdateAttributes,
 } from '../../src/mappers/subscription-mapper';
 import { Attribute } from '@commercetools/platform-sdk';
 
@@ -164,5 +165,90 @@ describe('getCancelAt', () => {
   test('should return undefined if no cancel settings are provided', () => {
     const result = getCancelAt({});
     expect(result).toBeUndefined();
+  });
+});
+
+describe('getSubscriptionUpdateAttributes', () => {
+  test('should map product attributes to Stripe subscription update parameters', () => {
+    const productAttributes: Attribute[] = [
+      { name: 'collection_method', value: 'send_invoice' },
+      { name: 'days_until_due', value: 5 },
+      { name: 'billing_cycle_anchor_date', value: '2025-05-20T12:00:00Z' },
+      { name: 'trial_end_date', value: '2025-05-20T12:00:00Z' },
+      { name: 'description', value: 'Test subscription update' },
+      { name: 'off_session', value: true },
+      { name: 'proration_behavior', value: 'none' },
+      { name: 'missing_payment_method_at_trial_end', value: 'cancel' },
+    ];
+
+    const result = getSubscriptionUpdateAttributes(productAttributes);
+
+    expect(result).toEqual({
+      collection_method: 'send_invoice',
+      days_until_due: 5,
+      description: 'Test subscription update',
+      off_session: true,
+      proration_behavior: 'none',
+      billing_cycle_anchor: expect.any(Number), // Unix timestamp
+      trial_end: expect.any(Number), // Unix timestamp
+      trial_settings: {
+        end_behavior: { missing_payment_method: 'cancel' },
+      },
+    });
+  });
+
+  test('should handle undefined product attributes', () => {
+    const result = getSubscriptionUpdateAttributes(undefined);
+    expect(result).toEqual({
+      proration_behavior: 'create_prorations',
+    });
+  });
+
+  test('should set daysUntilDue to the value of days_until_due when collection_method is send_invoice', () => {
+    const productAttributes: Attribute[] = [
+      { name: 'collection_method', value: 'send_invoice' },
+      { name: 'days_until_due', value: 7 },
+    ];
+
+    const result = getSubscriptionUpdateAttributes(productAttributes);
+
+    expect(result.days_until_due).toBe(7);
+  });
+
+  test('should set daysUntilDue to 1 when collection_method is send_invoice and days_until_due is undefined', () => {
+    const productAttributes: Attribute[] = [{ name: 'collection_method', value: 'send_invoice' }];
+
+    const result = getSubscriptionUpdateAttributes(productAttributes);
+
+    expect(result.days_until_due).toBe(1);
+  });
+
+  test('should set daysUntilDue to undefined when collection_method is not send_invoice', () => {
+    const productAttributes: Attribute[] = [{ name: 'collection_method', value: 'charge_automatically' }];
+
+    const result = getSubscriptionUpdateAttributes(productAttributes);
+
+    expect(result.days_until_due).toBeUndefined();
+  });
+
+  test('should use default proration_behavior when not specified', () => {
+    const productAttributes: Attribute[] = [{ name: 'collection_method', value: 'charge_automatically' }];
+
+    const result = getSubscriptionUpdateAttributes(productAttributes);
+
+    expect(result.proration_behavior).toBe('create_prorations');
+  });
+
+  test('should handle trial settings with missing payment method behavior', () => {
+    const productAttributes: Attribute[] = [
+      { name: 'trial_end_date', value: '2025-05-20T12:00:00Z' },
+      { name: 'missing_payment_method_at_trial_end', value: 'pause' },
+    ];
+
+    const result = getSubscriptionUpdateAttributes(productAttributes);
+
+    expect(result.trial_settings).toEqual({
+      end_behavior: { missing_payment_method: 'pause' },
+    });
   });
 });

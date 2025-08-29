@@ -86,6 +86,7 @@ describe('stripe-subscription.service.lifecycle', () => {
       update: jest.fn(),
       list: jest.fn(),
       cancel: jest.fn(),
+      retrieve: jest.fn(),
     } as unknown as Stripe.SubscriptionsResource;
 
     Stripe.prototype.setupIntents = {
@@ -267,11 +268,16 @@ describe('stripe-subscription.service.lifecycle', () => {
     test('should update subscription successfully', async () => {
       const customerId = 'customer_123';
       const subscriptionId = 'sub_mock_id';
+      const newSubscriptionVariantId = 'product_123';
+      const newSubscriptionPriceId = 'price_123';
+      const newSubscriptionVariantPosition = 1;
+
       const mockUpdatedSubscription = {
         ...subscriptionResponseMock,
         status: 'active' as Stripe.Subscription.Status,
       };
 
+      // Mock getCustomerById
       const getCustomerByIdMock = jest
         .spyOn(require('../../src/services/commerce-tools/customer-client'), 'getCustomerById')
         .mockResolvedValue({
@@ -284,6 +290,74 @@ describe('stripe-subscription.service.lifecycle', () => {
           },
         });
 
+      const getProductByIdMock = jest
+        .spyOn(require('../../src/services/commerce-tools/price-client'), 'getProductById')
+        .mockResolvedValue({
+          id: newSubscriptionVariantId,
+          masterData: {
+            current: {
+              name: { en: 'Test Product' },
+              masterVariant: {
+                attributes: [
+                  { name: 'recurring_interval', value: { key: 'month' } },
+                  { name: 'recurring_interval_count', value: 1 },
+                  { name: 'collection_method', value: { key: 'charge_automatically' } },
+                  { name: 'description', value: 'Test Subscription' },
+                ],
+              },
+              variants: [
+                {
+                  id: newSubscriptionVariantPosition,
+                  sku: 'test-sku',
+                  attributes: [
+                    { name: 'recurring_interval', value: { key: 'month' } },
+                    { name: 'recurring_interval_count', value: 1 },
+                    { name: 'collection_method', value: { key: 'charge_automatically' } },
+                    { name: 'description', value: 'Test Subscription' },
+                  ],
+                },
+              ],
+            },
+          },
+        } as {
+          id: string;
+          masterData: {
+            current: {
+              name: { en: string };
+              masterVariant: {
+                attributes: Array<{ name: string; value: { key: string } | number | string }>;
+              };
+              variants: Array<{
+                id: number;
+                sku: string;
+                attributes: Array<{ name: string; value: { key: string } | number | string }>;
+              }>;
+            };
+          };
+        });
+
+      const getPriceFromProductMock = jest
+        .spyOn(require('../../src/services/commerce-tools/price-client'), 'getPriceFromProduct')
+        .mockReturnValue({
+          centAmount: 1000,
+          currencyCode: 'USD',
+          fractionDigits: 2,
+        });
+
+      const createCartWithProductMock = jest
+        .spyOn(require('../../src/services/commerce-tools/cart-client'), 'createCartWithProduct')
+        .mockResolvedValue({
+          id: 'cart_123',
+          lineItems: [{ id: 'line_1', productId: newSubscriptionVariantId }],
+        } as {
+          id: string;
+          lineItems: Array<{ id: string; productId: string }>;
+        });
+
+      const getCreateSubscriptionPriceIdMock = jest
+        .spyOn(StripeSubscriptionService.prototype, 'getCreateSubscriptionPriceId')
+        .mockResolvedValue('price_stripe_123');
+
       const stripeSubscriptionsListMock = jest.spyOn(Stripe.prototype.subscriptions, 'list').mockResolvedValue({
         data: [subscriptionResponseMock],
         has_more: false,
@@ -295,22 +369,53 @@ describe('stripe-subscription.service.lifecycle', () => {
           statusCode: 200,
         },
       } as Stripe.Response<Stripe.ApiList<Stripe.Subscription>>);
+
+      jest.spyOn(Stripe.prototype.subscriptions, 'retrieve').mockResolvedValue({
+        id: subscriptionId,
+        items: {
+          data: [
+            {
+              id: 'item_1',
+              price: { id: 'old_price_123', unit_amount: 500 },
+              quantity: 1,
+            },
+          ],
+        },
+        lastResponse: {
+          headers: {},
+          requestId: 'req_123',
+          statusCode: 200,
+        },
+      } as Stripe.Response<Stripe.Subscription>);
 
       const stripeUpdateSubscriptionMock = jest
         .spyOn(Stripe.prototype.subscriptions, 'update')
         .mockResolvedValue(mockUpdatedSubscription);
 
-      const result = await stripeSubscriptionService.updateSubscription({ customerId, subscriptionId });
+      const result = await stripeSubscriptionService.updateSubscription({
+        customerId,
+        subscriptionId,
+        newSubscriptionVariantId,
+        newSubscriptionPriceId,
+        newSubscriptionVariantPosition,
+      });
 
       expect(result).toStrictEqual(mockUpdatedSubscription);
       expect(getCustomerByIdMock).toHaveBeenCalledWith(customerId);
-      expect(stripeUpdateSubscriptionMock).toHaveBeenCalled();
+      expect(getProductByIdMock).toHaveBeenCalledWith(newSubscriptionVariantId);
+      expect(getPriceFromProductMock).toHaveBeenCalled();
+      expect(createCartWithProductMock).toHaveBeenCalled();
+      expect(getCreateSubscriptionPriceIdMock).toHaveBeenCalled();
       expect(stripeSubscriptionsListMock).toHaveBeenCalled();
+      expect(stripeUpdateSubscriptionMock).toHaveBeenCalled();
     });
 
     test('should fail to update subscription', async () => {
       const customerId = 'customer_123';
       const subscriptionId = 'sub_mock_id';
+      const newSubscriptionVariantId = 'product_123';
+      const newSubscriptionPriceId = 'price_123';
+      const newSubscriptionVariantPosition = 1;
 
       const getCustomerByIdMock = jest
         .spyOn(require('../../src/services/commerce-tools/customer-client'), 'getCustomerById')
@@ -336,21 +441,44 @@ describe('stripe-subscription.service.lifecycle', () => {
         },
       } as Stripe.Response<Stripe.ApiList<Stripe.Subscription>>);
 
-      const error = new Error('Failed to update subscription');
-      const stripeUpdateSubscriptionMock = jest
-        .spyOn(Stripe.prototype.subscriptions, 'update')
-        .mockRejectedValue(error);
+      jest.spyOn(Stripe.prototype.subscriptions, 'retrieve').mockResolvedValue({
+        id: subscriptionId,
+        items: {
+          data: [
+            {
+              id: 'item_1',
+              price: { id: 'old_price_123', unit_amount: 500 },
+              quantity: 1,
+            },
+          ],
+        },
+        lastResponse: {
+          headers: {},
+          requestId: 'req_123',
+          statusCode: 200,
+        },
+      } as Stripe.Response<Stripe.Subscription>);
+
+      const getProductByIdMock = jest
+        .spyOn(require('../../src/services/commerce-tools/price-client'), 'getProductById')
+        .mockResolvedValue(undefined);
 
       try {
-        await stripeSubscriptionService.updateSubscription({ customerId, subscriptionId });
+        await stripeSubscriptionService.updateSubscription({
+          customerId,
+          subscriptionId,
+          newSubscriptionVariantId,
+          newSubscriptionPriceId,
+          newSubscriptionVariantPosition,
+        });
       } catch (error) {
         expect(error).toBeInstanceOf(Error);
-        expect((error as Error).message).toBe('Failed to update subscription');
+        expect((error as Error).message).toBe(`Product with ID ${newSubscriptionVariantId} not found in commercetools`);
       }
 
       expect(getCustomerByIdMock).toHaveBeenCalledWith(customerId);
-      expect(stripeUpdateSubscriptionMock).toHaveBeenCalled();
       expect(stripeSubscriptionsListMock).toHaveBeenCalled();
+      expect(getProductByIdMock).toHaveBeenCalledWith(newSubscriptionVariantId);
     });
   });
 

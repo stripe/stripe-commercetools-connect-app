@@ -134,6 +134,16 @@ describe('Actions test', () => {
       );
     });
 
+    it('should handle case when purchase order number custom type is not found', async () => {
+      const getTypeMock = jest.spyOn(CustomTypeClient, 'getTypeByKey').mockResolvedValue(undefined);
+
+      await createLaunchpadPurchaseOrderNumberCustomType();
+      expect(getTypeMock).toHaveBeenCalled();
+      expect(Logger.log.info).not.toHaveBeenCalledWith(
+        'Launchpad purchase order number custom type already exists. Skipping creation.',
+      );
+    });
+
     /*it('should return undefined when not found', async () => {
       const executeMock = jest.fn().mockReturnValue(Promise.resolve({ body: { results: [undefined] } }));
       const client = paymentSDK.ctAPI.client;
@@ -159,17 +169,25 @@ describe('Actions test', () => {
       expect(fn).toHaveBeenCalled();
     });
 
-    /*test('should log error', async () => {
+    test('should log error and throw when throwError is true', async () => {
       const loggerId = '[TEST_LOGGER_ID]';
       const startMessage = 'Starting test process';
       const error = new Error('Test error');
       const fn = jest.fn<() => Promise<void>>().mockReturnValue(Promise.reject(error));
-      try {
-        await Actions.handleRequest({ loggerId, startMessage, fn });
-      } catch {
-        expect(Logger.log.error).toHaveBeenCalledWith(loggerId, error);
-      }
-    });*/
+
+      await expect(Actions.handleRequest({ loggerId, startMessage, fn })).rejects.toThrow('Test error');
+      expect(Logger.log.error).toHaveBeenCalledWith(loggerId, error);
+    });
+
+    test('should log error and not throw when throwError is false', async () => {
+      const loggerId = '[TEST_LOGGER_ID]';
+      const startMessage = 'Starting test process';
+      const error = new Error('Test error');
+      const fn = jest.fn<() => Promise<void>>().mockReturnValue(Promise.reject(error));
+
+      await expect(Actions.handleRequest({ loggerId, startMessage, throwError: false, fn })).resolves.toBeUndefined();
+      expect(Logger.log.error).toHaveBeenCalledWith(loggerId, error);
+    });
   });
 
   describe('createCustomerCustomType', () => {
@@ -260,6 +278,42 @@ describe('Actions test', () => {
         'Product Type "payment-connector-subscription-information" created successfully.',
       );
     });
+
+    test('should handle error when creating Product type Subscription', async () => {
+      const getProductTypeByKeyMock = jest.spyOn(ProductTypeClient, 'getProductTypeByKey').mockResolvedValue(undefined);
+      const createProductTypeMock = jest
+        .spyOn(ProductTypeClient, 'createProductType')
+        .mockRejectedValue(new Error('Creation failed'));
+
+      await expect(Actions.createProductTypeSubscription()).rejects.toThrow('Creation failed');
+      expect(getProductTypeByKeyMock).toHaveBeenCalled();
+      expect(createProductTypeMock).toHaveBeenCalled();
+      expect(Logger.log.error).toHaveBeenCalledWith(
+        'Failed to create product type "payment-connector-subscription-information":',
+        expect.any(Error),
+      );
+    });
+
+    test('should handle error when updating Product type Subscription', async () => {
+      const getProductTypeByKeyMock = jest
+        .spyOn(ProductTypeClient, 'getProductTypeByKey')
+        .mockResolvedValue(mock_ProductType);
+      const getProductsByProductTypeIdMock = jest
+        .spyOn(ProductTypeClient, 'getProductsByProductTypeId')
+        .mockResolvedValue([]);
+      const updateProductTypeMock = jest
+        .spyOn(ProductTypeClient, 'updateProductType')
+        .mockRejectedValue(new Error('Update failed'));
+
+      await expect(Actions.createProductTypeSubscription()).rejects.toThrow('Update failed');
+      expect(getProductTypeByKeyMock).toHaveBeenCalled();
+      expect(getProductsByProductTypeIdMock).toHaveBeenCalled();
+      expect(updateProductTypeMock).toHaveBeenCalled();
+      expect(Logger.log.error).toHaveBeenCalledWith(
+        'Failed to update product type "payment-connector-subscription-information":',
+        expect.any(Error),
+      );
+    });
   });
 
   describe('removeProductTypeSubscription', () => {
@@ -301,6 +355,43 @@ describe('Actions test', () => {
       expect(getProductsByProductTypeIdMock).toHaveBeenCalled();
       expect(deleteProductTypeMock).toHaveBeenCalled();
       expect(Logger.log.info).toHaveBeenCalled();
+    });
+
+    test('should delete Product type when no products are using it', async () => {
+      const getProductTypeByKeyMock = jest
+        .spyOn(ProductTypeClient, 'getProductTypeByKey')
+        .mockResolvedValue(mock_ProductType);
+      const getProductsByProductTypeIdMock = jest
+        .spyOn(ProductTypeClient, 'getProductsByProductTypeId')
+        .mockResolvedValue([]);
+      const deleteProductTypeMock = jest
+        .spyOn(ProductTypeClient, 'deleteProductType')
+        .mockReturnValue(Promise.resolve());
+
+      await Actions.removeProductTypeSubscription();
+      expect(getProductTypeByKeyMock).toHaveBeenCalled();
+      expect(getProductsByProductTypeIdMock).toHaveBeenCalled();
+      expect(deleteProductTypeMock).toHaveBeenCalled();
+      expect(Logger.log.info).toHaveBeenCalledWith(
+        'Product Type "payment-connector-subscription-information" deleted successfully.',
+      );
+    });
+
+    test('should handle error when deleting Product type Subscription', async () => {
+      const getProductTypeByKeyMock = jest
+        .spyOn(ProductTypeClient, 'getProductTypeByKey')
+        .mockResolvedValue(mock_ProductType);
+      const getProductsByProductTypeIdMock = jest
+        .spyOn(ProductTypeClient, 'getProductsByProductTypeId')
+        .mockResolvedValue([]);
+      const deleteProductTypeMock = jest
+        .spyOn(ProductTypeClient, 'deleteProductType')
+        .mockRejectedValue(new Error('Deletion failed'));
+
+      await expect(Actions.removeProductTypeSubscription()).rejects.toThrow('Deletion failed');
+      expect(getProductTypeByKeyMock).toHaveBeenCalled();
+      expect(getProductsByProductTypeIdMock).toHaveBeenCalled();
+      expect(deleteProductTypeMock).toHaveBeenCalled();
     });
   });
 });

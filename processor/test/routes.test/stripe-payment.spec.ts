@@ -34,7 +34,10 @@ import * as Logger from '../../src/libs/logger/index';
 import { StripeHeaderAuthHook } from '../../src/libs/fastify/hooks/stripe-header-auth.hook';
 import { appLogger } from '../../src/payment-sdk';
 // import { StripeCustomerService } from '../../src/services/stripe-customer.service';
-import { mockEvent__invoice_paid__Expanded_noPaymnet_intent__amount_paid } from '../utils/mock-subscription-data';
+import {
+  mockEvent__invoice_paid__Expanded_noPaymnet_intent__amount_paid,
+  mockEvent__invoice_payment_failed__simple,
+} from '../utils/mock-subscription-data';
 import { StripeSubscriptionService } from '../../src/services/stripe-subscription.service';
 
 jest.mock('stripe', () => ({
@@ -381,7 +384,9 @@ describe('Stripe Payment APIs', () => {
       jest
         .spyOn(Stripe.prototype.webhooks, 'constructEvent')
         .mockReturnValue(mockEvent__invoice_paid__Expanded_noPaymnet_intent__amount_paid);
-      jest.spyOn(StripeSubscriptionService.prototype, 'processSubscriptionEvent').mockReturnValue(Promise.resolve());
+      jest
+        .spyOn(StripeSubscriptionService.prototype, 'processSubscriptionEventPaid')
+        .mockReturnValue(Promise.resolve());
 
       //When
       const response = await fastifyApp.inject({
@@ -394,7 +399,7 @@ describe('Stripe Payment APIs', () => {
 
       //Then
       expect(response.statusCode).toEqual(200);
-      expect(spiedSubscriptionService.processSubscriptionEvent).toHaveBeenCalled();
+      expect(spiedSubscriptionService.processSubscriptionEventPaid).toHaveBeenCalled();
     });
 
     test('it should handle a invoice.payment_failed event gracefully.', async () => {
@@ -408,8 +413,10 @@ describe('Stripe Payment APIs', () => {
       Stripe.prototype.webhooks = { constructEvent: jest.fn() } as unknown as Stripe.Webhooks;
       jest
         .spyOn(Stripe.prototype.webhooks, 'constructEvent')
-        .mockReturnValue(mockEvent__invoice_paid__Expanded_noPaymnet_intent__amount_paid);
-      jest.spyOn(StripeSubscriptionService.prototype, 'processSubscriptionEvent').mockReturnValue(Promise.resolve());
+        .mockReturnValue(mockEvent__invoice_payment_failed__simple);
+      jest
+        .spyOn(StripeSubscriptionService.prototype, 'processSubscriptionEventFailed')
+        .mockReturnValue(Promise.resolve());
 
       //When
       const response = await fastifyApp.inject({
@@ -422,7 +429,7 @@ describe('Stripe Payment APIs', () => {
 
       //Then
       expect(response.statusCode).toEqual(200);
-      expect(spiedSubscriptionService.processSubscriptionEvent).toHaveBeenCalled();
+      expect(spiedSubscriptionService.processSubscriptionEventFailed).toHaveBeenCalled();
     });
 
     test('it should handle a invoice.upcoming event gracefully.', async () => {

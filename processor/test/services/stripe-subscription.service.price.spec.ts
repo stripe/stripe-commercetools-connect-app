@@ -59,7 +59,7 @@ describe('stripe-subscription.service.price', () => {
     jest.restoreAllMocks();
   });
 
-  describe('method getSubscriptionPriceId', () => {
+  describe('method getCreateSubscriptionPriceId', () => {
     test('should get the existing stripe price ID', async () => {
       jest.spyOn(Stripe.prototype.prices, 'search').mockResolvedValue({
         data: [
@@ -67,11 +67,14 @@ describe('stripe-subscription.service.price', () => {
         ],
       } as Stripe.Response<Stripe.ApiSearchResult<Stripe.Price>>);
 
-      const result = await stripeSubscriptionService.getSubscriptionPriceId(mockGetSubscriptionCartWithVariant(1), {
-        centAmount: 1000,
-        currencyCode: 'USD',
-        fractionDigits: 2,
-      });
+      const result = await stripeSubscriptionService.getCreateSubscriptionPriceId(
+        mockGetSubscriptionCartWithVariant(1),
+        {
+          centAmount: 1000,
+          currencyCode: 'USD',
+          fractionDigits: 2,
+        },
+      );
 
       expect(result).toStrictEqual('price_123');
       expect(Stripe.prototype.prices.search).toHaveBeenCalled();
@@ -95,11 +98,14 @@ describe('stripe-subscription.service.price', () => {
         .mockResolvedValue(stripePriceDataMock as Stripe.Response<Stripe.Price>);
       jest.spyOn(Stripe.prototype.products, 'search').mockResolvedValue(stripeProductResponseMock);
 
-      const result = await stripeSubscriptionService.getSubscriptionPriceId(mockGetSubscriptionCartWithVariant(1), {
-        centAmount: 1000,
-        currencyCode: 'USD',
-        fractionDigits: 2,
-      });
+      const result = await stripeSubscriptionService.getCreateSubscriptionPriceId(
+        mockGetSubscriptionCartWithVariant(1),
+        {
+          centAmount: 1000,
+          currencyCode: 'USD',
+          fractionDigits: 2,
+        },
+      );
 
       expect(result).toStrictEqual(stripePriceIdMock);
       expect(Stripe.prototype.prices.search).toHaveBeenCalled();
@@ -114,11 +120,14 @@ describe('stripe-subscription.service.price', () => {
         .mockResolvedValue(stripePriceDataMock as Stripe.Response<Stripe.Price>);
       jest.spyOn(Stripe.prototype.products, 'search').mockResolvedValue(stripeProductResponseMock);
 
-      const result = await stripeSubscriptionService.getSubscriptionPriceId(mockGetSubscriptionCartWithVariant(1), {
-        centAmount: 1000,
-        currencyCode: 'USD',
-        fractionDigits: 2,
-      });
+      const result = await stripeSubscriptionService.getCreateSubscriptionPriceId(
+        mockGetSubscriptionCartWithVariant(1),
+        {
+          centAmount: 1000,
+          currencyCode: 'USD',
+          fractionDigits: 2,
+        },
+      );
 
       expect(result).toStrictEqual(stripePriceIdMock);
       expect(Stripe.prototype.prices.search).toHaveBeenCalled();

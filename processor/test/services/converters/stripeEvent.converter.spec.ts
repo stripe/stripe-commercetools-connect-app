@@ -6,6 +6,8 @@ import {
   mockEvent__paymentIntent_paymentFailed,
   mockEvent__paymentIntent_succeeded_captureMethodAutomatic,
   mockEvent__charge_succeeded_notCaptured,
+  mockEvent__charge_refund_notCaptured,
+  mockEvent__charge_succeeded_captured,
 } from '../../utils/mock-routes-data';
 
 describe('stripeEvent.converter', () => {
@@ -125,15 +127,85 @@ describe('stripeEvent.converter', () => {
     });
   });
 
-  test('convert a non supported event notification', () => {
-    const event = mockEvent__charge_refund_captured;
+  test('convert a non supported event notification should throw error with proper message', () => {
+    const event = JSON.parse(JSON.stringify(mockEvent__charge_refund_captured));
     event.type = 'account.application.deauthorized';
 
-    try {
+    expect(() => {
       converter.convert(event);
-    } catch (error) {
-      expect(error).toBeInstanceOf(Error);
-    }
+    }).toThrow('Unsupported event account.application.deauthorized');
+  });
+
+  test('convert a charge event without payment_intent should use charge id as pspReference', () => {
+    const event = JSON.parse(JSON.stringify(mockEvent__charge_refund_captured));
+    event.data.object.payment_intent = null;
+
+    const result = converter.convert(event);
+
+    expect(result).toEqual({
+      id: 'pi_11111',
+      paymentMethod: 'card',
+      pspReference: 'ch_11111',
+      pspInteraction: {
+        response: JSON.stringify(event),
+      },
+      transactions: [
+        {
+          amount: {
+            centAmount: 34500,
+            currencyCode: 'MXN',
+          },
+          interactionId: 'ch_11111',
+          state: 'Success',
+          type: 'Refund',
+        },
+        {
+          amount: {
+            centAmount: 34500,
+            currencyCode: 'MXN',
+          },
+          interactionId: 'ch_11111',
+          state: 'Success',
+          type: 'Chargeback',
+        },
+      ],
+    });
+  });
+
+  test('convert a charge event without payment_method_details should handle missing payment method', () => {
+    const event = JSON.parse(JSON.stringify(mockEvent__charge_refund_captured));
+    event.data.object.payment_method_details = null;
+
+    const result = converter.convert(event);
+
+    expect(result).toEqual({
+      id: 'pi_11111',
+      paymentMethod: '',
+      pspReference: 'pi_11111',
+      pspInteraction: {
+        response: JSON.stringify(event),
+      },
+      transactions: [
+        {
+          amount: {
+            centAmount: 34500,
+            currencyCode: 'MXN',
+          },
+          interactionId: 'pi_11111',
+          state: 'Success',
+          type: 'Refund',
+        },
+        {
+          amount: {
+            centAmount: 34500,
+            currencyCode: 'MXN',
+          },
+          interactionId: 'pi_11111',
+          state: 'Success',
+          type: 'Chargeback',
+        },
+      ],
+    });
   });
 
   test('convert a charge.succeeded event', () => {
@@ -158,5 +230,79 @@ describe('stripeEvent.converter', () => {
         },
       ],
     });
+  });
+
+  test('convert a charge.succeeded event with captured: true should return empty transactions', () => {
+    const event = { ...mockEvent__charge_succeeded_captured };
+    event.type = 'charge.succeeded';
+
+    const result = converter.convert(event);
+
+    expect(result).toEqual({
+      id: undefined,
+      paymentMethod: 'card',
+      pspReference: 'pi_11111',
+      pspInteraction: {
+        response: JSON.stringify(event),
+      },
+      transactions: [],
+    });
+  });
+
+  test('convert a charge.refunded event with captured: false should return empty transactions', () => {
+    const result = converter.convert(mockEvent__charge_refund_notCaptured);
+
+    expect(result).toEqual({
+      id: 'pi_11111',
+      paymentMethod: 'card',
+      pspReference: 'pi_11111',
+      pspInteraction: {
+        response: JSON.stringify(mockEvent__charge_refund_notCaptured),
+      },
+      transactions: [],
+    });
+  });
+
+  test('convert a charge.refunded event with captured: true should return refund transactions', () => {
+    const event = JSON.parse(JSON.stringify(mockEvent__charge_refund_captured));
+    const result = converter.convert(event);
+
+    expect(result).toEqual({
+      id: 'pi_11111',
+      paymentMethod: 'card',
+      pspReference: 'pi_11111',
+      pspInteraction: {
+        response: JSON.stringify(event),
+      },
+      transactions: [
+        {
+          amount: {
+            centAmount: 34500,
+            currencyCode: 'MXN',
+          },
+          interactionId: 'pi_11111',
+          state: 'Success',
+          type: 'Refund',
+        },
+        {
+          amount: {
+            centAmount: 34500,
+            currencyCode: 'MXN',
+          },
+          interactionId: 'pi_11111',
+          state: 'Success',
+          type: 'Chargeback',
+        },
+      ],
+    });
+  });
+
+  test('convert a non supported event notification should throw error with proper message', () => {
+    const event = mockEvent__charge_refund_captured;
+    event.type = 'account.application.deauthorized';
+
+    expect(() => {
+      converter.convert(event);
+    }).toThrow('Unsupported event account.application.deauthorized');
   });
 });

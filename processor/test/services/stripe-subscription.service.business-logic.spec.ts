@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @typescript-eslint/no-require-imports */
 jest.mock('stripe', () => ({
   __esModule: true,
@@ -19,7 +20,6 @@ import {
   METADATA_CUSTOMER_ID_FIELD,
   METADATA_PAYMENT_ID_FIELD,
   METADATA_PROJECT_KEY_FIELD,
-  METADATA_ORDER_ID_FIELD,
   METADATA_CART_ID_FIELD,
 } from '../../src/constants';
 
@@ -35,7 +35,9 @@ jest.mock('../../src/libs/logger', () => ({
 jest.mock('../../src/payment-sdk', () => ({
   paymentSDK: {
     ctCartService: {},
-    ctPaymentService: {},
+    ctPaymentService: {
+      getPayment: jest.fn(),
+    },
     ctOrderService: {},
     ctAPI: {},
   },
@@ -193,7 +195,7 @@ describe('stripe-subscription.service.business-logic', () => {
         },
       } as unknown as Stripe.Response<Stripe.ApiSearchResult<Stripe.Product>>);
 
-      await stripeSubscriptionService.processUpcomingSubscriptionEvent(mockEvent);
+      await stripeSubscriptionService.processSubscriptionEventUpcoming(mockEvent);
 
       expect(stripeSubscriptionRetrieveMock).toHaveBeenCalled();
       expect(stripeProductRetrieveMock).toHaveBeenCalledWith('prod_123');
@@ -211,7 +213,7 @@ describe('stripe-subscription.service.business-logic', () => {
         data: { object: { id: 'in_123', subscription: 'sub_123' } },
       } as Stripe.Event;
 
-      await stripeSubscriptionService.processUpcomingSubscriptionEvent(mockEvent);
+      await stripeSubscriptionService.processSubscriptionEventUpcoming(mockEvent);
 
       expect(Stripe.prototype.subscriptions.retrieve).not.toHaveBeenCalled();
       expect(Stripe.prototype.products.retrieve).not.toHaveBeenCalled();
@@ -235,7 +237,7 @@ describe('stripe-subscription.service.business-logic', () => {
           .mockRejectedValue(new Error('Subscription not found')),
       } as unknown as Stripe.SubscriptionsResource;
 
-      await expect(stripeSubscriptionService.processUpcomingSubscriptionEvent(mockEvent)).resolves.toBeUndefined();
+      await expect(stripeSubscriptionService.processSubscriptionEventUpcoming(mockEvent)).resolves.toBeUndefined();
 
       expect(Stripe.prototype.subscriptions.retrieve).toHaveBeenCalledWith('sub_123');
     });
@@ -247,7 +249,7 @@ describe('stripe-subscription.service.business-logic', () => {
         data: { object: { id: 'in_123' } },
       } as Stripe.Event;
 
-      await expect(stripeSubscriptionService.processUpcomingSubscriptionEvent(mockEvent)).resolves.toBeUndefined();
+      await expect(stripeSubscriptionService.processSubscriptionEventUpcoming(mockEvent)).resolves.toBeUndefined();
 
       expect(Stripe.prototype.subscriptions.retrieve).not.toHaveBeenCalled();
     });
@@ -263,7 +265,7 @@ describe('stripe-subscription.service.business-logic', () => {
         },
       } as Stripe.Event;
 
-      await expect(stripeSubscriptionService.processUpcomingSubscriptionEvent(mockEvent)).resolves.toBeUndefined();
+      await expect(stripeSubscriptionService.processSubscriptionEventUpcoming(mockEvent)).resolves.toBeUndefined();
 
       expect(Stripe.prototype.subscriptions.retrieve).not.toHaveBeenCalled();
     });
@@ -277,7 +279,6 @@ describe('stripe-subscription.service.business-logic', () => {
         cart: mockCart,
         ctPaymentId: 'ct_payment_123',
         customerId: 'ct_customer_123',
-        orderId: 'ct_order_123',
       };
 
       const mockResponse = {
@@ -300,7 +301,6 @@ describe('stripe-subscription.service.business-logic', () => {
             [METADATA_PROJECT_KEY_FIELD]: expect.any(String),
             [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
             [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
-            [METADATA_ORDER_ID_FIELD]: 'ct_order_123',
           },
         },
         { idempotencyKey: expect.any(String) },
@@ -462,7 +462,7 @@ describe('stripe-subscription.service.business-logic', () => {
         jest.spyOn(PriceClient, 'getProductMasterPrice').mockResolvedValue(priceResult);
       }
 
-      await expect(stripeSubscriptionService.processUpcomingSubscriptionEvent(mockEvent)).resolves.toBeUndefined();
+      await expect(stripeSubscriptionService.processSubscriptionEventUpcoming(mockEvent)).resolves.toBeUndefined();
     });
   });
 
@@ -719,6 +719,600 @@ describe('stripe-subscription.service.business-logic', () => {
           query: `metadata['ct_variant_sku']:'ct_product_123' AND active:'true'`,
         });
       }
+    });
+  });
+
+  describe('method confirmSubscriptionPayment', () => {
+    const mockCart = mockGetSubscriptionCartWithVariant(1);
+    const mockPayment = {
+      id: 'payment_123',
+      amountPlanned: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
+      version: 1,
+      customer: { id: 'customer_123', typeId: 'customer' as const },
+      interfaceId: 'int_123',
+      paymentMethodInfo: { method: 'card', name: { en: 'Card' } },
+      paymentStatus: { interfaceText: 'Pending' },
+      transactions: [],
+      interfaceInteractions: [],
+      createdAt: '2024-01-01T00:00:00Z',
+      lastModifiedAt: '2024-01-01T00:00:00Z',
+    } as any;
+
+    beforeEach(() => {
+      jest
+        .spyOn(require('../../src/services/commerce-tools/cart-client'), 'getCartExpanded')
+        .mockResolvedValue(mockCart);
+
+      jest.spyOn(require('../../src/mappers/subscription-mapper'), 'getSubscriptionAttributes').mockReturnValue({
+        customer: 'cus_123',
+        collection_method: 'charge_automatically',
+        trial_period_days: 0,
+        proration_behavior: 'none',
+      });
+
+      jest
+        .spyOn(
+          require('../../src/services/ct-payment-creation.service').CtPaymentCreationService.prototype,
+          'updateSubscriptionPaymentTransactions',
+        )
+        .mockResolvedValue(undefined);
+    });
+
+    test('should confirm subscription payment with no invoice successfully', async () => {
+      const confirmRequest = {
+        subscriptionId: 'sub_123',
+        paymentReference: 'payment_123',
+        paymentIntentId: 'pi_123',
+      };
+
+      jest.spyOn(stripeSubscriptionService, 'getSubscriptionTypes').mockReturnValue({
+        hasTrial: false,
+        hasAnchorDays: false,
+        hasFreeAnchorDays: false,
+        hasProrations: false,
+        isSendInvoice: false,
+        hasNoInvoice: true,
+      });
+
+      jest.spyOn(paymentSDK.ctPaymentService, 'getPayment').mockResolvedValue(mockPayment);
+
+      await stripeSubscriptionService.confirmSubscriptionPayment(confirmRequest);
+
+      expect(
+        require('../../src/services/ct-payment-creation.service').CtPaymentCreationService.prototype
+          .updateSubscriptionPaymentTransactions,
+      ).toHaveBeenCalledWith({
+        interactionId: 'sub_123',
+        payment: { ...mockPayment, amountPlanned: { ...mockPayment.amountPlanned, centAmount: 0 } },
+        subscriptionId: 'sub_123',
+      });
+    });
+
+    test('should confirm subscription payment with invoice successfully', async () => {
+      const confirmRequest = {
+        subscriptionId: 'sub_123',
+        paymentReference: 'payment_123',
+        paymentIntentId: 'pi_123',
+      };
+
+      const mockInvoice = {
+        id: 'in_123',
+        amount_due: 1500,
+        amount_paid: 1500,
+        object: 'invoice',
+        account_country: 'US',
+        account_name: 'Test Account',
+        account_tax_ids: null,
+        amount_tax: 0,
+        application: null,
+        application_fee_amount: null,
+        attempt_count: 1,
+        attempted: true,
+        auto_advance: false,
+        billing_reason: 'subscription_create',
+        charge: null,
+        collection_method: 'charge_automatically',
+        created: 1234567890,
+        currency: 'usd',
+        custom_fields: null,
+        customer: 'cus_123',
+        default_payment_method: null,
+        default_source: null,
+        default_tax_rates: null,
+        description: null,
+        discount: null,
+        due_date: null,
+        ending_balance: 0,
+        footer: null,
+        from_invoice: null,
+        hosted_invoice_url: null,
+        invoice_pdf: null,
+        last_finalization_error: null,
+        livemode: false,
+        metadata: {},
+        next_payment_attempt: null,
+        number: 'INV-123',
+        on_behalf_of: null,
+        paid: true,
+        paid_out_of_band: false,
+        payment_intent: null,
+        period_end: 1234567890,
+        period_start: 1234567890,
+        post_payment_credit_notes_amount: 0,
+        pre_payment_credit_notes_amount: 0,
+        quote: null,
+        receipt_number: null,
+        rendering_options: null,
+        shipping_cost: null,
+        shipping_details: null,
+        starting_balance: 0,
+        statement_descriptor: null,
+        status: 'paid',
+        status_transitions: null,
+        subscription: 'sub_123',
+        subscription_proration_date: null,
+        subtotal: 1500,
+        subtotal_excluding_tax: 1500,
+        tax: null,
+        test_clock: null,
+        threshold_reason: null,
+        total: 1500,
+        total_discount_amounts: null,
+        total_tax_amounts: null,
+        transfer_data: null,
+        webhooks_delivered_at: 1234567890,
+      } as any;
+
+      jest.spyOn(stripeSubscriptionService, 'getSubscriptionTypes').mockReturnValue({
+        hasTrial: false,
+        hasAnchorDays: false,
+        hasFreeAnchorDays: false,
+        hasProrations: false,
+        isSendInvoice: false,
+        hasNoInvoice: false,
+      });
+
+      jest.spyOn(stripeSubscriptionService, 'getInvoiceFromSubscription').mockResolvedValue(mockInvoice as any);
+
+      jest.spyOn(stripeSubscriptionService, 'getCurrentPayment').mockResolvedValue(mockPayment);
+
+      jest.spyOn(paymentSDK.ctPaymentService, 'getPayment').mockResolvedValue(mockPayment);
+
+      await stripeSubscriptionService.confirmSubscriptionPayment(confirmRequest);
+
+      expect(stripeSubscriptionService.getInvoiceFromSubscription).toHaveBeenCalledWith('sub_123');
+      expect(stripeSubscriptionService.getCurrentPayment).toHaveBeenCalledWith({
+        paymentReference: 'payment_123',
+        invoice: mockInvoice,
+        subscriptionParams: {
+          customer: 'cus_123',
+          collection_method: 'charge_automatically',
+          trial_period_days: 0,
+          proration_behavior: 'none',
+        },
+      });
+      expect(
+        require('../../src/services/ct-payment-creation.service').CtPaymentCreationService.prototype
+          .updateSubscriptionPaymentTransactions,
+      ).toHaveBeenCalledWith({
+        interactionId: 'pi_123',
+        payment: mockPayment,
+        subscriptionId: 'sub_123',
+        isPending: false,
+      });
+    });
+
+    test('should confirm subscription payment with send invoice and trial', async () => {
+      const confirmRequest = {
+        subscriptionId: 'sub_123',
+        paymentReference: 'payment_123',
+        paymentIntentId: 'pi_123',
+      };
+
+      const mockInvoice = {
+        id: 'in_123',
+        amount_due: 1500,
+        amount_paid: 1500,
+        currency: 'usd',
+        status: 'open',
+      };
+
+      jest.spyOn(stripeSubscriptionService, 'getSubscriptionTypes').mockReturnValue({
+        hasTrial: true,
+        hasAnchorDays: false,
+        hasFreeAnchorDays: false,
+        hasProrations: false,
+        isSendInvoice: true,
+        hasNoInvoice: false,
+      });
+
+      jest.spyOn(stripeSubscriptionService, 'getInvoiceFromSubscription').mockResolvedValue(mockInvoice as any);
+
+      jest.spyOn(stripeSubscriptionService, 'getCurrentPayment').mockResolvedValue(mockPayment);
+
+      jest.spyOn(paymentSDK.ctPaymentService, 'getPayment').mockResolvedValue(mockPayment);
+
+      await stripeSubscriptionService.confirmSubscriptionPayment(confirmRequest);
+
+      expect(
+        require('../../src/services/ct-payment-creation.service').CtPaymentCreationService.prototype
+          .updateSubscriptionPaymentTransactions,
+      ).toHaveBeenCalledWith({
+        interactionId: 'pi_123',
+        payment: mockPayment,
+        subscriptionId: 'sub_123',
+        isPending: true, // Should be pending for send invoice + trial
+      });
+    });
+
+    test('should confirm subscription payment with invoice but no payment intent ID', async () => {
+      const confirmRequest = {
+        subscriptionId: 'sub_123',
+        paymentReference: 'payment_123',
+        // No paymentIntentId provided
+      };
+
+      const mockInvoice = {
+        id: 'in_456',
+        amount_due: 1500,
+        amount_paid: 1500,
+        currency: 'usd',
+        status: 'paid',
+      };
+
+      jest.spyOn(stripeSubscriptionService, 'getSubscriptionTypes').mockReturnValue({
+        hasTrial: false,
+        hasAnchorDays: false,
+        hasFreeAnchorDays: false,
+        hasProrations: false,
+        isSendInvoice: false,
+        hasNoInvoice: false,
+      });
+
+      jest.spyOn(stripeSubscriptionService, 'getInvoiceFromSubscription').mockResolvedValue(mockInvoice as any);
+
+      jest.spyOn(stripeSubscriptionService, 'getCurrentPayment').mockResolvedValue(mockPayment);
+
+      jest.spyOn(paymentSDK.ctPaymentService, 'getPayment').mockResolvedValue(mockPayment);
+
+      await stripeSubscriptionService.confirmSubscriptionPayment(confirmRequest);
+
+      expect(
+        require('../../src/services/ct-payment-creation.service').CtPaymentCreationService.prototype
+          .updateSubscriptionPaymentTransactions,
+      ).toHaveBeenCalledWith({
+        interactionId: 'in_456',
+        payment: mockPayment,
+        subscriptionId: 'sub_123',
+        isPending: false,
+      });
+    });
+
+    test('should confirm subscription payment with invoice but no payment intent ID and no invoice', async () => {
+      const confirmRequest = {
+        subscriptionId: 'sub_123',
+        paymentReference: 'payment_123',
+      };
+
+      const mockInvoice = {
+        id: undefined,
+        amount_due: 1500,
+        amount_paid: 1500,
+        currency: 'usd',
+        status: 'paid',
+      };
+
+      jest.spyOn(stripeSubscriptionService, 'getSubscriptionTypes').mockReturnValue({
+        hasTrial: false,
+        hasAnchorDays: false,
+        hasFreeAnchorDays: false,
+        hasProrations: false,
+        isSendInvoice: false,
+        hasNoInvoice: false,
+      });
+
+      jest.spyOn(stripeSubscriptionService, 'getInvoiceFromSubscription').mockResolvedValue(mockInvoice as any);
+
+      jest.spyOn(stripeSubscriptionService, 'getCurrentPayment').mockResolvedValue(mockPayment);
+
+      jest.spyOn(paymentSDK.ctPaymentService, 'getPayment').mockResolvedValue(mockPayment);
+
+      await stripeSubscriptionService.confirmSubscriptionPayment(confirmRequest);
+
+      expect(
+        require('../../src/services/ct-payment-creation.service').CtPaymentCreationService.prototype
+          .updateSubscriptionPaymentTransactions,
+      ).toHaveBeenCalledWith({
+        interactionId: 'sub_123',
+        payment: mockPayment,
+        subscriptionId: 'sub_123',
+        isPending: false,
+      });
+    });
+
+    test('should handle error when confirming subscription payment', async () => {
+      const confirmRequest = {
+        subscriptionId: 'sub_123',
+        paymentReference: 'payment_123',
+        paymentIntentId: 'pi_123',
+      };
+
+      jest
+        .spyOn(require('../../src/services/commerce-tools/cart-client'), 'getCartExpanded')
+        .mockRejectedValue(new Error('Cart not found'));
+
+      await expect(stripeSubscriptionService.confirmSubscriptionPayment(confirmRequest)).rejects.toThrow(
+        'Cart not found',
+      );
+
+      expect(
+        require('../../src/services/ct-payment-creation.service').CtPaymentCreationService.prototype
+          .updateSubscriptionPaymentTransactions,
+      ).not.toHaveBeenCalled();
+    });
+
+    test('should handle error when getting payment fails', async () => {
+      const confirmRequest = {
+        subscriptionId: 'sub_123',
+        paymentReference: 'payment_123',
+        paymentIntentId: 'pi_123',
+      };
+
+      jest.spyOn(stripeSubscriptionService, 'getSubscriptionTypes').mockReturnValue({
+        hasTrial: false,
+        hasAnchorDays: false,
+        hasFreeAnchorDays: false,
+        hasProrations: false,
+        isSendInvoice: false,
+        hasNoInvoice: true,
+      });
+
+      jest.spyOn(paymentSDK.ctPaymentService, 'getPayment').mockRejectedValue(new Error('Payment not found'));
+
+      await expect(stripeSubscriptionService.confirmSubscriptionPayment(confirmRequest)).rejects.toThrow(
+        'Payment not found',
+      );
+
+      expect(
+        require('../../src/services/ct-payment-creation.service').CtPaymentCreationService.prototype
+          .updateSubscriptionPaymentTransactions,
+      ).not.toHaveBeenCalled();
+    });
+
+    test('should handle error when getting invoice fails', async () => {
+      const confirmRequest = {
+        subscriptionId: 'sub_123',
+        paymentReference: 'payment_123',
+        paymentIntentId: 'pi_123',
+      };
+
+      jest.spyOn(stripeSubscriptionService, 'getSubscriptionTypes').mockReturnValue({
+        hasTrial: false,
+        hasAnchorDays: false,
+        hasFreeAnchorDays: false,
+        hasProrations: false,
+        isSendInvoice: false,
+        hasNoInvoice: false,
+      });
+
+      jest
+        .spyOn(stripeSubscriptionService, 'getInvoiceFromSubscription')
+        .mockRejectedValue(new Error('Invoice not found'));
+
+      await expect(stripeSubscriptionService.confirmSubscriptionPayment(confirmRequest)).rejects.toThrow(
+        'Invoice not found',
+      );
+
+      expect(
+        require('../../src/services/ct-payment-creation.service').CtPaymentCreationService.prototype
+          .updateSubscriptionPaymentTransactions,
+      ).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('method getInvoiceFromSubscription', () => {
+    const mockInvoice = {
+      id: 'in_123',
+      object: 'invoice',
+      amount_due: 1500,
+      amount_paid: 1500,
+      currency: 'usd',
+      status: 'paid',
+      subscription: 'sub_123',
+      customer: 'cus_123',
+      created: 1234567890,
+      livemode: false,
+      metadata: {},
+      number: 'INV-123',
+      hosted_invoice_url: null,
+      invoice_pdf: null,
+      receipt_number: null,
+      account_country: 'US',
+      account_name: 'Test Account',
+      account_tax_ids: null,
+      amount_tax: 0,
+      application: null,
+      application_fee_amount: null,
+      attempt_count: 1,
+      attempted: true,
+      auto_advance: false,
+      billing_reason: 'subscription_create',
+      charge: null,
+      collection_method: 'charge_automatically',
+      custom_fields: null,
+      default_payment_method: null,
+      default_source: null,
+      default_tax_rates: null,
+      description: null,
+      discount: null,
+      due_date: null,
+      ending_balance: 0,
+      footer: null,
+      from_invoice: null,
+      last_finalization_error: null,
+      next_payment_attempt: null,
+      on_behalf_of: null,
+      paid: true,
+      paid_out_of_band: false,
+      payment_intent: null,
+      period_end: 1234567890,
+      period_start: 1234567890,
+      post_payment_credit_notes_amount: 0,
+      pre_payment_credit_notes_amount: 0,
+      quote: null,
+      rendering_options: null,
+      shipping_cost: null,
+      shipping_details: null,
+      starting_balance: 0,
+      statement_descriptor: null,
+      status_transitions: null,
+      subscription_proration_date: null,
+      subtotal: 1500,
+      subtotal_excluding_tax: 1500,
+      tax: null,
+      test_clock: null,
+      threshold_reason: null,
+      total: 1500,
+      total_discount_amounts: null,
+      total_tax_amounts: null,
+      transfer_data: null,
+      webhooks_delivered_at: 1234567890,
+    };
+
+    beforeEach(() => {
+      Stripe.prototype.subscriptions = {
+        retrieve: jest.fn(),
+      } as unknown as Stripe.SubscriptionsResource;
+    });
+
+    test('should retrieve invoice from subscription successfully', async () => {
+      const subscriptionId = 'sub_123';
+      const mockSubscription = {
+        id: 'sub_123',
+        latest_invoice: mockInvoice,
+      };
+
+      jest.spyOn(Stripe.prototype.subscriptions, 'retrieve').mockResolvedValue(mockSubscription as any);
+
+      const result = await stripeSubscriptionService.getInvoiceFromSubscription(subscriptionId);
+
+      expect(Stripe.prototype.subscriptions.retrieve).toHaveBeenCalledWith(subscriptionId, {
+        expand: ['latest_invoice.payment_intent'],
+      });
+      expect(result).toEqual(mockInvoice);
+    });
+
+    test('should throw error when subscription has no latest invoice', async () => {
+      const subscriptionId = 'sub_123';
+      const mockSubscription = {
+        id: 'sub_123',
+        latest_invoice: null,
+      };
+
+      jest.spyOn(Stripe.prototype.subscriptions, 'retrieve').mockResolvedValue(mockSubscription as any);
+
+      await expect(stripeSubscriptionService.getInvoiceFromSubscription(subscriptionId)).rejects.toThrow(
+        `Subscription with ID "${subscriptionId}" does not have an invoice.`,
+      );
+
+      expect(Stripe.prototype.subscriptions.retrieve).toHaveBeenCalledWith(subscriptionId, {
+        expand: ['latest_invoice.payment_intent'],
+      });
+    });
+
+    test('should throw error when latest invoice is a string ID', async () => {
+      const subscriptionId = 'sub_123';
+      const mockSubscription = {
+        id: 'sub_123',
+        latest_invoice: 'in_123', // String ID instead of object
+      };
+
+      jest.spyOn(Stripe.prototype.subscriptions, 'retrieve').mockResolvedValue(mockSubscription as any);
+
+      await expect(stripeSubscriptionService.getInvoiceFromSubscription(subscriptionId)).rejects.toThrow(
+        `Subscription with ID "${subscriptionId}" does not have an invoice.`,
+      );
+
+      expect(Stripe.prototype.subscriptions.retrieve).toHaveBeenCalledWith(subscriptionId, {
+        expand: ['latest_invoice.payment_intent'],
+      });
+    });
+
+    test('should throw error when Stripe API call fails', async () => {
+      const subscriptionId = 'sub_123';
+      const stripeError = new Error('Stripe API error');
+
+      jest.spyOn(Stripe.prototype.subscriptions, 'retrieve').mockRejectedValue(stripeError);
+
+      await expect(stripeSubscriptionService.getInvoiceFromSubscription(subscriptionId)).rejects.toThrow(
+        'Stripe API error',
+      );
+
+      expect(Stripe.prototype.subscriptions.retrieve).toHaveBeenCalledWith(subscriptionId, {
+        expand: ['latest_invoice.payment_intent'],
+      });
+    });
+
+    test('should handle subscription with expanded invoice and payment intent', async () => {
+      const subscriptionId = 'sub_123';
+      const mockInvoiceWithPaymentIntent = {
+        ...mockInvoice,
+        payment_intent: {
+          id: 'pi_123',
+          client_secret: 'pi_secret_123',
+          status: 'requires_payment_method',
+        },
+      };
+      const mockSubscription = {
+        id: 'sub_123',
+        latest_invoice: mockInvoiceWithPaymentIntent,
+      };
+
+      jest.spyOn(Stripe.prototype.subscriptions, 'retrieve').mockResolvedValue(mockSubscription as any);
+
+      const result = await stripeSubscriptionService.getInvoiceFromSubscription(subscriptionId);
+
+      expect(Stripe.prototype.subscriptions.retrieve).toHaveBeenCalledWith(subscriptionId, {
+        expand: ['latest_invoice.payment_intent'],
+      });
+      expect(result).toEqual(mockInvoiceWithPaymentIntent);
+      expect(result.payment_intent).toBeDefined();
+    });
+
+    test('should handle subscription with undefined latest invoice', async () => {
+      const subscriptionId = 'sub_123';
+      const mockSubscription = {
+        id: 'sub_123',
+        latest_invoice: undefined,
+      };
+
+      jest.spyOn(Stripe.prototype.subscriptions, 'retrieve').mockResolvedValue(mockSubscription as any);
+
+      await expect(stripeSubscriptionService.getInvoiceFromSubscription(subscriptionId)).rejects.toThrow(
+        `Subscription with ID "${subscriptionId}" does not have an invoice.`,
+      );
+
+      expect(Stripe.prototype.subscriptions.retrieve).toHaveBeenCalledWith(subscriptionId, {
+        expand: ['latest_invoice.payment_intent'],
+      });
+    });
+
+    test('should handle subscription with empty string latest invoice', async () => {
+      const subscriptionId = 'sub_123';
+      const mockSubscription = {
+        id: 'sub_123',
+        latest_invoice: '',
+      };
+
+      jest.spyOn(Stripe.prototype.subscriptions, 'retrieve').mockResolvedValue(mockSubscription as any);
+
+      await expect(stripeSubscriptionService.getInvoiceFromSubscription(subscriptionId)).rejects.toThrow(
+        `Subscription with ID "${subscriptionId}" does not have an invoice.`,
+      );
+
+      expect(Stripe.prototype.subscriptions.retrieve).toHaveBeenCalledWith(subscriptionId, {
+        expand: ['latest_invoice.payment_intent'],
+      });
     });
   });
 });
