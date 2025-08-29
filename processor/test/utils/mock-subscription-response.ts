@@ -159,3 +159,51 @@ export const stripePriceEmptyResponseMock: Stripe.Response<Stripe.ApiSearchResul
   next_page: null,
   url: '',
 };
+
+export const mockSubscriptionEventConverter__success = {
+  id: 'ct_payment_123',
+  version: 1,
+  pspReference: 'pi_123',
+  paymentMethod: 'card',
+  transactions: [
+    {
+      id: 'tx_123',
+      type: 'Charge',
+      state: 'Success',
+      amount: {
+        type: 'centPrecision',
+        currencyCode: 'USD',
+        centAmount: 1000,
+        fractionDigits: 2,
+      },
+    },
+  ],
+};
+
+export const mockSubscriptionEventConverter__failed = {
+  id: 'failed_payment_123',
+  version: 1,
+  pspReference: 'pi_123',
+  paymentMethod: 'card',
+  transactions: [
+    {
+      id: 'tx_123',
+      type: 'Charge',
+      state: 'Failure',
+      amount: {
+        type: 'centPrecision',
+        currencyCode: 'USD',
+        centAmount: 1000,
+        fractionDigits: 2,
+      },
+    },
+  ],
+};
+
+export const mockSubscriptionEventConverter__empty_transactions = {
+  id: 'ct_payment_123',
+  version: 1,
+  pspReference: 'pi_123',
+  paymentMethod: 'card',
+  transactions: [],
+};

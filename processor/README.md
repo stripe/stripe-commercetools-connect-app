@@ -186,6 +186,54 @@ Cart with Mixed Items
 - **Metadata Tracking**: Comprehensive metadata tracking for both subscription and invoice items
 
 
+## Enhanced Architecture and Testing
+
+### New Price Client Service
+
+The connector now includes a dedicated price client service (`price-client.ts`) that provides enhanced product price management capabilities:
+
+#### Key Features
+- **`getProductById(productId)`**: Retrieves products with expanded price information including discounted prices
+- **`getProductMasterPrice(productId)`**: Gets the current price from a product's master variant
+- **Enhanced Error Handling**: Comprehensive error handling and logging for price retrieval operations
+- **Expanded Price Data**: Automatically expands price information including discount details
+
+#### Usage Example
+```typescript
+import { getProductById, getProductMasterPrice } from './services/commerce-tools/price-client';
+
+// Get product with expanded price information
+const product = await getProductById('product-123');
+
+// Get current price from master variant
+const price = await getProductMasterPrice('product-123');
+// Returns: { centAmount: 2500, currencyCode: 'USD', fractionDigits: 2 }
+```
+
+### Enhanced Testing Infrastructure
+
+The subscription service testing has been completely restructured for better maintainability and comprehensive coverage:
+
+#### Modular Test Architecture
+- **`stripe-subscription.service.business-logic.spec.ts`**: Tests for business logic and payment handling
+- **`stripe-subscription.service.core.spec.ts`**: Tests for core subscription functionality
+- **`stripe-subscription.service.lifecycle.spec.ts`**: Tests for subscription lifecycle management
+- **`stripe-subscription.service.payment.spec.ts`**: Tests for payment processing and confirmation
+- **`stripe-subscription.service.price.spec.ts`**: Tests for price management and calculations
+- **`stripe-subscription.service.utils.spec.ts`**: Tests for utility functions and helpers
+
+#### Testing Benefits
+- **Focused Testing**: Each test file focuses on specific functionality areas
+- **Better Maintainability**: Easier to locate and update tests for specific features
+- **Comprehensive Coverage**: All subscription service methods have dedicated test coverage
+- **Enhanced Mock Data**: Improved mock data structures for realistic testing scenarios
+- **Faster Test Execution**: Modular structure allows for more efficient test running
+
+#### Configuration Testing
+- **`config.spec.ts`**: Comprehensive configuration validation and testing
+- **Environment Variable Testing**: Validates all configuration options and defaults
+- **Type Safety Testing**: Ensures configuration types are properly validated
+
 ## Getting Started
 
 These instructions will get you up and running on your local machine for development and testing purposes.
@@ -245,6 +293,181 @@ Make sure commercetools client credentials have at least the following permissio
 
 ```
 npm run dev
+```
+
+## Configuration Options
+
+### Subscription Payment Handling
+
+The connector supports two different approaches for handling subscription payments:
+
+#### Option 1: Create New Order for Each Payment (Default)
+- **Environment Variable**: `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING=createOrder` (or not set)
+- **Behavior**: Each subscription payment creates a new order
+- **Use Case**: When you want separate orders for each billing cycle (recommended for better tracking)
+
+#### Option 2: Add Payment to Existing Order
+- **Environment Variable**: `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING=addPaymentToOrder`
+- **Behavior**: New subscription payments are added to the existing order
+- **Use Case**: When you want to maintain a single order with multiple payments for the same subscription
+
+### Subscription Price Synchronization
+
+The connector implements a sophisticated price synchronization system that maintains consistency between Stripe subscriptions and commercetools product prices. This system operates on the principle of **Stripe as the source of truth for products** and **commercetools as the source of truth for prices**.
+
+#### Source of Truth Architecture
+
+**Stripe as Product Source of Truth:**
+- Manages subscription lifecycle and billing cycles
+- Handles customer relationships and payment processing
+- Controls subscription state and metadata
+- Provides webhook events for real-time updates
+
+**Commercetools as Price Source of Truth:**
+- Controls product pricing and business logic
+- Manages product variants and attributes
+- Handles promotional pricing and discounts
+- Provides centralized price management
+
+**Synchronization Layer:**
+- Automatically aligns Stripe subscription prices with commercetools product prices
+- Maintains data consistency between systems
+- Handles price updates in real-time or standard modes
+- Provides comprehensive error handling and logging
+
+The connector provides automatic price synchronization capabilities that are independent of payment handling strategy:
+
+#### Enable Price Synchronization
+- **Environment Variable**: `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true`
+- **Behavior**: Automatically synchronizes subscription prices with current commercetools product prices before each invoice is created
+- **Trigger**: Uses `invoice.upcoming` webhook events to detect when synchronization is needed
+- **Use Case**: When you want to ensure subscription prices are always current with product price changes in the same billing period
+
+### Price Synchronization Features
+
+When `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true` is set, the connector provides advanced price synchronization capabilities:
+
+#### How It Works
+1. **Webhook Trigger**: When Stripe sends an `invoice.upcoming` webhook event
+2. **Price Comparison**: The system compares the current Stripe subscription price with the current commercetools product price
+3. **Automatic Update**: If prices differ, the subscription is automatically updated with the current commercetools price
+4. **Same-Period Billing**: The price change takes effect for the current billing period (not the next one)
+
+#### Price Synchronization Process
+```
+invoice.upcoming webhook → Retrieve Subscription → Get CT Product Price → Compare Prices → Update if Different
+```
+
+#### Key Features
+- **Real-time Synchronization**: Prices are synchronized before each invoice is created
+- **Automatic Price Detection**: Automatically detects price changes in commercetools products
+- **Same-Period Updates**: Price changes apply to the current billing period
+- **No Manual Intervention**: Fully automated price synchronization process
+- **Comprehensive Logging**: Detailed logging for price comparison and updates
+
+#### Implementation Details
+- **Price Comparison**: Compares `subscription.items.data[0].price.unit_amount` with commercetools product price
+- **Price Creation**: Creates new Stripe prices when needed with proper recurring intervals
+- **Subscription Update**: Updates subscription items with new price using `proration_behavior: 'none'`
+- **Billing Cycle**: Maintains existing billing cycle with `billing_cycle_anchor: 'unchanged'`
+
+#### Benefits of Price Synchronization
+- **Without Price Sync (`STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=false`)**: 
+  - Subscription continues with old price for current billing cycle
+  - Price updates happen through the `createOrder` method **after** the current invoice is paid
+  - Updated price takes effect for the **next** billing cycle (not the current one)
+- **With Price Sync (`STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true`)**: 
+  - Subscription price automatically updates to current commercetools price for the **current** billing period
+  - Price change takes effect in the same month as the price change
+  - Updates happen **before** invoice creation via `invoice.upcoming` webhook
+
+#### Price Update Timing Comparison
+
+| Configuration | When Price Updates | Effect Timeline | Use Case |
+|---------------|-------------------|-----------------|----------|
+| `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=false` | After invoice payment via `createOrder` method | **Next billing cycle** | Standard subscription billing |
+| `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true` | Before invoice creation via `invoice.upcoming` webhook | **Current billing cycle** | Dynamic pricing scenarios |
+
+### Maintaining Price Synchronization
+
+To ensure your subscription prices remain synchronized between Stripe and commercetools, follow these best practices:
+
+#### 1. Environment Configuration
+```bash
+# Enable automatic price synchronization
+export STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true
+
+# Choose your payment handling strategy
+export STRIPE_SUBSCRIPTION_PAYMENT_HANDLING=createOrder  # or addPaymentToOrder
+```
+
+#### 2. Webhook Configuration
+Ensure your Stripe webhook endpoint is configured to receive `invoice.upcoming` events:
+- **Event Type**: `invoice.upcoming`
+- **Endpoint**: Your connector's webhook URL
+- **Purpose**: Triggers price synchronization before invoice creation
+
+#### 3. Product Management
+- **Price Updates**: Always update prices in commercetools first
+- **Variant Consistency**: Ensure product variants have proper subscription attributes
+- **Price IDs**: Use consistent price IDs across your product catalog
+
+#### 4. Monitoring and Logging
+The system provides comprehensive logging for price synchronization:
+```typescript
+// Example log output
+log.info('Price synchronization completed', {
+  subscriptionId: 'sub_123',
+  oldPrice: 2500,
+  newPrice: 3000,
+  currency: 'usd',
+  billingCycle: 'current'
+});
+```
+
+#### 5. Error Handling
+Common synchronization issues and solutions:
+- **Missing Products**: Ensure products exist in commercetools before subscription creation
+- **Price Mismatches**: Verify price IDs match between systems
+- **Webhook Failures**: Check webhook endpoint availability and authentication
+
+#### 6. Testing Price Synchronization
+Test your price synchronization setup:
+1. Create a subscription with a specific price
+2. Update the product price in commercetools
+3. Trigger an `invoice.upcoming` webhook (or wait for the next billing cycle)
+4. Verify the subscription price is updated automatically
+
+#### 7. Performance Considerations
+- **Batch Processing**: Price synchronization happens per subscription for optimal performance
+- **Caching**: Product and price data is cached to minimize API calls
+- **Idempotency**: Operations are idempotent to prevent duplicate updates
+
+#### Detailed Price Update Flow
+
+**Without Price Sync (Default Behavior):**
+1. Subscription invoice is created with **old price**
+2. Customer pays the invoice
+3. `createOrder` method detects price difference in commercetools
+4. Subscription price is updated for **next billing cycle**
+5. Next month's invoice will use the **new price**
+
+**With Price Sync Enabled:**
+1. `invoice.upcoming` webhook is triggered
+2. System compares current commercetools price with subscription price
+3. If different, subscription price is updated **immediately**
+4. Invoice is created with **new price**
+5. Customer pays the updated amount
+
+**Example Configuration:**
+```bash
+# Payment handling strategy (choose one)
+export STRIPE_SUBSCRIPTION_PAYMENT_HANDLING=createOrder  # Default: create new order for each payment
+export STRIPE_SUBSCRIPTION_PAYMENT_HANDLING=addPaymentToOrder  # Add payment to existing order
+
+# Price synchronization (optional, independent of payment handling)
+export STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true  # Enable automatic price synchronization
+export STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=false  # Use default post-payment price updates
 ```
 
 ## Authentication
@@ -722,7 +945,7 @@ curl -X DELETE "https://your-connector-url/subscription-api/customer-12345/sub_1
 - **message**: Optional message with details.
 
 #### Update Customer Subscription
-Updates a specific subscription with new parameters or options based on the [Stripe documentation](https://docs.stripe.com/api/subscriptions/update?lang=node).
+Updates a specific subscription with new product variants, prices, and configuration based on commercetools product data. This method provides comprehensive subscription management capabilities while maintaining data consistency between systems.
 
 ##### Endpoint
 `POST /subscription-api/:customerId`
@@ -730,48 +953,37 @@ Updates a specific subscription with new parameters or options based on the [Str
 ##### Authentication
 OAuth2 authentication with "manage_project" and "manage_subscriptions" scopes.
 
-##### Example Request (Update Quantity)
+##### Use Cases
+The `updateSubscription` method handles various subscription update scenarios:
+
+1. **Product Variant Changes**: Switch between different product variants (e.g., different sizes, colors, or configurations)
+2. **Price Updates**: Update to new pricing tiers or promotional pricing
+3. **Subscription Configuration Changes**: Modify billing cycles, trial periods, or other subscription attributes
+4. **Product Migration**: Move customers to new product versions or discontinued product replacements
+
+##### Example Request (Update Product Variant and Price)
 ```bash
 curl -X POST "https://your-connector-url/subscription-api/customer-12345" \
   -H "Authorization: Bearer <commercetools-oauth2-token>" \
   -H "Content-Type: application/json" \
   -d '{
-    "id": "sub_1234567890",
-    "params": {
-      "items": [
-        {
-          "id": "si_1234567890",
-          "quantity": 2
-        }
-      ]
-    }
+    "subscriptionId": "sub_1234567890",
+    "newSubscriptionVariantId": "product-456",
+    "newSubscriptionVariantPosition": 2,
+    "newSubscriptionPriceId": "price-789"
   }'
 ```
 
-##### Example Request (Update Billing Cycle)
+##### Example Request (Update to Master Variant)
 ```bash
 curl -X POST "https://your-connector-url/subscription-api/customer-12345" \
   -H "Authorization: Bearer <commercetools-oauth2-token>" \
   -H "Content-Type: application/json" \
   -d '{
-    "id": "sub_1234567890",
-    "params": {
-      "billing_cycle_anchor": "now",
-      "proration_behavior": "create_prorations"
-    }
-  }'
-```
-
-##### Example Request (Add Coupon)
-```bash
-curl -X POST "https://your-connector-url/subscription-api/customer-12345" \
-  -H "Authorization: Bearer <commercetools-oauth2-token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id": "sub_1234567890",
-    "params": {
-      "coupon": "SAVE20"
-    }
+    "subscriptionId": "sub_1234567890",
+    "newSubscriptionVariantId": "product-456",
+    "newSubscriptionVariantPosition": 1,
+    "newSubscriptionPriceId": "price-789"
   }'
 ```
 
@@ -789,15 +1001,36 @@ curl -X POST "https://your-connector-url/subscription-api/customer-12345" \
 - **customerId**: The commercetools customer ID.
 
 ##### Request Body
-- **id**: The subscription ID to update.
-- **params**: Optional parameters to update (Stripe.SubscriptionUpdateParams).
-- **options**: Optional options to update (Stripe.RequestOptions).
+- **subscriptionId**: The ID of the subscription to update.
+- **newSubscriptionVariantId**: The commercetools product ID for the new variant.
+- **newSubscriptionVariantPosition**: The variant position (1 for master variant, other numbers for specific variants).
+- **newSubscriptionPriceId**: The specific price ID from the product variant to use.
 
 ##### Response Parameters
 - **id**: The subscription ID.
 - **status**: Current status of the subscription.
 - **outcome**: Result of the update ("updated" or "error").
 - **message**: Details about the update operation.
+
+##### How It Works
+1. **Validation**: Verifies the customer owns the subscription and the subscription exists
+2. **Product Retrieval**: Fetches the new product variant and price from commercetools
+3. **Price Creation**: Creates or retrieves the corresponding Stripe price for the new configuration
+4. **Subscription Update**: Updates the Stripe subscription with the new price and configuration
+5. **Attribute Synchronization**: Applies subscription attributes from the new product variant (billing cycles, trial periods, etc.)
+
+##### Important Notes
+- **Variant Position 1**: Always refers to the master variant of the product
+- **Price Consistency**: The system automatically creates Stripe prices that match commercetools pricing
+- **Configuration Preservation**: Existing subscription quantity and customer data are maintained
+- **Attribute Inheritance**: New subscription attributes (billing cycles, trial settings) are applied from the selected variant
+- **Error Handling**: Comprehensive error messages for missing products, variants, or prices
+
+##### Integration with Price Synchronization
+When `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true` is enabled, this method works seamlessly with the automatic price synchronization system:
+- Updated subscriptions automatically benefit from future price synchronization
+- Price changes in commercetools will be automatically reflected in updated subscriptions
+- Maintains consistency between manual updates and automatic synchronization
 
 ### Express Checkout methods
 
@@ -850,3 +1083,8 @@ Cart session authentication required.
 ##### Response Parameters
 - **shippingRates**: Array of shipping rates for the selected address.
 - **lineItems**: Name and price of the selected line items and shipping cost.
+
+## Additional Documentation
+
+For comprehensive information about subscription price synchronization and management, see:
+- **[Subscription Price Synchronization & Management](./docs/subscription-price-synchronization.md)**: Complete guide to price synchronization and the enhanced updateSubscription method

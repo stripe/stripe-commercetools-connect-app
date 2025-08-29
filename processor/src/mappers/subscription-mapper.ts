@@ -40,6 +40,42 @@ export const getSubscriptionAttributes = (productAttributes?: Attribute[]): Stri
   } as Stripe.SubscriptionCreateParams;
 };
 
+export const getSubscriptionUpdateAttributes = (productAttributes?: Attribute[]): Stripe.SubscriptionUpdateParams => {
+  const {
+    collection_method,
+    days_until_due,
+    billing_cycle_anchor_date,
+    billing_cycle_anchor_day,
+    billing_cycle_anchor_time,
+    trial_end_date,
+    cancel_at,
+    cancel_at_period_end,
+    description,
+    off_session,
+    proration_behavior,
+    missing_payment_method_at_trial_end,
+  } = transformVariantAttributes<SubscriptionAttributes>(productAttributes);
+  const daysUntilDue = collection_method === 'send_invoice' ? (days_until_due ?? 1) : undefined;
+  const trialSettings = getTrialSettingsForUpdate({ trial_end_date, missing_payment_method_at_trial_end });
+  const billingAnchor = getBillingAnchor({
+    billing_cycle_anchor_date,
+    billing_cycle_anchor_day,
+    billing_cycle_anchor_time,
+  });
+  const cancelAt = getCancelAt({ cancel_at_period_end, cancel_at });
+
+  return {
+    description,
+    off_session,
+    collection_method,
+    proration_behavior: proration_behavior ?? 'create_prorations',
+    days_until_due: daysUntilDue,
+    ...billingAnchor,
+    ...trialSettings,
+    ...cancelAt,
+  } as Stripe.SubscriptionUpdateParams;
+};
+
 export const getBillingAnchor = ({
   billing_cycle_anchor_date,
   billing_cycle_anchor_day,
@@ -95,6 +131,27 @@ export const getTrialSettings = ({
   if (trial_period_days) {
     return { trial_period_days, ...settings };
   }
+  if (trial_end_date) {
+    return { trial_end: convertDateToUnixTimestamp(trial_end_date), ...settings };
+  }
+  return undefined;
+};
+
+export const getTrialSettingsForUpdate = ({
+  trial_end_date,
+  missing_payment_method_at_trial_end,
+}: {
+  trial_end_date?: string;
+  missing_payment_method_at_trial_end?: Stripe.SubscriptionCreateParams.TrialSettings.EndBehavior.MissingPaymentMethod;
+}): Partial<Stripe.SubscriptionUpdateParams | undefined> => {
+  const settings = missing_payment_method_at_trial_end
+    ? {
+        trial_settings: {
+          end_behavior: { missing_payment_method: missing_payment_method_at_trial_end },
+        },
+      }
+    : null;
+
   if (trial_end_date) {
     return { trial_end: convertDateToUnixTimestamp(trial_end_date), ...settings };
   }

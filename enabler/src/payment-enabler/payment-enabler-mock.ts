@@ -79,7 +79,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
       baseApi: options.processorUrl,
       sessionId: options.sessionId,
     });
-    
+    //TEST: options.paymentElementType = 'expressCheckout'; to test express checkout uncomment this line
     const [cartInfoResponse, configEnvResponse] = await getConfigData(options.paymentElementType);
     const customer = await getCustomerOptions();
     const stripeSDK = await MockPaymentEnabler.getStripeSDK(configEnvResponse);

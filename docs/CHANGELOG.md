@@ -2,6 +2,139 @@
 
 ## Latest
 
+### Refactored Price Synchronization Configuration (Breaking Change)
+
+**Breaking Change:**
+- **Removed `upcomingInvoice` option** from `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING` environment variable
+- **Added new environment variable**: `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED` for price synchronization control
+- **Added comprehensive documentation**: New `docs/subscription-price-synchronization.md` file covering price synchronization and enhanced subscription management
+
+**Rationale:**
+The `upcomingInvoice` option was confusing because it mixed payment handling strategy with price synchronization functionality. Price synchronization is independent of how payments are handled and should be controlled separately.
+
+**Migration Guide:**
+- **Old Configuration**: `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING=upcomingInvoice`
+- **New Configuration**: 
+  ```bash
+  STRIPE_SUBSCRIPTION_PAYMENT_HANDLING=createOrder  # or addPaymentToOrder
+  STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true
+  ```
+
+**Updated Configuration Options:**
+- **`STRIPE_SUBSCRIPTION_PAYMENT_HANDLING`**: Now only handles payment strategy:
+  - `createOrder` (default): Creates a new order for each subscription payment
+  - `addPaymentToOrder`: Adds payment to existing order
+- **`STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED`**: New boolean flag for price synchronization:
+  - `true`: Enables automatic price synchronization via `invoice.upcoming` webhook (price changes take effect in **current** billing cycle)
+  - `false` (default): Price updates happen via `createOrder` method after payment (price changes take effect in **next** billing cycle)
+
+**Benefits:**
+- **Clearer separation of concerns**: Payment handling vs price synchronization
+- **More flexible configuration**: Can enable price sync with any payment handling strategy
+- **Better naming**: `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED` clearly indicates its purpose
+- **Easier to understand**: No confusion about what `upcomingInvoice` actually does
+
+---
+
+### Enhanced Subscription Service Architecture and Testing Infrastructure
+
+**Added:**
+- **New Price Client Service**: Added `price-client.ts` service for enhanced product price management and retrieval
+- **Comprehensive Test Suite Restructuring**: Split subscription service tests into focused modules:
+  - `stripe-subscription.service.business-logic.spec.ts`: Business logic and payment handling tests
+  - `stripe-subscription.service.core.spec.ts`: Core subscription functionality tests
+  - `stripe-subscription.service.lifecycle.spec.ts`: Subscription lifecycle management tests
+  - `stripe-subscription.service.payment.spec.ts`: Payment processing and confirmation tests
+  - `stripe-subscription.service.price.spec.ts`: Price management and calculation tests
+  - `stripe-subscription.service.utils.spec.ts`: Utility functions and helper method tests
+- **Enhanced Configuration Testing**: Added `config.spec.ts` for comprehensive configuration validation
+- **Improved Mock Data Management**: Enhanced mock data structures for better test coverage and reliability
+- **Advanced Payment Intent Handling**: Enhanced error handling for payment intents with additional status checks
+- **Enhanced Subscription Metadata Management**: Improved metadata tracking for subscriptions with comprehensive field mapping
+
+**Changed:**
+- **Subscription Service Refactoring**: Major architectural improvements to the subscription service with better separation of concerns
+- **Test Coverage Enhancement**: Achieved comprehensive test coverage across all subscription service methods and edge cases
+- **Mock Data Improvements**: Enhanced mock data structures for shipping information, Stripe API responses, and subscription scenarios
+- **Error Handling Improvements**: Better error management throughout the subscription service with detailed logging
+- **Payment Processing Enhancements**: Improved payment intent configuration with conditional shipping and advanced payment method options
+
+**Technical Details:**
+
+#### New Price Client Service Features
+- **`getProductById()`**: Retrieves products with expanded price information
+- **`getProductMasterPrice()`**: Gets current price from product master variant
+- **Enhanced Price Management**: Comprehensive price retrieval with error handling and logging
+
+#### Test Architecture Improvements
+- **Modular Test Structure**: Tests organized by functionality for better maintainability
+- **Comprehensive Coverage**: All subscription service methods now have dedicated test coverage
+- **Enhanced Mock Data**: Improved mock data for realistic testing scenarios
+- **Better Test Organization**: Clear separation between unit tests and integration tests
+
+#### Subscription Service Enhancements
+- **Improved Method Signatures**: Updated method signatures for better type safety
+- **Enhanced Error Handling**: Comprehensive error handling with detailed error messages
+- **Better Logging**: Enhanced logging throughout the service for better debugging
+- **Metadata Management**: Improved metadata handling for subscriptions and payments
+
+#### Files Added
+- `processor/src/services/commerce-tools/price-client.ts`: New price management service
+- `processor/test/config/config.spec.ts`: Configuration testing
+- `processor/test/services/commerce-tools/price-client.spec.ts`: Price client tests
+- `processor/test/services/stripe-subscription.service.business-logic.spec.ts`: Business logic tests
+- `processor/test/services/stripe-subscription.service.core.spec.ts`: Core functionality tests
+- `processor/test/services/stripe-subscription.service.lifecycle.spec.ts`: Lifecycle tests
+- `processor/test/services/stripe-subscription.service.payment.spec.ts`: Payment tests
+- `processor/test/services/stripe-subscription.service.price.spec.ts`: Price management tests
+- `processor/test/services/stripe-subscription.service.utils.spec.ts`: Utility tests
+
+#### Files Modified
+- `processor/src/services/stripe-subscription.service.ts`: Major refactoring and enhancements
+- `processor/src/config/config.ts`: Added new configuration options
+- `processor/src/services/types/stripe-subscription.type.ts`: Enhanced type definitions
+- `processor/test/services/stripe-subscription.service.spec.ts`: Restructured main test file
+- Multiple test utility files: Enhanced mock data and test helpers
+
+### Performance Impact
+- **Improved Test Performance**: Modular test structure allows for faster, focused testing
+- **Better Error Handling**: Reduced failed operations through improved error management
+- **Enhanced Logging**: Better debugging capabilities with comprehensive logging
+- **Optimized Price Retrieval**: More efficient product price management
+
+### Security
+- **Enhanced Validation**: Improved validation for subscription operations
+- **Better Error Handling**: Prevents information leakage through structured error handling
+- **Comprehensive Testing**: Enhanced security through comprehensive test coverage
+
+---
+
+### Added invoice.upcoming Webhook Event Support and Subscription Configuration
+
+**Added:**
+- **New Webhook Event**: Added support for `invoice.upcoming` webhook event to handle upcoming subscription invoice notifications
+- **Enhanced Webhook Configuration**: Updated webhook endpoint configuration to include the new event type
+- **New Configuration Options**: Added environment variables to control subscription payment handling and price synchronization
+- **Comprehensive Documentation**: Updated documentation in both processor README and main project README
+- **Improved Test Coverage**: Added comprehensive test coverage to verify webhook configuration includes the new event
+
+**Configuration Options:**
+- **`STRIPE_SUBSCRIPTION_PAYMENT_HANDLING`**: Controls payment handling strategy:
+  - `createOrder` (default): Creates a new order for each subscription payment
+  - `addPaymentToOrder`: Adds payment to existing order
+- **`STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED`**: Controls automatic price synchronization:
+  - `true`: Enables automatic price synchronization via `invoice.upcoming` webhook
+  - `false` (default): Disables price synchronization
+
+**Technical Details:**
+- Added `invoice.upcoming` to the webhook endpoint configuration in `processor/src/connectors/actions.ts`
+- Enhanced test coverage in `processor/test/connectors/actions.spec.ts` to verify webhook configuration
+- Updated `processor/README.md` to document the new configuration options and deprecate old environment variable
+- Added subscription configuration variables to main project README environment variables section
+- Replaced deprecated `CREATE_NEW_ORDER_FOR_SUBSCRIPTION_PAYMENTS` with new configuration system
+
+---
+
 ### Enhanced Payment Amount Handling and Error Management
 
 **Added:**
@@ -60,6 +193,14 @@
 3. **Invoice Creation**: Creates separate Stripe invoices for one-time items with proper metadata
 4. **Invoice Finalization**: Automatically finalizes invoices for immediate payment processing
 5. **Metadata Tracking**: Includes cart ID and type metadata for proper tracking
+
+#### Enhanced Subscription Management
+- **New `updateSubscription` Method**: Comprehensive subscription update functionality for product variant and price changes
+- **Product Variant Switching**: Support for switching between master variant and specific variants
+- **Price Updates**: Automatic price synchronization with commercetools product pricing
+- **Configuration Inheritance**: Subscription attributes automatically inherited from new product variants
+- **API Endpoint**: New `POST /subscription-api/:customerId` endpoint for subscription updates
+- **Use Cases**: Product variant changes, price updates, subscription configuration changes, product migration
 
 #### Attribute Name Changes
 All subscription-related product type attributes now use the `stripeConnector_` prefix:

@@ -34,7 +34,10 @@ import * as Logger from '../../src/libs/logger/index';
 import { StripeHeaderAuthHook } from '../../src/libs/fastify/hooks/stripe-header-auth.hook';
 import { appLogger } from '../../src/payment-sdk';
 // import { StripeCustomerService } from '../../src/services/stripe-customer.service';
-import { mockEvent__invoice_paid__Expanded_noPaymnet_intent__amount_paid } from '../utils/mock-subscription-data';
+import {
+  mockEvent__invoice_paid__Expanded_noPaymnet_intent__amount_paid,
+  mockEvent__invoice_payment_failed__simple,
+} from '../utils/mock-subscription-data';
 import { StripeSubscriptionService } from '../../src/services/stripe-subscription.service';
 
 jest.mock('stripe', () => ({
@@ -48,10 +51,11 @@ jest.mock('stripe', () => ({
   })),
 }));
 jest.mock('../../src/services/stripe-payment.service');
+jest.mock('../../src/services/stripe-subscription.service');
 jest.mock('../../src/libs/logger/index');
 
 interface FlexibleConfig {
-  [key: string]: string | number | Config.PaymentFeatures;
+  [key: string]: string | number | boolean | Config.PaymentFeatures;
 }
 function setupMockConfig(keysAndValues: Record<string, string>) {
   const mockConfig: FlexibleConfig = {};
@@ -380,7 +384,9 @@ describe('Stripe Payment APIs', () => {
       jest
         .spyOn(Stripe.prototype.webhooks, 'constructEvent')
         .mockReturnValue(mockEvent__invoice_paid__Expanded_noPaymnet_intent__amount_paid);
-      jest.spyOn(StripeSubscriptionService.prototype, 'processSubscriptionEvent').mockReturnValue(Promise.resolve());
+      jest
+        .spyOn(StripeSubscriptionService.prototype, 'processSubscriptionEventPaid')
+        .mockReturnValue(Promise.resolve());
 
       //When
       const response = await fastifyApp.inject({
@@ -393,7 +399,7 @@ describe('Stripe Payment APIs', () => {
 
       //Then
       expect(response.statusCode).toEqual(200);
-      expect(spiedSubscriptionService.processSubscriptionEvent).toHaveBeenCalled();
+      expect(spiedSubscriptionService.processSubscriptionEventPaid).toHaveBeenCalled();
     });
 
     test('it should handle a invoice.payment_failed event gracefully.', async () => {
@@ -407,8 +413,10 @@ describe('Stripe Payment APIs', () => {
       Stripe.prototype.webhooks = { constructEvent: jest.fn() } as unknown as Stripe.Webhooks;
       jest
         .spyOn(Stripe.prototype.webhooks, 'constructEvent')
-        .mockReturnValue(mockEvent__invoice_paid__Expanded_noPaymnet_intent__amount_paid);
-      jest.spyOn(StripeSubscriptionService.prototype, 'processSubscriptionEvent').mockReturnValue(Promise.resolve());
+        .mockReturnValue(mockEvent__invoice_payment_failed__simple);
+      jest
+        .spyOn(StripeSubscriptionService.prototype, 'processSubscriptionEventFailed')
+        .mockReturnValue(Promise.resolve());
 
       //When
       const response = await fastifyApp.inject({
@@ -421,7 +429,48 @@ describe('Stripe Payment APIs', () => {
 
       //Then
       expect(response.statusCode).toEqual(200);
-      expect(spiedSubscriptionService.processSubscriptionEvent).toHaveBeenCalled();
+      expect(spiedSubscriptionService.processSubscriptionEventFailed).toHaveBeenCalled();
+    });
+
+    test('it should handle a invoice.upcoming event gracefully.', async () => {
+      setupMockConfig({
+        stripeSecretKey: 'stripeSecretKey',
+        stripeWebhookSigningSecret: 'stripeWebhookSigningSecret',
+        authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
+      });
+
+      const mockInvoiceUpcomingEvent: Stripe.Event = {
+        id: 'evt_upcoming_123',
+        object: 'event',
+        type: 'invoice.upcoming',
+        data: {
+          object: {
+            id: 'in_upcoming_123',
+            object: 'invoice',
+            subscription: 'sub_123',
+            amount_due: 1000,
+            currency: 'usd',
+          },
+        },
+        created: Date.now(),
+        livemode: false,
+        pending_webhooks: 1,
+        request: { id: null, idempotency_key: null },
+        api_version: '2024-12-18.acacia',
+      } as Stripe.Event;
+
+      Stripe.prototype.webhooks = { constructEvent: jest.fn() } as unknown as Stripe.Webhooks;
+      jest.spyOn(Stripe.prototype.webhooks, 'constructEvent').mockReturnValue(mockInvoiceUpcomingEvent);
+
+      const response = await fastifyApp.inject({
+        method: 'POST',
+        url: `/stripe/webhooks`,
+        headers: {
+          'stripe-signature': 't=123123123,v1=gk2j34gk2j34g2k3j4',
+        },
+      });
+
+      expect(response.statusCode).toEqual(200);
     });
   });
 

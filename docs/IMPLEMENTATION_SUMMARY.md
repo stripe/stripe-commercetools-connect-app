@@ -20,7 +20,15 @@ This document provides a comprehensive overview of the Stripe-Commercetools paym
 
 ### Recent Improvements
 
-#### Payment Amount Handling and Error Management (Latest)
+#### Enhanced Subscription Service Architecture and Testing Infrastructure (Latest)
+- **New Price Client Service**: Added dedicated `price-client.ts` service for enhanced product price management with methods like `getProductById()` and `getProductMasterPrice()`
+- **Modular Test Architecture**: Completely restructured subscription service tests into focused modules for better maintainability and comprehensive coverage
+- **Enhanced Configuration Management**: Added comprehensive configuration testing and validation with dedicated `config.spec.ts`
+- **Improved Service Architecture**: Major refactoring of subscription service with better separation of concerns and enhanced error handling
+- **Advanced Testing Infrastructure**: Organized tests by functionality (business logic, core functionality, lifecycle, payment processing, price management, utilities)
+- **Enhanced Mock Data Management**: Improved mock data structures for better test reliability and realistic testing scenarios
+
+#### Payment Amount Handling and Error Management
 - **Extended PaymentAmount Type**: Created `ExtendedPaymentAmount` interface that extends the base `PaymentAmount` type to include `totalCentAmount` property for quantity calculations
 - **Enhanced Error Handling**: Added comprehensive handling for `requires_action` and `payment_failed` payment intent statuses with structured error objects
 - **Type Safety Improvements**: Updated service methods (`getLineItemPriceId`, `getSubscriptionPaymentAmount`) to use extended types for better type safety
@@ -39,6 +47,22 @@ This document provides a comprehensive overview of the Stripe-Commercetools paym
 - **Improved Organization**: Better separation of concerns in product type definitions
 
 ## Technical Architecture
+
+### New Price Client Service Architecture
+```
+Product Request → Price Client → Commercetools API → Expanded Price Data → Enhanced Price Management
+```
+
+### Testing Infrastructure Architecture
+```
+Subscription Service Tests
+├── Business Logic Tests (payment handling, invoice processing)
+├── Core Functionality Tests (subscription creation, management)
+├── Lifecycle Tests (subscription states, transitions)
+├── Payment Tests (payment processing, confirmation)
+├── Price Tests (price management, calculations)
+└── Utility Tests (helper functions, transformations)
+```
 
 ### Payment Amount Handling
 ```

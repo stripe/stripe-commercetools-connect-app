@@ -1,6 +1,9 @@
-import { Cart, CartUpdateAction } from '@commercetools/platform-sdk';
+import { Cart, CartUpdateAction, CartDraft, Product, ProductVariant } from '@commercetools/platform-sdk';
 import { paymentSDK } from '../../payment-sdk';
 import { getCartIdFromContext } from '../../libs/fastify/context/context';
+import { PaymentAmount } from '@commercetools/connect-payments-sdk/dist/commercetools/types/payment.type';
+import { log } from '../../libs/logger';
+import { lineItemStripeSubscriptionIdField, typeLineItem } from '../../custom-types/custom-types';
 
 const apiClient = paymentSDK.ctAPI.client;
 
@@ -29,4 +32,76 @@ export const updateCartById = async (cart: Cart, actions: CartUpdateAction[]) =>
     })
     .execute();
   return updatedCart.body;
+};
+
+/**
+ * Creates a cart with the specified product variant and price
+ * @param product - The commercetools product
+ * @param variant - The specific variant to add
+ * @param price - The price information
+ * @param priceId - The commercetools price ID
+ * @param subscriptionId - The Stripe subscription ID
+ * @returns A cart with the product added
+ */
+export const createCartWithProduct = async (
+  product: Product,
+  variant: ProductVariant,
+  price: PaymentAmount,
+  priceId: string,
+  subscriptionId: string,
+  quantity: number,
+): Promise<Cart> => {
+  try {
+    // Create cart draft using the same pattern as createNewCartFromOrder
+    const cartDraft: CartDraft = {
+      currency: price.currencyCode,
+    };
+
+    // Create the cart
+    const cartResponse = await apiClient
+      .carts()
+      .post({
+        body: cartDraft,
+      })
+      .execute();
+
+    let cart = cartResponse.body;
+
+    const lineItemActions: CartUpdateAction[] = [
+      {
+        action: 'addLineItem',
+        productId: product.id,
+        variantId: variant.id,
+        quantity: quantity,
+        custom: {
+          type: {
+            typeId: 'type',
+            key: typeLineItem.key,
+          },
+          fields: {
+            [lineItemStripeSubscriptionIdField]: subscriptionId,
+          },
+        },
+      },
+    ];
+
+    // Update cart with line item using the same pattern as createNewCartFromOrder
+    cart = await updateCartById(cart, lineItemActions);
+
+    // Get the expanded cart to ensure all data is loaded
+    cart = await getCartExpanded(cart.id);
+
+    log.info('Cart created with product', {
+      cartId: cart.id,
+      productId: product.id,
+      variantId: variant.id,
+      priceId: priceId,
+      currency: price.currencyCode,
+    });
+
+    return cart;
+  } catch (error) {
+    log.error('Error creating cart with product', { error, productId: product.id, variantId: variant.id });
+    throw error;
+  }
 };

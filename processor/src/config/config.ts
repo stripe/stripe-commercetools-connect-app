@@ -3,6 +3,8 @@ import { parseJSON } from '../utils';
 
 export type PaymentFeatures = Stripe.CustomerSessionCreateParams.Components.PaymentElement.Features;
 
+export type SubscriptionPaymentHandling = 'createOrder' | 'addPaymentToOrder';
+
 const getSavedPaymentConfig = (): PaymentFeatures => {
   const config = process.env.STRIPE_SAVED_PAYMENT_METHODS_CONFIG;
   return {
@@ -45,6 +47,25 @@ export const config = {
 
   // Payment Providers config
   merchantReturnUrl: process.env.MERCHANT_RETURN_URL || '',
+
+  /**
+   * Subscription payment handling strategy
+   * - 'createOrder': Creates a new order for each subscription payment (default)
+   * - 'addPaymentToOrder': Adds payment to existing order
+   *
+   * Environment variable: STRIPE_SUBSCRIPTION_PAYMENT_HANDLING
+   */
+  subscriptionPaymentHandling: (process.env.STRIPE_SUBSCRIPTION_PAYMENT_HANDLING ||
+    'createOrder') as SubscriptionPaymentHandling,
+
+  /**
+   * Enable automatic price synchronization for subscriptions
+   * When enabled, subscription prices are automatically synchronized with current
+   * commercetools product prices before each invoice is created via invoice.upcoming webhook
+   *
+   * Environment variable: STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED
+   */
+  subscriptionPriceSyncEnabled: process.env.STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED === 'true' || false,
 };
 
 export const getConfig = () => {

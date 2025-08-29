@@ -31,6 +31,10 @@ export class SubscriptionEventConverter {
       paymentIntentId = invoice.id;
     }
 
+    if (invoice.paid && !invoice.payment_intent && !invoice.charge) {
+      paymentMethod = 'Stripe Applied Balance';
+    }
+
     return {
       id: payment.id,
       pspReference: paymentIntentId as string,
@@ -48,6 +52,7 @@ export class SubscriptionEventConverter {
     invoice: Stripe.Invoice,
     isPaymentChargePending: boolean,
   ): TransactionData[] {
+    const charge = invoice.charge as Stripe.Charge;
     switch (event.type) {
       case StripeSubscriptionEvent.INVOICE_PAID:
         if (isPaymentChargePending) {
@@ -106,13 +111,13 @@ export class SubscriptionEventConverter {
           {
             type: PaymentTransactions.REFUND,
             state: PaymentStatus.SUCCESS,
-            amount: this.populateAmount(invoice),
+            amount: this.populateChargeRefundAmount(charge),
             interactionId: paymentIntentId,
           },
           {
             type: PaymentTransactions.CHARGE_BACK,
             state: PaymentStatus.SUCCESS,
-            amount: this.populateAmount(invoice),
+            amount: this.populateChargeRefundAmount(charge),
             interactionId: paymentIntentId,
           },
         ];
@@ -163,6 +168,13 @@ export class SubscriptionEventConverter {
     return {
       centAmount: invoice.amount_paid,
       currencyCode: invoice.currency.toUpperCase(),
+    };
+  }
+
+  private populateChargeRefundAmount(charge: Stripe.Charge): Money {
+    return {
+      centAmount: charge.amount_refunded,
+      currencyCode: charge.currency.toUpperCase(),
     };
   }
 

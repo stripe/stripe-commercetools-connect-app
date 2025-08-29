@@ -353,6 +353,7 @@ export class StripePaymentService extends AbstractPaymentService {
       const setupFutureUsage = config.stripeSavedPaymentMethodConfig?.payment_method_save_usage;
       const customer = await this.customerService.getCtCustomer(cart.customerId!);
       const amountPlanned = await this.ctCartService.getPaymentAmount({ cart });
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const shippingAddress = this.customerService.getStripeCustomerAddress(
         cart.shippingAddress,
         customer?.addresses[0],
@@ -371,9 +372,9 @@ export class StripePaymentService extends AbstractPaymentService {
           },
           capture_method: config.stripeCaptureMethod as CaptureMethod,
           metadata: this.paymentCreationService.getPaymentMetadata(cart),
-          ...(config.stripeCollectBillingAddress === 'auto' && {
+          /*...(config.stripeCollectBillingAddress === 'auto' && {
             shipping: shippingAddress,
-          }),
+          }),*/
         },
         {
           idempotencyKey: crypto.randomUUID(),
@@ -581,14 +582,23 @@ export class StripePaymentService extends AbstractPaymentService {
       ctCartId: cart.id,
       stripeSubscriptionId: subscriptionId,
     });
-
-    if (paymentIntentId) {
+    /* If using Stripe Test Clock, wait for 9 seconds to allow clock advancement in test environments.
+      This helps ensure Stripe's test clock events are processed before updating the subscription.
+      Uncomment this line for testing purposes when using Stripe Test Clock.
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      */
+    if (paymentIntentId && paymentIntentId.startsWith('pi_')) {
       await stripeApi().paymentIntents.update(
         paymentIntentId,
         { metadata: { [METADATA_ORDER_ID_FIELD]: order.id } },
         { idempotencyKey: crypto.randomUUID() },
       );
     }
+    /* If using Stripe Test Clock, wait for 9 seconds to allow clock advancement in test environments.
+      This helps ensure Stripe's test clock events are processed before updating the subscription.
+      Uncomment this line for testing purposes when using Stripe Test Clock.
+      await new Promise((resolve) => setTimeout(resolve, 000));
+      */
 
     if (subscriptionId) {
       await stripeApi().subscriptions.update(
@@ -609,6 +619,9 @@ export class StripePaymentService extends AbstractPaymentService {
   }
 
   public async updateCartAddress(charge: Stripe.Charge, ctCart: Cart): Promise<Cart> {
+    if (!charge) {
+      return ctCart;
+    }
     const { billing_details, shipping } = charge;
     let billingAlias: Stripe.Charge.BillingDetails | Stripe.Charge.Shipping;
     if (!shipping) {

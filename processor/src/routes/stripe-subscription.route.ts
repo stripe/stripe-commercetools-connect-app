@@ -214,20 +214,21 @@ export const subscriptionRoutes = async (
       try {
         const result = await opts.subscriptionService.updateSubscription({
           customerId,
-          subscriptionId: request.body.id,
-          params: request.body.params,
-          options: request.body.options,
+          subscriptionId: request.body.subscriptionId,
+          newSubscriptionVariantId: request.body.newSubscriptionVariantId,
+          newSubscriptionPriceId: request.body.newSubscriptionPriceId,
+          newSubscriptionVariantPosition: Number(request.body.newSubscriptionVariantPosition),
         });
 
         return reply.status(200).send({
           id: result.id,
           status: result.status,
           outcome: SubscriptionOutcome.UPDATED,
-          message: `Subscription ${request.body.id} has been successfully updated.`,
+          message: `Subscription ${request.body.subscriptionId} has been successfully updated.`,
         });
       } catch (error) {
         return reply.status(400).send({
-          id: request.body.id,
+          id: request.body.subscriptionId,
           status: 'failed',
           message: error instanceof Error ? error.message : 'Unknown error',
           outcome: SubscriptionOutcome.ERROR,

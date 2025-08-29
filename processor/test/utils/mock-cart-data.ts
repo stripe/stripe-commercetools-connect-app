@@ -344,7 +344,7 @@ export const mockGetSubscriptionCart: Cart = {
   lineItems: [lineItemSubscription],
 };
 
-const getVariant = (num: keyof typeof variants): ProductVariant => {
+export const getVariant = (num: keyof typeof variants): ProductVariant => {
   return variants[num];
 };
 
@@ -367,3 +367,9 @@ export const orderMock = {
   orderState: 'Open',
   paymentState: 'Paid',
 } as Order;
+
+export const mockCart__subscription_simple = {
+  id: 'cart_123',
+  cartState: 'Active',
+  version: 1,
+} as Cart;

@@ -42,7 +42,7 @@ export const isFromSubscriptionInvoice = (event: Stripe.Event): boolean => {
   return false;
 };
 
-export const isEventRefundOrSucceed = (event: Stripe.Event): boolean => {
+export const isEventRefund = (event: Stripe.Event): boolean => {
   return event.type === StripeEvent.CHARGE__REFUNDED;
 };
 

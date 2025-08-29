@@ -283,7 +283,7 @@ export const mock_ProductType: ProductType = {
       type: { name: 'text' },
       attributeConstraint: 'None',
       isSearchable: false,
-      inputHint: 'SingleLine'
+      inputHint: 'SingleLine',
     },
     {
       name: 'stripeConnector_recurring_interval',
@@ -292,8 +292,8 @@ export const mock_ProductType: ProductType = {
       type: { name: 'enum', values: [] },
       attributeConstraint: 'None',
       isSearchable: false,
-      inputHint: 'SingleLine'
-    }
+      inputHint: 'SingleLine',
+    },
   ],
   createdAt: '2025-01-01T00:00:00.000Z',
   lastModifiedAt: '2025-01-01T00:00:00.000Z',

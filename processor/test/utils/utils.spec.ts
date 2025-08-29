@@ -131,10 +131,10 @@ describe('transformVariantAttributes', () => {
       { name: 'stripeConnector_off_session', value: true },
     ];
     const result = transformVariantAttributes(attributes);
-    expect(result).toEqual({ 
-      description: 'Test subscription', 
+    expect(result).toEqual({
+      description: 'Test subscription',
       recurring_interval: 'month',
-      off_session: true 
+      off_session: true,
     });
   });
 

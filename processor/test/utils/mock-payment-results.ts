@@ -447,3 +447,90 @@ export const mockPaymentResult: PaymentResponseSchemaDTO = {
 //   stripeSavedPaymentMethodConfig: { payment_method_save: 'disabled' } as PaymentFeatures,
 //   stripeCollectBillingAddress: 'never',
 // };
+
+export const mockPayment__subscription_success: Payment = {
+  id: 'ct_payment_123',
+  version: 1,
+  amountPlanned: {
+    type: 'centPrecision',
+    currencyCode: 'USD',
+    centAmount: 1000,
+    fractionDigits: 2,
+  },
+  transactions: [],
+  createdAt: '2024-02-13T00:00:00.000Z',
+  lastModifiedAt: '2024-02-13T00:00:00.000Z',
+  paymentMethodInfo: {
+    method: 'Debit Card',
+    name: { 'en-US': 'Debit Card', 'en-GB': 'Debit Card' },
+  },
+  paymentStatus: { interfaceText: 'Paid' },
+  interfaceInteractions: [],
+  interfaceId: 'pi_123',
+};
+
+export const mockPayment__subscription_failed: Payment = {
+  id: 'failed_payment_123',
+  version: 1,
+  amountPlanned: {
+    type: 'centPrecision',
+    currencyCode: 'USD',
+    centAmount: 1000,
+    fractionDigits: 2,
+  },
+  transactions: [
+    {
+      id: 'tx_123',
+      type: 'Charge',
+      state: 'Failure',
+      amount: {
+        type: 'centPrecision',
+        currencyCode: 'USD',
+        centAmount: 1000,
+        fractionDigits: 2,
+      },
+    },
+  ],
+  createdAt: '2024-02-13T00:00:00.000Z',
+  lastModifiedAt: '2024-02-13T00:00:00.000Z',
+  paymentMethodInfo: {
+    method: 'Debit Card',
+    name: { 'en-US': 'Debit Card', 'en-GB': 'Debit Card' },
+  },
+  paymentStatus: { interfaceText: 'Failed' },
+  interfaceInteractions: [],
+  interfaceId: 'pi_123',
+};
+
+export const mockPayment__subscription_with_transactions: Payment = {
+  id: 'ct_payment_123',
+  version: 1,
+  amountPlanned: {
+    type: 'centPrecision',
+    currencyCode: 'USD',
+    centAmount: 1000,
+    fractionDigits: 2,
+  },
+  transactions: [
+    {
+      id: 'tx_123',
+      type: 'Charge',
+      state: 'Success',
+      amount: {
+        type: 'centPrecision',
+        currencyCode: 'USD',
+        centAmount: 1000,
+        fractionDigits: 2,
+      },
+    },
+  ],
+  createdAt: '2024-02-13T00:00:00.000Z',
+  lastModifiedAt: '2024-02-13T00:00:00.000Z',
+  paymentMethodInfo: {
+    method: 'Debit Card',
+    name: { 'en-US': 'Debit Card', 'en-GB': 'Debit Card' },
+  },
+  paymentStatus: { interfaceText: 'Paid' },
+  interfaceInteractions: [],
+  interfaceId: 'pi_123',
+};
