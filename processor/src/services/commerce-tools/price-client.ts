@@ -58,3 +58,48 @@ export const getProductMasterPrice = async (productId: string): Promise<PaymentA
     return undefined;
   }
 };
+
+/**
+ * Gets a price from a product by price ID
+ * @param product - The commercetools product
+ * @param priceId - The price ID to find
+ * @returns The price object or undefined if not found
+ */
+export const getPriceFromProduct = (product: Product, priceId: string): PaymentAmount | undefined => {
+  try {
+    // Check master variant prices first
+    const masterVariant = product.masterData?.current?.masterVariant;
+    if (masterVariant?.prices) {
+      const price = masterVariant.prices.find((p) => p.id === priceId);
+      if (price) {
+        return {
+          centAmount: price.value.centAmount,
+          currencyCode: price.value.currencyCode,
+          fractionDigits: price.value.fractionDigits || 2,
+        };
+      }
+    }
+
+    // Check all variant prices if not found in master variant
+    const variants = product.masterData?.current?.variants;
+    if (variants) {
+      for (const variant of variants) {
+        if (variant.prices) {
+          const price = variant.prices.find((p) => p.id === priceId);
+          if (price) {
+            return {
+              centAmount: price.value.centAmount,
+              currencyCode: price.value.currencyCode,
+              fractionDigits: price.value.fractionDigits || 2,
+            };
+          }
+        }
+      }
+    }
+
+    return undefined;
+  } catch (error) {
+    log.error('Error getting price from product', { error, priceId, productId: product.id });
+    return undefined;
+  }
+};

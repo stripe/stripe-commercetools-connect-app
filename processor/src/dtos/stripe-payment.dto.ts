@@ -115,9 +115,10 @@ export const SubscriptionModifyResponseSchema = Type.Object({
 });
 
 export const SubscriptionUpdateRequestSchema = Type.Object({
-  id: Type.String(),
-  params: Type.Optional(Type.Any()),
-  options: Type.Optional(Type.Any()),
+  subscriptionId: Type.String(),
+  newSubscriptionVariantId: Type.String(),
+  newSubscriptionVariantPosition: Type.Optional(Type.Number()),
+  newSubscriptionPriceId: Type.String(),
 });
 
 export type PaymentRequestSchemaDTO = Static<typeof PaymentRequestSchema>;
