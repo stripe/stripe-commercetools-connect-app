@@ -20,12 +20,45 @@ This repository provides a commercetools [connect](https://docs.commercetools.co
 - Support for a wide range of payment methods, including Apple Pay, Google Pay, Amazon Pay, and others. [See Considerations](./enabler/README.md#considerations-for-apple-pay-and-google-pay)
 - Merchants can leverage the custom product type provided by the connector to create and manage subscriptions directly within commercetools. These subscriptions are automatically synchronized with Stripe for creation and updates. [Learn more](./processor/README.md#considerations-for-stripe-billing-subscription-management).
 - **Subscription Management API**: The connector provides comprehensive subscription management capabilities through dedicated API endpoints. You can create, manage, and monitor Stripe subscriptions directly through the commercetools connector. [View Subscription API Documentation](./processor/README.md#stripe-subscription-management-api).
+- **Subscription Price Synchronization**: The connector automatically synchronizes subscription prices with commercetools product prices, ensuring customers always pay the current price. This feature can be enabled via the `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED` environment variable. [Learn more](./docs/subscription-price-synchronization.md).
 - **Subscription Shipping Fee Support**: The connector now supports recurring shipping fees as part of subscription billing, automatically creating and managing Stripe shipping prices that align with subscription billing intervals. [Learn more](./processor/README.md#subscription-shipping-fee-support).
 - **Mixed Cart Support**: Enhanced subscription handling for carts containing both subscription items and one-time items. The system automatically creates separate invoices for one-time items while maintaining subscription billing for recurring items. [Learn more](./docs/mixed-cart-support.md).
 - **Attribute Name Standardization**: All subscription-related product type attributes now use the `stripeConnector_` prefix for better organization and consistency. The system automatically handles the transformation between prefixed attribute names and internal field names. [Learn more](./docs/attribute-name-standardization.md).
+- **Enhanced Subscription Management**: Comprehensive subscription update capabilities including product variant switching, price updates, and configuration changes. The new `updateSubscription` method provides seamless subscription management while maintaining data consistency. [Learn more](./docs/subscription-price-synchronization.md).
 - **Enhanced Payment Intent Error Handling**: Improved error management for payment intent statuses including `requires_action` and `payment_failed` with structured error objects for better debugging.
 - Provides a subscription management API via the commercetools connector, enabling Stripe subscription operations directly through commercetools API endpoints.
 - Customers can update their shipping and billing addresses directly within the Stripe Express Checkout. When an address is changed, the connector automatically fetches the latest shipping rates from commercetools and updates the cart to reflect the new information. [See Details](README.md#sequence-diagrams-for-the-payment-connector)
+
+## Price Synchronization Architecture
+
+The connector implements a sophisticated price synchronization system that maintains consistency between Stripe subscriptions and commercetools product prices. This system operates on the principle of **Stripe as the source of truth for products** and **commercetools as the source of truth for prices**.
+
+### How Price Synchronization Works
+
+#### Source of Truth Principles
+- **Stripe**: Manages subscription lifecycle, billing cycles, and customer relationships
+- **Commercetools**: Controls product pricing, variants, and business logic
+- **Synchronization**: Automatically aligns Stripe subscription prices with commercetools product prices
+
+#### Price Synchronization Modes
+
+**Automatic Mode** (`STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true`):
+- Prices are synchronized **before** each invoice creation via `invoice.upcoming` webhook
+- Price changes take effect for the **current billing period**
+- Real-time price updates without waiting for the next billing cycle
+
+**Standard Mode** (`STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=false`):
+- Prices are updated **after** payment via the `createOrder` method
+- Price changes take effect for the **next billing cycle**
+- Traditional subscription billing behavior
+
+#### Benefits of Price Synchronization
+- **Customer Satisfaction**: Customers always pay current, accurate prices
+- **Business Agility**: Price changes take effect immediately when needed
+- **Data Consistency**: Eliminates price discrepancies between systems
+- **Automated Management**: No manual intervention required for price updates
+
+For detailed configuration and implementation details, see [Subscription Price Synchronization](./processor/README.md#subscription-price-synchronization).
 
 ## Prerequisite
 

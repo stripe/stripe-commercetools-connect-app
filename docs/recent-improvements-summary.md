@@ -49,6 +49,44 @@ The price synchronization process follows this workflow:
 - `getOrCreateStripePriceForProduct()`: Creates new Stripe prices when needed
 - `updateSubscriptionPrice()`: Updates subscription with new price
 
+### 3. Enhanced Subscription Update API
+
+The connector now provides a comprehensive `updateSubscription` method that enables merchants to update subscriptions with new product variants, prices, and configuration while maintaining data consistency between systems.
+
+#### New updateSubscription Method
+- **File**: `processor/src/services/stripe-subscription.service.ts`
+- **Purpose**: Comprehensive subscription management with product variant and price updates
+- **Key Features**:
+  - Product variant switching (master variant and specific variants)
+  - Price updates with automatic Stripe price creation
+  - Subscription configuration inheritance from product attributes
+  - Comprehensive validation and error handling
+
+#### Use Cases
+1. **Product Variant Changes**: Switch between different product variants (sizes, colors, configurations)
+2. **Price Updates**: Update to new pricing tiers or promotional pricing
+3. **Subscription Configuration Changes**: Modify billing cycles, trial periods, or other attributes
+4. **Product Migration**: Move customers to new product versions or discontinued replacements
+
+#### API Endpoint
+- **Route**: `POST /subscription-api/:customerId`
+- **Authentication**: OAuth2 with "manage_project" and "manage_subscriptions" scopes
+- **Request Schema**: Includes subscription ID, new variant ID, variant position, and price ID
+
+#### Technical Implementation
+The method follows this workflow:
+1. **Validation**: Verifies customer ownership and subscription existence
+2. **Product Retrieval**: Fetches new product variant and price from commercetools
+3. **Price Creation**: Creates or retrieves corresponding Stripe price
+4. **Subscription Update**: Updates Stripe subscription with new configuration
+5. **Attribute Synchronization**: Applies subscription attributes from new variant
+
+#### Integration Benefits
+- **Seamless Price Sync**: Works with automatic price synchronization system
+- **Data Consistency**: Maintains consistency between manual updates and automatic sync
+- **Error Handling**: Comprehensive error messages for missing products, variants, or prices
+- **Performance**: Optimized for minimal API calls and maximum reliability
+
 ### 2. Enhanced Subscription Service Architecture
 
 The subscription service has undergone major architectural improvements with better separation of concerns and enhanced maintainability.

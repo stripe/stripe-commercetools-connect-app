@@ -7,6 +7,7 @@
 **Breaking Change:**
 - **Removed `upcomingInvoice` option** from `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING` environment variable
 - **Added new environment variable**: `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED` for price synchronization control
+- **Added comprehensive documentation**: New `docs/subscription-price-synchronization.md` file covering price synchronization and enhanced subscription management
 
 **Rationale:**
 The `upcomingInvoice` option was confusing because it mixed payment handling strategy with price synchronization functionality. Price synchronization is independent of how payments are handled and should be controlled separately.
@@ -192,6 +193,14 @@ The `upcomingInvoice` option was confusing because it mixed payment handling str
 3. **Invoice Creation**: Creates separate Stripe invoices for one-time items with proper metadata
 4. **Invoice Finalization**: Automatically finalizes invoices for immediate payment processing
 5. **Metadata Tracking**: Includes cart ID and type metadata for proper tracking
+
+#### Enhanced Subscription Management
+- **New `updateSubscription` Method**: Comprehensive subscription update functionality for product variant and price changes
+- **Product Variant Switching**: Support for switching between master variant and specific variants
+- **Price Updates**: Automatic price synchronization with commercetools product pricing
+- **Configuration Inheritance**: Subscription attributes automatically inherited from new product variants
+- **API Endpoint**: New `POST /subscription-api/:customerId` endpoint for subscription updates
+- **Use Cases**: Product variant changes, price updates, subscription configuration changes, product migration
 
 #### Attribute Name Changes
 All subscription-related product type attributes now use the `stripeConnector_` prefix:
