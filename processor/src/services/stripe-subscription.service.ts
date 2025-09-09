@@ -1018,17 +1018,21 @@ export class StripeSubscriptionService {
     params?: Stripe.SubscriptionUpdateParams;
     options?: Stripe.RequestOptions;
   }): Promise<Stripe.Subscription> {
+    const idempotencyKey = options?.idempotencyKey || randomUUID();
     await this.validateCustomerSubscription(customerId, subscriptionId);
 
     try {
-      const updatedSubscription = await stripe.subscriptions.update(subscriptionId, params, options);
+      const updatedSubscription = await stripe.subscriptions.update(subscriptionId, params, {
+        ...options,
+        idempotencyKey: idempotencyKey,
+      });
       log.info(
         `Successfully updated subscription ${subscriptionId} for customer ${customerId}`,
         {
           updatedSubscriptionId: updatedSubscription.id,
           changes: JSON.stringify(params),
         },
-        { idempotencyKey: randomUUID() },
+        { idempotencyKey: idempotencyKey },
       );
 
       return updatedSubscription;
