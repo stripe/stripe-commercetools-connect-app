@@ -19,6 +19,8 @@ import {
   SubscriptionOutcome,
   SubscriptionUpdateRequestSchemaDTO,
   SubscriptionUpdateRequestSchema,
+  SubscriptionPatchRequestSchemaDTO,
+  SubscriptionPatchRequestSchema,
 } from '../dtos/stripe-payment.dto';
 import { PaymentModificationStatus } from '../dtos/operations/payment-intents.dto';
 
@@ -229,6 +231,58 @@ export const subscriptionRoutes = async (
       } catch (error) {
         return reply.status(400).send({
           id: request.body.subscriptionId,
+          status: 'failed',
+          message: error instanceof Error ? error.message : 'Unknown error',
+          outcome: SubscriptionOutcome.ERROR,
+        });
+      }
+    },
+  );
+
+  fastify.put<{
+    Reply: SubscriptionModifyResponseSchemaDTO;
+    Params: { customerId: string };
+    Body: SubscriptionPatchRequestSchemaDTO;
+  }>(
+    '/subscription-api/:customerId',
+    {
+      preHandler: [
+        opts.oauth2AuthHook.authenticate(),
+        opts.authorizationHook.authorize('manage_project', 'manage_subscriptions'),
+      ],
+      schema: {
+        params: {
+          type: 'object',
+          properties: {
+            customerId: Type.String(),
+          },
+          required: ['customerId'],
+        },
+        body: SubscriptionPatchRequestSchema,
+        response: {
+          200: SubscriptionModifyResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { customerId } = request.params;
+      try {
+        const result = await opts.subscriptionService.patchSubscription({
+          customerId,
+          subscriptionId: request.body.id,
+          params: request.body.params,
+          options: request.body.options,
+        });
+
+        return reply.status(200).send({
+          id: result.id,
+          status: result.status,
+          outcome: SubscriptionOutcome.UPDATED,
+          message: `Subscription ${request.body.id} has been successfully updated.`,
+        });
+      } catch (error) {
+        return reply.status(400).send({
+          id: request.body.id,
           status: 'failed',
           message: error instanceof Error ? error.message : 'Unknown error',
           outcome: SubscriptionOutcome.ERROR,
