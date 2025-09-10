@@ -781,4 +781,80 @@ describe('stripe-subscription.service', () => {
       expect(StripeSubscriptionService.prototype.createStripeShippingPrice).toHaveBeenCalled();
     });
   });
+
+  describe('method patchSubscription', () => {
+    test('should patch subscription successfully', async () => {
+      const customerId = 'cust_123';
+      const subscriptionId = 'sub_123';
+      const patchParams = {
+        metadata: {
+          updated: 'true',
+        },
+      };
+      const options = {
+        idempotencyKey: 'test_key',
+      };
+
+      const mockSubscriptionResponse = {
+        id: subscriptionId,
+        object: 'subscription',
+        metadata: { updated: 'true' },
+        status: 'active',
+        items: { data: [] },
+        latest_invoice: null,
+        lastResponse: {
+          headers: {},
+          requestId: 'req_123',
+          statusCode: 200,
+        },
+      } as unknown as Stripe.Response<Stripe.Subscription>;
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'validateCustomerSubscription').mockResolvedValue();
+      jest.spyOn(Stripe.prototype.subscriptions, 'update').mockResolvedValue(mockSubscriptionResponse);
+
+      const result = await stripeSubscriptionService.patchSubscription({
+        customerId,
+        subscriptionId,
+        params: patchParams,
+        options,
+      });
+
+      expect(result).toBeDefined();
+      expect(result).toBe(mockSubscriptionResponse);
+      expect(Stripe.prototype.subscriptions.update).toHaveBeenCalledWith(subscriptionId, patchParams, options);
+    });
+
+    test('should throw error when validation fails', async () => {
+      const customerId = 'cust_123';
+      const subscriptionId = 'sub_123';
+      const error = new Error('Validation failed');
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'validateCustomerSubscription').mockRejectedValue(error);
+
+      await expect(
+        stripeSubscriptionService.patchSubscription({
+          customerId,
+          subscriptionId,
+        }),
+      ).rejects.toThrow('Validation failed');
+
+      expect(Stripe.prototype.subscriptions.update).not.toHaveBeenCalled();
+    });
+
+    test('should throw error when update fails', async () => {
+      const customerId = 'cust_123';
+      const subscriptionId = 'sub_123';
+      const error = new Error('Update failed');
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'validateCustomerSubscription').mockResolvedValue();
+      jest.spyOn(Stripe.prototype.subscriptions, 'update').mockRejectedValue(error);
+
+      await expect(
+        stripeSubscriptionService.patchSubscription({
+          customerId,
+          subscriptionId,
+        }),
+      ).rejects.toThrow('Update failed');
+    });
+  });
 });

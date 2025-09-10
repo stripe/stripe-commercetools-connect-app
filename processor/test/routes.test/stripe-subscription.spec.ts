@@ -856,5 +856,136 @@ describe('Stripe Subscription and Customer route APIs', () => {
         expect(response.statusCode).toEqual(400);
       });
     });
+
+    describe('PUT /subscription-api/:customerId (Patch Subscription)', () => {
+      test('it should patch a subscription successfully', async () => {
+        const customerId = 'customer_123';
+        const payload = {
+          id: 'sub_123',
+          params: {
+            metadata: { updated: 'true' },
+            description: 'Updated subscription',
+          },
+          options: { prorate: true },
+        };
+
+        const mockPatchResponse = {
+          id: 'sub_123',
+          status: 'active',
+          object: 'subscription',
+          metadata: { updated: 'true' },
+          description: 'Updated subscription',
+        } as unknown as Stripe.Subscription;
+
+        jest.spyOn(spiedSubscriptionService, 'patchSubscription').mockResolvedValue(mockPatchResponse);
+
+        const response = await fastifyApp.inject({
+          method: 'PUT',
+          url: `/subscription-api/${customerId}`,
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          payload,
+        });
+
+        expect(response.statusCode).toEqual(200);
+        expect(response.json()).toEqual({
+          id: 'sub_123',
+          status: 'active',
+          outcome: 'updated',
+          message: 'Subscription sub_123 has been successfully updated.',
+        });
+        expect(spiedSubscriptionService.patchSubscription).toHaveBeenCalledWith({
+          customerId,
+          subscriptionId: payload.id,
+          params: payload.params,
+          options: payload.options as Stripe.RequestOptions,
+        });
+      });
+
+      test('it should handle subscription patch failure', async () => {
+        const customerId = 'customer_123';
+        const payload = {
+          id: 'sub_123',
+          params: {
+            metadata: { updated: 'true' },
+          },
+        };
+
+        jest.spyOn(spiedSubscriptionService, 'patchSubscription').mockRejectedValue(new Error('Patch update failed'));
+
+        const response = await fastifyApp.inject({
+          method: 'PUT',
+          url: `/subscription-api/${customerId}`,
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          payload,
+        });
+
+        expect(response.statusCode).toEqual(400);
+        expect(response.json()).toEqual({
+          id: payload.id,
+          status: 'failed',
+          message: 'Patch update failed',
+          outcome: 'error',
+        });
+      });
+
+      test('it should handle missing required fields in patch payload', async () => {
+        const customerId = 'customer_123';
+        const payload = {
+          params: {
+            metadata: { updated: 'true' },
+          },
+        };
+
+        const response = await fastifyApp.inject({
+          method: 'PUT',
+          url: `/subscription-api/${customerId}`,
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          payload,
+        });
+
+        expect(response.statusCode).toEqual(400);
+      });
+
+      test('it should handle non-Error exceptions gracefully', async () => {
+        const customerId = 'customer_123';
+        const payload = {
+          id: 'sub_123',
+          params: {
+            metadata: { updated: 'true' },
+          },
+        };
+
+        jest
+          .spyOn(spiedSubscriptionService, 'patchSubscription')
+          .mockRejectedValue('String error instead of Error object');
+
+        const response = await fastifyApp.inject({
+          method: 'PUT',
+          url: `/subscription-api/${customerId}`,
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          payload,
+        });
+
+        expect(response.statusCode).toEqual(400);
+        expect(response.json()).toEqual({
+          id: payload.id,
+          status: 'failed',
+          message: 'Unknown error',
+          outcome: 'error',
+        });
+      });
+    });
   });
 });
