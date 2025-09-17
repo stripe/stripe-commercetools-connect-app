@@ -857,7 +857,7 @@ describe('Stripe Subscription and Customer route APIs', () => {
       });
     });
 
-    describe('PUT /subscription-api/:customerId (Patch Subscription)', () => {
+    describe('POST /subscription-api/advanced/:customerId (Patch Subscription)', () => {
       test('it should patch a subscription successfully', async () => {
         const customerId = 'customer_123';
         const payload = {
@@ -880,8 +880,8 @@ describe('Stripe Subscription and Customer route APIs', () => {
         jest.spyOn(spiedSubscriptionService, 'patchSubscription').mockResolvedValue(mockPatchResponse);
 
         const response = await fastifyApp.inject({
-          method: 'PUT',
-          url: `/subscription-api/${customerId}`,
+          method: 'POST',
+          url: `/subscription-api/advanced/${customerId}`,
           headers: {
             authorization: `Bearer ${token}`,
             'content-type': 'application/json',
@@ -916,8 +916,8 @@ describe('Stripe Subscription and Customer route APIs', () => {
         jest.spyOn(spiedSubscriptionService, 'patchSubscription').mockRejectedValue(new Error('Patch update failed'));
 
         const response = await fastifyApp.inject({
-          method: 'PUT',
-          url: `/subscription-api/${customerId}`,
+          method: 'POST',
+          url: `/subscription-api/advanced/${customerId}`,
           headers: {
             authorization: `Bearer ${token}`,
             'content-type': 'application/json',
@@ -943,8 +943,8 @@ describe('Stripe Subscription and Customer route APIs', () => {
         };
 
         const response = await fastifyApp.inject({
-          method: 'PUT',
-          url: `/subscription-api/${customerId}`,
+          method: 'POST',
+          url: `/subscription-api/advanced/${customerId}`,
           headers: {
             authorization: `Bearer ${token}`,
             'content-type': 'application/json',
@@ -969,8 +969,8 @@ describe('Stripe Subscription and Customer route APIs', () => {
           .mockRejectedValue('String error instead of Error object');
 
         const response = await fastifyApp.inject({
-          method: 'PUT',
-          url: `/subscription-api/${customerId}`,
+          method: 'POST',
+          url: `/subscription-api/advanced/${customerId}`,
           headers: {
             authorization: `Bearer ${token}`,
             'content-type': 'application/json',

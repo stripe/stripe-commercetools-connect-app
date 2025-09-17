@@ -239,12 +239,12 @@ export const subscriptionRoutes = async (
     },
   );
 
-  fastify.put<{
+  fastify.post<{
     Reply: SubscriptionModifyResponseSchemaDTO;
     Params: { customerId: string };
     Body: SubscriptionPatchRequestSchemaDTO;
   }>(
-    '/subscription-api/:customerId',
+    '/subscription-api/advanced/:customerId',
     {
       preHandler: [
         opts.oauth2AuthHook.authenticate(),

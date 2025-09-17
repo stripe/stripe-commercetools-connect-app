@@ -1035,7 +1035,7 @@ When `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true` is enabled, this method works
 Updates a specific Stripe subscription related to a customer, according to the Stripe [update subscription](https://docs.stripe.com/api/subscriptions/update?api-version=2025-02-24.acacia) functionality. This method doesn't provide data consistency between systems, unlike the `updateSubscription` method, which is why its recommended to use it carefully when updating subscription data that may cause inconsistencies (such as prices and products). Examples of safe subscription data to update include descriptions, quantity of items, and the like.
 
 ##### Endpoint
-`PUT /subscription-api/:customerId`
+`POST /subscription-api/advanced/:customerId`
 
 ##### Authentication
 OAuth2 authentication with "manage_project" and "manage_subscriptions" scopes.
@@ -1045,7 +1045,7 @@ The `patchSubscription` method handles Stripe subscription update scenarios not 
 
 ##### Example Request (Update subscription description)
 ```bash
-curl -X POST "https://your-connector-url/subscription-api/customer-12345" \
+curl -X POST "https://your-connector-url/subscription-api/advanced/customer-12345" \
   -H "Authorization: Bearer <commercetools-oauth2-token>" \
   -H "Content-Type: application/json" \
   -d '{ "id": "sub_1234567890", "params": {"description": "updated description"}}'
