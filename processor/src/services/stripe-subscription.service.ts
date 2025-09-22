@@ -456,7 +456,7 @@ export class StripeSubscriptionService {
         {
           customer: stripeCustomerId,
           metadata: {
-            cartId: cart.id,
+            ...this.paymentCreationService.getPaymentMetadata(cart),
             type: 'one-time-items',
           },
         },

@@ -14,7 +14,7 @@ import { StripeHeaderAuthHook } from '../libs/fastify/hooks/stripe-header-auth.h
 import { Type } from '@sinclair/typebox';
 import { getConfig } from '../config/config';
 import {
-  PaymentIntenConfirmRequestSchemaDTO,
+  PaymentIntentConfirmRequestSchemaDTO,
   PaymentIntentConfirmRequestSchema,
   PaymentIntentConfirmResponseSchemaDTO,
   PaymentIntentResponseSchema,
@@ -53,7 +53,7 @@ export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPlugi
     },
   );
   fastify.post<{
-    Body: PaymentIntenConfirmRequestSchemaDTO;
+    Body: PaymentIntentConfirmRequestSchemaDTO;
     Reply: PaymentIntentConfirmResponseSchemaDTO;
     Params: { id: string };
   }>(
