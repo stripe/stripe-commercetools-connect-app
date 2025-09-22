@@ -1,5 +1,5 @@
 import { Cart, LineItem, CustomLineItem, ShippingInfo, Order } from '@commercetools/connect-payments-sdk';
-import { ProductVariant } from '@commercetools/platform-sdk';
+import { CartDraft, ProductVariant } from '@commercetools/platform-sdk';
 import { randomUUID } from 'crypto';
 import { mockCtCustomerId } from './mock-customer-data';
 
@@ -373,3 +373,10 @@ export const mockCart__subscription_simple = {
   cartState: 'Active',
   version: 1,
 } as Cart;
+
+export const mockCartDraft: CartDraft = {
+  currency: 'USD',
+  customerId: mockCtCustomerId,
+  customerEmail: 'test@example.com',
+  country: 'US',
+};

@@ -44,7 +44,6 @@ import {
 import { getMerchantReturnUrlFromContext } from '../libs/fastify/context/context';
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
-import { paymentSDK } from '../payment-sdk';
 import { StripeCustomerService } from './stripe-customer.service';
 import { getLocalizedString, transformVariantAttributes } from '../utils';
 import {
@@ -55,7 +54,7 @@ import {
 } from '../custom-types/custom-types';
 import { getSubscriptionAttributes, getSubscriptionUpdateAttributes } from '../mappers/subscription-mapper';
 import { CtPaymentCreationService } from './ct-payment-creation.service';
-import { getCartExpanded, updateCartById } from './commerce-tools/cart-client';
+import { createCartFromDraft, getCartExpanded, updateCartById } from './commerce-tools/cart-client';
 import { getCustomFieldUpdateActions } from './commerce-tools/custom-type-helper';
 import {
   METADATA_CART_ID_FIELD,
@@ -1122,7 +1121,7 @@ export class StripeSubscriptionService {
       if (subscription.metadata?.[METADATA_PAYMENT_ID_FIELD]) {
         paymentId = subscription.metadata?.[METADATA_PAYMENT_ID_FIELD];
       } else {
-        //When the event comes from a setup intent subscritpion, we need to wait for the payment to be created
+        //When the event comes from a setup intent subscription, we need to wait for the payment to be created
         await new Promise((resolve) => setTimeout(resolve, 2000));
         const payments = await this.ctPaymentService.findPaymentsByInterfaceId({
           interfaceId: dataInvoiceId,
@@ -1780,7 +1779,6 @@ export class StripeSubscriptionService {
     customer: Customer,
     subscription: Stripe.Subscription,
   ): Promise<Cart> {
-    const apiClient = paymentSDK.ctAPI.client;
     const cartDraft: CartDraft = {
       currency: originalOrder.totalPrice?.currencyCode || 'USD',
       customerId: customer.id,
@@ -1788,21 +1786,14 @@ export class StripeSubscriptionService {
       country: originalOrder.shippingAddress?.country || originalOrder.billingAddress?.country || 'US',
     };
 
-    const cartResponse = await apiClient
-      .carts()
-      .post({
-        body: cartDraft,
-      })
-      .execute();
+    let newCart = await createCartFromDraft(cartDraft);
 
-    let newCart = cartResponse.body;
-
-    if (originalOrder.lineItems && originalOrder.lineItems.length > 0) {
+    if (originalOrder.lineItems?.length) {
       const subscriptionPrice = subscription.items.data[0].price;
-      //Improvementes ideas:
+      //Improvements ideas:
       //Adding all the line items from the original order as subscription products
-      //posible solution, use the old cart to get the line items and add them to the new cart
-      //maybe we can use the stripe product infomration as the source of truth to add the line items to the new cart using this approche we can have multiple products items.
+      //possible solution, use the old cart to get the line items and add them to the new cart
+      //maybe we can use the stripe product information as the source of truth to add the line items to the new cart using this approche we can have multiple products items.
       // or we can create cart and order to update subscription and we keep the source of truth in teh line item in commercetools
       const lineItemActions: CartUpdateAction[] = originalOrder.lineItems.map((item: LineItem) => {
         if (
@@ -1842,9 +1833,9 @@ export class StripeSubscriptionService {
         }
       });
 
-      newCart = await updateCartById(newCart, lineItemActions);
+      const newCartId = (await updateCartById(newCart, lineItemActions)).id;
 
-      newCart = await getCartExpanded(newCart.id);
+      newCart = await getCartExpanded(newCartId);
       const subscriptionLineItem = this.findSubscriptionLineItem(newCart);
 
       if (subscriptionLineItem.price.value.centAmount !== subscriptionPrice.unit_amount) {
