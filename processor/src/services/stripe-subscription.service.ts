@@ -224,7 +224,6 @@ export class StripeSubscriptionService {
         ctCartId: cart.id,
         stripeSubscriptionId: subscription.id,
         stripeSetupIntentId: setupIntentId,
-        subscriptionInvoice: subscription.latest_invoice,
       });
 
       const invoiceId = (subscription.latest_invoice as Stripe.Invoice)?.id;
