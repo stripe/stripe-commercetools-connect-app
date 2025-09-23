@@ -137,9 +137,6 @@ export class StripeSubscriptionService {
       } = await this.prepareSubscriptionData();
 
       const oneTimeItems = await this.getAllLineItemPrices(cart);
-      if (oneTimeItems.length > 0) {
-        await this.createOneTimeItemsInvoice(cart, stripeCustomerId!, oneTimeItems);
-      }
 
       const subscription = await stripe.subscriptions.create(
         {
@@ -149,6 +146,7 @@ export class StripeSubscriptionService {
             { price: priceId, quantity: this.findSubscriptionLineItem(cart).quantity || 1 },
             ...(shippingPriceId ? [{ price: shippingPriceId }] : []),
           ],
+          add_invoice_items: oneTimeItems,
           payment_behavior: 'default_incomplete',
           payment_settings: { save_default_payment_method: 'on_subscription' },
           expand: ['latest_invoice.payment_intent'],
@@ -202,9 +200,6 @@ export class StripeSubscriptionService {
       }
 
       const oneTimeItems = await this.getAllLineItemPrices(cart);
-      if (oneTimeItems.length > 0) {
-        await this.createOneTimeItemsInvoice(cart, stripeCustomerId!, oneTimeItems);
-      }
 
       const subscription = await stripe.subscriptions.create(
         {
@@ -216,6 +211,7 @@ export class StripeSubscriptionService {
             { price: priceId, quantity: this.findSubscriptionLineItem(cart).quantity || 1 },
             ...(shippingPriceId ? [{ price: shippingPriceId }] : []),
           ],
+          add_invoice_items: oneTimeItems,
           expand: ['latest_invoice'],
           payment_settings: { save_default_payment_method: 'on_subscription' },
           metadata: this.paymentCreationService.getPaymentMetadata(cart),
@@ -228,6 +224,7 @@ export class StripeSubscriptionService {
         ctCartId: cart.id,
         stripeSubscriptionId: subscription.id,
         stripeSetupIntentId: setupIntentId,
+        subscriptionInvoice: subscription.latest_invoice,
       });
 
       const invoiceId = (subscription.latest_invoice as Stripe.Invoice)?.id;
@@ -431,51 +428,6 @@ export class StripeSubscriptionService {
     }
 
     return lineItemPrices;
-  }
-
-  private async createOneTimeItemsInvoice(
-    cart: Cart,
-    stripeCustomerId: string,
-    oneTimeItems: Array<{ price: string; quantity: number }>,
-  ): Promise<void> {
-    try {
-      for (const item of oneTimeItems) {
-        await stripe.invoiceItems.create(
-          {
-            customer: stripeCustomerId,
-            price: item.price,
-            quantity: item.quantity,
-            description: 'One-time item from commercetools cart',
-          },
-          { idempotencyKey: randomUUID() },
-        );
-      }
-
-      const invoice = await stripe.invoices.create(
-        {
-          customer: stripeCustomerId,
-          metadata: {
-            ...this.paymentCreationService.getPaymentMetadata(cart),
-            type: 'one-time-items',
-          },
-        },
-        { idempotencyKey: randomUUID() },
-      );
-
-      await stripe.invoices.finalizeInvoice(invoice.id);
-
-      log.info('One-time items invoice created and finalized.', {
-        ctCartId: cart.id,
-        stripeInvoiceId: invoice.id,
-        itemsCount: oneTimeItems.length,
-      });
-    } catch (error) {
-      log.error('Failed to create one-time items invoice.', {
-        ctCartId: cart.id,
-        error: error,
-      });
-      throw error;
-    }
   }
 
   public async getStripePriceByMetadata(product: LineItem) {
