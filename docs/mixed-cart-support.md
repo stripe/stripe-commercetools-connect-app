@@ -19,7 +19,7 @@ The system automatically analyzes the cart during subscription creation to ident
 
 ### 2. Separate Processing
 - **Subscription Items**: Processed as recurring billing through Stripe subscriptions
-- **One-Time Items**: Processed as immediate payment through Stripe invoices
+- **One-Time Items**: Processed as immediate payment through the first Stripe subscription invoice
 
 ### 3. Unified Checkout Experience
 Customers experience a seamless checkout process regardless of cart composition, with all items processed in a single transaction.
@@ -52,54 +52,8 @@ private async getAllLineItemPrices(cart: Cart): Promise<Array<{ price: string; q
 }
 ```
 
-#### `createOneTimeItemsInvoice(cart, stripeCustomerId, oneTimeItems)`
-Creates separate Stripe invoices for one-time items in mixed carts.
-
-```typescript
-private async createOneTimeItemsInvoice(
-  cart: Cart, 
-  stripeCustomerId: string, 
-  oneTimeItems: Array<{ price: string; quantity: number }>
-): Promise<void> {
-  try {
-    // Create invoice items for each one-time item
-    for (const item of oneTimeItems) {
-      await stripe.invoiceItems.create({
-        customer: stripeCustomerId,
-        price: item.price,
-        quantity: item.quantity,
-        description: 'One-time item from commercetools cart',
-      }, { idempotencyKey: randomUUID() });
-    }
-
-    // Create and finalize the invoice
-    const invoice = await stripe.invoices.create({ 
-      customer: stripeCustomerId,
-      metadata: { 
-        cartId: cart.id,
-        type: 'one-time-items'
-      }
-    }, { idempotencyKey: randomUUID() });
-
-    await stripe.invoices.finalizeInvoice(invoice.id);
-
-    log.info('One-time items invoice created and finalized.', {
-      ctCartId: cart.id,
-      stripeInvoiceId: invoice.id,
-      itemsCount: oneTimeItems.length,
-    });
-  } catch (error) {
-    log.error('Failed to create one-time items invoice.', {
-      ctCartId: cart.id,
-      error: error,
-    });
-    throw error;
-  }
-}
-```
-
 #### Enhanced `createSubscription()`
-The main subscription creation method now handles mixed carts by creating separate invoices for one-time items.
+The main subscription creation method now handles mixed carts by adding the one time items to the subscription's first invoice.
 
 ```typescript
 public async createSubscription(): Promise<SubscriptionResponseSchemaDTO> {
@@ -109,11 +63,8 @@ public async createSubscription(): Promise<SubscriptionResponseSchemaDTO> {
 
     // Handle one-time items if present
     const oneTimeItems = await this.getAllLineItemPrices(cart);
-    if (oneTimeItems.length > 0) {
-      await this.createOneTimeItemsInvoice(cart, stripeCustomerId!, oneTimeItems);
-    }
 
-    // Create subscription with only subscription and shipping items
+    // Create subscription with one-time items
     const subscription = await stripe.subscriptions.create({
       ...subscriptionParams,
       customer: stripeCustomerId!,
@@ -121,6 +72,7 @@ public async createSubscription(): Promise<SubscriptionResponseSchemaDTO> {
         { price: priceId, quantity: this.findSubscriptionLineItem(cart).quantity || 1 }, 
         ...(shippingPriceId ? [{ price: shippingPriceId }] : []),
       ],
+      add_invoice_items: oneTimeItems, // Here
       payment_behavior: 'default_incomplete',
       payment_settings: { save_default_payment_method: 'on_subscription' },
       expand: ['latest_invoice.payment_intent'],
@@ -147,7 +99,7 @@ const result = await stripeSubscriptionService.createSubscription();
 
 // Result:
 // 1. Stripe Subscription created for the monthly product
-// 2. Stripe Invoice created for the one-time products
+// 2. First Subscription invoice contains the one-time items
 // 3. Both processed in the same transaction
 ```
 
@@ -162,7 +114,7 @@ const result = await stripeSubscriptionService.createSubscription();
 
 // Result:
 // 1. Stripe Subscription created for the annual product + shipping
-// 2. Stripe Invoice created for the one-time product
+// 2. First Subscription invoice contains the one-time items
 // 3. Shipping included in subscription billing
 ```
 
@@ -179,17 +131,14 @@ const result = await stripeSubscriptionService.createSubscription();
 
 ## Metadata Tracking
 
-The system includes comprehensive metadata tracking for both subscription and invoice items:
+The system includes comprehensive metadata tracking for the subscription and invoice items:
 
-### Subscription Metadata
+### Metadata
 - Cart ID
 - Payment metadata from commercetools
-- Subscription-specific information
+- Subscription-specific information in the case of the subscription
 
-### Invoice Metadata
-- Cart ID
-- Type: 'one-time-items'
-- Invoice-specific information
+__NOTE:__ When dealing with the Stripe invoice object, keep in mind that a snapshot of the metadata at the time can be found within the invoice data, as explained (here)[https://docs.stripe.com/billing/invoices/subscription#subscription-metadata]
 
 ## Testing
 
@@ -219,7 +168,6 @@ No additional configuration is required for mixed cart support. The feature is a
 
 ## Limitations
 
-- One-time items are processed as immediate invoices (not part of the subscription)
 - Shipping fees are only applied to subscription items
 - Coupons and discounts are applied separately to subscriptions and invoices
 - One-time items cannot be part of trial periods
