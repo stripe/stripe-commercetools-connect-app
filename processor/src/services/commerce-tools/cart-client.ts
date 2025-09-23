@@ -7,10 +7,9 @@ import { lineItemStripeSubscriptionIdField, typeLineItem } from '../../custom-ty
 
 const apiClient = paymentSDK.ctAPI.client;
 
-
 /**
  * Creates a new cart in commercetools using the provided cart draft.
- * @param cartDraft - The draft object containing cart details 
+ * @param cartDraft - The draft object containing cart details
  * @returns A promise that resolves to the created Cart object.
  */
 export const createCartFromDraft = async (cartDraft: CartDraft): Promise<Cart> => {
