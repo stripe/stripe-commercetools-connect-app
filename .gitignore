@@ -8,7 +8,8 @@
 
 #Context documentation
 docs/context7-libraries
-
+context
+CLAUDE.md
 context7-config.json
 
 # Connect CLI generated files
