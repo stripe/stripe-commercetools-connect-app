@@ -161,51 +161,46 @@ export class StripePaymentService extends AbstractPaymentService {
   }
 
   /**
-   * Capture payment in Stripe.
+   * Capture payment in Stripe, supporting multicapture (multiple partial captures).
    *
    * @remarks
-   * MVP: capture the total amount
+   * Supports capturing the total or a partial amount multiple times, as allowed by Stripe.
    *
    * @param {CapturePaymentRequest} request - Information about the ct payment and the amount.
-   * @returns Promise with mocking data containing operation status and PSP reference
+   * @returns Promise with data containing operation status and PSP reference
    */
   public async capturePayment(request: CapturePaymentRequest): Promise<PaymentProviderModificationResponse> {
     try {
       const paymentIntentId = request.payment.interfaceId as string;
-      const amount = request.amount.centAmount;
+      const amountToBeCaptured = request.amount.centAmount;
+      const stripePaymentIntent: Stripe.PaymentIntent = await stripeApi().paymentIntents.retrieve(paymentIntentId);
+
+      if (!request.payment.amountPlanned.centAmount) {
+        throw new Error('Payment amount is not set');
+      }
+
+      const cartTotalAmount = request.payment.amountPlanned.centAmount;
+      const isPartialCapture = stripePaymentIntent.amount_received + amountToBeCaptured < cartTotalAmount;
+
       const response = await stripeApi().paymentIntents.capture(paymentIntentId, {
-        amount_to_capture: amount,
+        amount_to_capture: amountToBeCaptured,
+        ...(isPartialCapture && {
+          final_capture: false,
+        }),
       });
 
-      if (response.status === 'succeeded') {
-        await this.ctPaymentService.updatePayment({
-          id: request.payment.id,
-          transaction: {
-            type: PaymentTransactions.CHARGE,
-            amount: request.amount,
-            interactionId: response.id,
-            state: PaymentStatus.SUCCESS,
-          },
-        });
+      log.info(`Payment modification completed.`, {
+        paymentId: paymentIntentId,
+        action: PaymentTransactions.CHARGE,
+        result: PaymentModificationStatus.APPROVED,
+        trackingId: response.id,
+        isPartialCapture: isPartialCapture,
+      });
 
-        log.info(`Payment modification completed.`, {
-          paymentId: paymentIntentId,
-          action: PaymentTransactions.CHARGE,
-          result: PaymentModificationStatus.APPROVED,
-          trackingId: response.id,
-        });
-
-        return {
-          outcome: PaymentModificationStatus.APPROVED,
-          pspReference: response.id,
-        };
-      } else {
-        log.warn('Stripe capture did not succeed as expected', { status: response.status, id: response.id });
-        return {
-          outcome: PaymentModificationStatus.REJECTED,
-          pspReference: response.id,
-        };
-      }
+      return {
+        outcome: PaymentModificationStatus.APPROVED,
+        pspReference: response.id,
+      };
     } catch (error) {
       log.error('Error capturing payment in Stripe', { error });
       return {
@@ -226,15 +221,6 @@ export class StripePaymentService extends AbstractPaymentService {
       const paymentIntentId = request.payment.interfaceId as string;
       const response = await stripeApi().paymentIntents.cancel(paymentIntentId);
 
-      await this.ctPaymentService.updatePayment({
-        id: request.payment.id,
-        transaction: {
-          type: PaymentTransactions.CANCEL_AUTHORIZATION,
-          amount: request.payment.amountPlanned,
-          interactionId: paymentIntentId,
-          state: PaymentStatus.SUCCESS,
-        },
-      });
       log.info(`Payment modification completed.`, {
         paymentId: paymentIntentId,
         action: PaymentTransactions.CANCEL_AUTHORIZATION,
@@ -242,7 +228,7 @@ export class StripePaymentService extends AbstractPaymentService {
         trackingId: response.id,
       });
 
-      return { outcome: PaymentModificationStatus.APPROVED, pspReference: paymentIntentId };
+      return { outcome: PaymentModificationStatus.APPROVED, pspReference: response.id };
     } catch (error) {
       log.error('Error canceling payment in Stripe', { error });
       return {
@@ -267,23 +253,14 @@ export class StripePaymentService extends AbstractPaymentService {
         amount: amount,
       });
 
-      await this.ctPaymentService.updatePayment({
-        id: request.payment.id,
-        transaction: {
-          type: PaymentTransactions.REFUND,
-          amount: request.amount,
-          interactionId: paymentIntentId,
-          state: PaymentStatus.SUCCESS,
-        },
-      });
       log.info(`Payment modification completed.`, {
         paymentId: request.payment.id,
-        action: PaymentTransactions.CANCEL_AUTHORIZATION,
+        action: PaymentTransactions.REFUND,
         result: PaymentModificationStatus.APPROVED,
         trackingId: response.id,
       });
 
-      return { outcome: PaymentModificationStatus.RECEIVED, pspReference: paymentIntentId };
+      return { outcome: PaymentModificationStatus.RECEIVED, pspReference: response.id };
     } catch (error) {
       log.error('Error refunding payment in Stripe', { error });
       return {
@@ -372,6 +349,11 @@ export class StripePaymentService extends AbstractPaymentService {
           },
           capture_method: config.stripeCaptureMethod as CaptureMethod,
           metadata: this.paymentCreationService.getPaymentMetadata(cart),
+          payment_method_options: {
+            card: {
+              request_multicapture: 'if_available',
+            },
+          },
           /*...(config.stripeCollectBillingAddress === 'auto' && {
             shipping: shippingAddress,
           }),*/
@@ -571,6 +553,134 @@ export class StripePaymentService extends AbstractPaymentService {
       }
     } catch (e) {
       log.error('Error processing notification', { error: e });
+      return;
+    }
+  }
+
+  /**
+   * Process Stripe refund events with support for multiple refunds.
+   * Fetches refund details from Stripe API to get accurate refund amounts and IDs.
+   *
+   * @param {Stripe.Event} event - The Stripe charge.refunded event object.
+   * @return {Promise<void>}
+   */
+  public async processStripeEventRefunded(event: Stripe.Event): Promise<void> {
+    log.info('Processing refund notification', { event: JSON.stringify(event.id) });
+    try {
+      const updateData = this.stripeEventConverter.convert(event);
+      const charge = event.data.object as Stripe.Charge;
+
+      // Fetch refunds for this charge
+      const refunds = await stripeApi().refunds.list({
+        charge: charge.id,
+        created: {
+          gte: charge.created,
+        },
+        limit: 2,
+      });
+
+      const refund = refunds.data[0];
+      if (!refund) {
+        log.warn('No refund found for charge', { chargeId: charge.id });
+        return;
+      }
+
+      // Update the transaction data with refund details
+      updateData.pspReference = refund.id;
+      updateData.transactions.forEach((tx) => {
+        tx.interactionId = refund.id;
+        tx.amount = {
+          centAmount: refund.amount,
+          currencyCode: refund.currency.toUpperCase(),
+        };
+      });
+
+      // Process each transaction
+      for (const tx of updateData.transactions) {
+        const updatedPayment = await this.ctPaymentService.updatePayment({
+          ...updateData,
+          transaction: tx,
+        });
+
+        log.info('Payment updated after processing the refund notification', {
+          paymentId: updatedPayment.id,
+          version: updatedPayment.version,
+          pspReference: updateData.pspReference,
+          paymentMethod: updateData.paymentMethod,
+          transaction: JSON.stringify(tx),
+        });
+      }
+    } catch (e) {
+      log.error('Error processing refund notification', { error: e });
+      return;
+    }
+  }
+
+  /**
+   * Process Stripe charge.updated events for multicapture support.
+   * Calculates the incremental captured amount by comparing with previous attributes.
+   *
+   * @param {Stripe.Event} event - The Stripe charge.updated event object.
+   * @return {Promise<void>}
+   */
+  public async processStripeEventMultipleCaptured(event: Stripe.Event): Promise<void> {
+    log.info('Processing multicapture notification', { event: JSON.stringify(event.id) });
+    try {
+      const updateData = this.stripeEventConverter.convert(event);
+      const charge = event.data.object as Stripe.Charge;
+
+      // Validate charge is captured
+      if (!charge.captured) {
+        log.warn('Charge is not captured yet', { chargeId: charge.id });
+        return;
+      }
+
+      // Get previous attributes to calculate incremental amount
+      const previousAttributes = event.data.previous_attributes as Stripe.Charge;
+
+      // Validate that amount_captured increased
+      if (!previousAttributes || !(charge.amount_captured > (previousAttributes.amount_captured || 0))) {
+        log.warn('Amount captured did not increase from previous charge', {
+          chargeId: charge.id,
+          currentAmount: charge.amount_captured,
+          previousAmount: previousAttributes?.amount_captured || 0,
+        });
+        return;
+      }
+
+      // Calculate the INCREMENTAL captured amount (not total)
+      const incrementalAmount = charge.amount_captured - (previousAttributes.amount_captured || 0);
+
+      // Use balance transaction ID as PSP reference for better tracking
+      updateData.pspReference = charge.balance_transaction as string;
+
+      // Update transactions with incremental amount
+      updateData.transactions.forEach((tx) => {
+        tx.interactionId = charge.balance_transaction as string;
+        tx.amount = {
+          centAmount: incrementalAmount,
+          currencyCode: charge.currency.toUpperCase(),
+        };
+      });
+
+      // Process each transaction
+      for (const tx of updateData.transactions) {
+        const updatedPayment = await this.ctPaymentService.updatePayment({
+          ...updateData,
+          transaction: tx,
+        });
+
+        log.info('Payment updated after processing multicapture', {
+          paymentId: updatedPayment.id,
+          version: updatedPayment.version,
+          pspReference: updateData.pspReference,
+          capturedIncrement: incrementalAmount,
+          totalCaptured: charge.amount_captured,
+          transaction: JSON.stringify(tx),
+        });
+      }
+    } catch (e) {
+      log.error('Error processing multicapture notification', { error: e });
       return;
     }
   }

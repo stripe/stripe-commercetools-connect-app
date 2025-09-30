@@ -120,7 +120,6 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
         case StripeEvent.PAYMENT_INTENT__SUCCEEDED:
         case StripeEvent.PAYMENT_INTENT__CANCELED:
         case StripeEvent.PAYMENT_INTENT__PAYMENT_FAILED:
-        case StripeEvent.CHARGE__REFUNDED:
         case StripeEvent.CHARGE__SUCCEEDED:
           if (!isFromSubscriptionInvoice(event)) {
             log.info(`Processing Stripe payment event: ${event.type}`);
@@ -130,6 +129,24 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
             await opts.subscriptionService.processSubscriptionEventChargedRefund(event);
           } else {
             log.info(`--->>> This Stripe event is from a subscription invoice: ${event.type}`);
+          }
+          break;
+        case StripeEvent.CHARGE__UPDATED:
+          // Route to dedicated multicapture handler
+          if (!isFromSubscriptionInvoice(event)) {
+            log.info(`Processing Stripe multicapture event: ${event.type}`);
+            await opts.paymentService.processStripeEventMultipleCaptured(event);
+          } else {
+            log.info(`--->>> This Stripe event is from a subscription invoice: ${event.type}`);
+          }
+          break;
+        case StripeEvent.CHARGE__REFUNDED:
+          if (!isFromSubscriptionInvoice(event)) {
+            log.info(`Processing Stripe refund event: ${event.type}`);
+            await opts.paymentService.processStripeEventRefunded(event);
+          } else {
+            log.info(`--->>> This Stripe event is from a subscription invoice refund: ${event.type}`);
+            await opts.subscriptionService.processSubscriptionEventChargedRefund(event);
           }
           break;
         case StripeSubscriptionEvent.INVOICE_PAID:

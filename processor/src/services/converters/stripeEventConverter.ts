@@ -65,7 +65,6 @@ export class StripeEventConverter {
           },
         ];
       case StripeEvent.CHARGE__REFUNDED:
-        if (!event.data.object.captured) return [];
         return [
           {
             type: PaymentTransactions.REFUND,
@@ -85,6 +84,15 @@ export class StripeEventConverter {
         return [
           {
             type: PaymentTransactions.AUTHORIZATION,
+            state: PaymentStatus.SUCCESS,
+            amount: this.populateAmount(event),
+            interactionId: paymentIntentId,
+          },
+        ];
+      case StripeEvent.CHARGE__UPDATED:
+        return [
+          {
+            type: PaymentTransactions.CHARGE,
             state: PaymentStatus.SUCCESS,
             amount: this.populateAmount(event),
             interactionId: paymentIntentId,

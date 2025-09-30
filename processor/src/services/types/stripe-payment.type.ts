@@ -40,6 +40,7 @@ export enum StripeEvent {
   CHARGE__REFUNDED = 'charge.refunded',
   CHARGE__CAPTURED = 'charge.captured',
   CHARGE__SUCCEEDED = 'charge.succeeded',
+  CHARGE__UPDATED = 'charge.updated',
 }
 
 export enum StripeSubscriptionEvent {

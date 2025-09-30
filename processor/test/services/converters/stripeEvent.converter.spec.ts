@@ -259,7 +259,26 @@ describe('stripeEvent.converter', () => {
       pspInteraction: {
         response: JSON.stringify(mockEvent__charge_refund_notCaptured),
       },
-      transactions: [],
+      transactions: [
+        {
+          amount: {
+            centAmount: 34500,
+            currencyCode: 'MXN',
+          },
+          interactionId: 'pi_11111',
+          state: 'Success',
+          type: 'Refund',
+        },
+        {
+          amount: {
+            centAmount: 34500,
+            currencyCode: 'MXN',
+          },
+          interactionId: 'pi_11111',
+          state: 'Success',
+          type: 'Chargeback',
+        },
+      ],
     });
   });
 
