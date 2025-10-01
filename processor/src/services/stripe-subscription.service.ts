@@ -1223,13 +1223,15 @@ export class StripeSubscriptionService {
         await this.paymentService.createOrder({ cart: updatedCart, paymentIntentId: updateData.pspReference });
       }
     } catch (e) {
-      log.error(`Error processing Subscription notification: ${JSON.stringify(e, null, 2)}`);
+      log.error(
+        `Error processing Subscription processSubscriptionEventPaid notification: ${JSON.stringify(e, null, 2)}`,
+      );
       return;
     }
   }
 
-  public async processSubscriptionEventChargedRefund(event: Stripe.Event): Promise<void> {
-    log.info('Processing subscription processSubscriptionEventChargedRefund notification', {
+  public async processSubscriptionEventCharged(event: Stripe.Event): Promise<void> {
+    log.info('Processing subscription processSubscriptionEventCharged notification', {
       event: JSON.stringify(event.id),
     });
     try {
@@ -1289,7 +1291,9 @@ export class StripeSubscriptionService {
         await this.paymentService.createOrder({ cart: updatedCart, paymentIntentId: updateData.pspReference });
       }
     } catch (e) {
-      log.error(`Error processing Subscription notification: ${JSON.stringify(e, null, 2)}`);
+      log.error(
+        `Error processing Subscription processSubscriptionEventCharged notification: ${JSON.stringify(e, null, 2)}`,
+      );
       return;
     }
   }

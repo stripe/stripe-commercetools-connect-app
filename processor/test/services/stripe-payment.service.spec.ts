@@ -869,7 +869,7 @@ describe('stripe-payment.service', () => {
             id: 'ch_123',
             object: 'charge',
             amount_captured: 50000, // Total captured now
-            captured: true,
+            captured: false, // Not captured yet for multicapture processing
             currency: 'usd',
             balance_transaction: 'txn_123',
           } as Stripe.Charge,
@@ -1791,7 +1791,7 @@ describe('stripe-payment.service', () => {
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
 
-      await subscriptionService.processSubscriptionEventChargedRefund(mockEvent);
+      await subscriptionService.processSubscriptionEventCharged(mockEvent);
 
       const mockedInvoice = mockEvent.data.object as Stripe.Invoice;
       const mockedSubscription = mockedInvoice.subscription as Stripe.Subscription;

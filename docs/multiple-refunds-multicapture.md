@@ -65,7 +65,7 @@ public async processStripeEventMultipleCaptured(event: Stripe.Event): Promise<vo
   
   // Validate charge is captured
   if (!charge.captured) {
-    log.warn('Charge is not captured yet', { chargeId: charge.id });
+    log.warn('Charge is already captured', { chargeId: charge.id });
     return;
   }
   
@@ -155,29 +155,23 @@ public async processStripeEventRefunded(event: Stripe.Event): Promise<void> {
 
 ### Enhanced Event Handling
 
-The webhook routing has been enhanced to properly handle different event types:
+The webhook routing has been simplified to always route events to their dedicated handlers:
 
 ```typescript
 case StripeEvent.CHARGE__UPDATED:
-  // Route to dedicated multicapture handler
-  if (!isFromSubscriptionInvoice(event)) {
-    log.info(`Processing Stripe multicapture event: ${event.type}`);
-    await opts.paymentService.processStripeEventMultipleCaptured(event);
-  } else {
-    log.info(`--->>> This Stripe event is from a subscription invoice: ${event.type}`);
-  }
+  // Always route to dedicated multicapture handler
+  log.info(`Processing Stripe multicapture event: ${event.type}`);
+  await opts.paymentService.processStripeEventMultipleCaptured(event);
   break;
 
 case StripeEvent.CHARGE__REFUNDED:
-  if (!isFromSubscriptionInvoice(event)) {
-    log.info(`Processing Stripe refund event: ${event.type}`);
-    await opts.paymentService.processStripeEventRefunded(event);
-  } else {
-    log.info(`--->>> This Stripe event is from a subscription invoice refund: ${event.type}`);
-    await opts.subscriptionService.processSubscriptionEventChargedRefund(event);
-  }
+  // Always route to dedicated refund handler
+  log.info(`Processing Stripe refund event: ${event.type}`);
+  await opts.paymentService.processStripeEventRefunded(event);
   break;
 ```
+
+**Note**: The subscription invoice checks have been removed to simplify the routing logic and ensure consistent processing of multicapture and refund events.
 
 ### Event Type Support
 
@@ -237,21 +231,42 @@ await this.ctPaymentService.updatePayment({
 
 ## Configuration
 
+### Capture Method Configuration
+
+The connector now uses manual capture mode by default to enable multicapture functionality:
+
+```typescript
+// In config.ts
+stripeCaptureMethod: 'manual', // Hardcoded for multicapture support
+```
+
+This change ensures that all payments are created with manual capture, which is required for:
+- Multiple partial captures on the same payment intent
+- Proper multicapture event handling
+- Accurate incremental capture tracking
+
 ### Environment Variables
 
-No new environment variables are required for multicapture and refund support. The features work with existing configuration:
+The following environment variables are used for multicapture and refund support:
 
+**Required Variables:**
 - **`STRIPE_SECRET_KEY`**: Required for API calls to fetch refund details
 - **`STRIPE_WEBHOOK_SIGNING_SECRET`**: Required for webhook signature verification
-- **`STRIPE_CAPTURE_METHOD`**: Controls capture behavior (manual/automatic)
+- **`STRIPE_CAPTURE_METHOD`**: Controls capture behavior (now hardcoded to 'manual' for multicapture support)
+
+**Optional Variables:**
+- **`STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED`**: Enable automatic subscription price synchronization (default: false)
+- **`STRIPE_SUBSCRIPTION_PAYMENT_HANDLING`**: Subscription payment handling strategy - 'createOrder' or 'addPaymentToOrder' (default: 'createOrder')
 
 ### Webhook Configuration
 
 Ensure your Stripe webhook endpoint includes the following events:
-- `charge.updated` - For multicapture support
-- `charge.refunded` - For refund processing
+- `charge.updated` - For multicapture support (now always routed to multicapture handler)
+- `charge.refunded` - For refund processing (now always routed to refund handler)
 - `payment_intent.succeeded` - For successful payments
 - `payment_intent.canceled` - For canceled payments
+
+**Note**: The webhook routing has been simplified. `charge.updated` and `charge.refunded` events are now always processed by their respective handlers, regardless of whether they originate from subscription invoices.
 
 ## Testing
 
@@ -373,6 +388,25 @@ For issues or questions related to multicapture and refund support:
 3. **Test Scenarios**: Create test scenarios to reproduce issues
 4. **Contact Support**: Reach out to the development team with detailed information
 
+## Subscription Enhancements
+
+### Price Synchronization
+
+The connector now includes automatic subscription price synchronization:
+
+- **Automatic Price Updates**: Subscription prices are synchronized with current commercetools product prices
+- **Invoice Upcoming Events**: Triggered by `invoice.upcoming` webhook events
+- **Configurable**: Controlled by `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED` environment variable
+
+### Enhanced Subscription Payment Handling
+
+Two strategies are available for handling subscription payments:
+
+1. **Create New Order** (default): Creates a new order for each subscription payment
+2. **Add Payment to Order**: Adds payment to existing order
+
+Controlled by `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING` environment variable.
+
 ## Conclusion
 
 The multiple refunds and multicapture implementation provides enhanced payment processing capabilities while maintaining backward compatibility. The features are designed to handle complex payment scenarios with accurate transaction tracking and comprehensive error handling.
@@ -383,3 +417,4 @@ Key benefits include:
 - **Enhanced Webhook Processing**: Robust event handling for complex scenarios
 - **Improved Transaction Management**: Better PSP reference tracking and audit capabilities
 - **Comprehensive Error Handling**: Structured error management with detailed logging
+- **Subscription Management**: Enhanced subscription handling with price synchronization

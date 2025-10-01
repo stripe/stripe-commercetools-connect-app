@@ -146,17 +146,17 @@ export class SubscriptionEventConverter {
             amount: this.populateAmount(event),
             interactionId: paymentIntentId,
           },
-        ];
+        ];*/
       case StripeEvent.CHARGE__SUCCEEDED:
         if (event.data.object.captured) return [];
         return [
           {
             type: PaymentTransactions.AUTHORIZATION,
             state: PaymentStatus.SUCCESS,
-            amount: this.populateAmount(event),
+            amount: this.populateAmount(invoice),
             interactionId: paymentIntentId,
           },
-        ];*/
+        ];
       default: {
         const error = `Unsupported event ${event.type}`;
         throw wrapStripeError(new Error(error));

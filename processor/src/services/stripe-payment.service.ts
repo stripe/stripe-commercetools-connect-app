@@ -528,6 +528,32 @@ export class StripePaymentService extends AbstractPaymentService {
           paymentMethod: updateData.paymentMethod,
         });
       } else {
+        //does payment intent event have multicapture?
+        if (event.type.startsWith('payment')) {
+          const pi = event.data.object as Stripe.PaymentIntent;
+          if (
+            pi.capture_method === 'manual' &&
+            pi.payment_method_options?.card?.request_multicapture === 'if_available' &&
+            typeof pi.latest_charge === 'string'
+          ) {
+            const balanceTransactions = await stripeApi().balanceTransactions.list({
+              source: pi.latest_charge,
+              limit: 10,
+            });
+
+            if (balanceTransactions.data.length > 1) {
+              //it is multicapture, so we need to update the transactions
+              updateData.transactions.forEach((tx) => {
+                tx.interactionId = balanceTransactions.data[0].id;
+                tx.amount = {
+                  centAmount: balanceTransactions.data[0].amount,
+                  currencyCode: balanceTransactions.data[0].currency.toUpperCase(),
+                };
+              });
+            }
+          }
+        }
+
         for (const tx of updateData.transactions) {
           const updatedPayment = await this.ctPaymentService.updatePayment({
             ...updateData,
@@ -630,8 +656,8 @@ export class StripePaymentService extends AbstractPaymentService {
       const charge = event.data.object as Stripe.Charge;
 
       // Validate charge is captured
-      if (!charge.captured) {
-        log.warn('Charge is not captured yet', { chargeId: charge.id });
+      if (charge.captured) {
+        log.warn('Charge is already captured', { chargeId: charge.id });
         return;
       }
 
