@@ -26,6 +26,7 @@ This repository provides a commercetools [connect](https://docs.commercetools.co
 - **Attribute Name Standardization**: All subscription-related product type attributes now use the `stripeConnector_` prefix for better organization and consistency. The system automatically handles the transformation between prefixed attribute names and internal field names. [Learn more](./docs/attribute-name-standardization.md).
 - **Enhanced Subscription Management**: Comprehensive subscription update capabilities including product variant switching, price updates, and configuration changes. The new `updateSubscription` method provides seamless subscription management while maintaining data consistency. [Learn more](./docs/subscription-price-synchronization.md).
 - **Enhanced Payment Intent Error Handling**: Improved error management for payment intent statuses including `requires_action` and `payment_failed` with structured error objects for better debugging.
+- **Multiple Refunds and Multicapture Support**: Advanced payment processing capabilities including multiple partial captures and accurate refund tracking using Stripe API integration. [Learn more](./docs/multiple-refunds-multicapture.md).
 - Provides a subscription management API via the commercetools connector, enabling Stripe subscription operations directly through commercetools API endpoints.
 - Customers can update their shipping and billing addresses directly within the Stripe Express Checkout. When an address is changed, the connector automatically fetches the latest shipping rates from commercetools and updates the cart to reflect the new information. [See Details](README.md#sequence-diagrams-for-the-payment-connector)
 
@@ -135,7 +136,37 @@ Each diagram details the interactions and steps involved in processing the respe
 
 ## Recent Updates and Improvements
 
-### Enhanced Subscription Service Architecture and Testing Infrastructure (Latest)
+### Multiple Refunds and Multicapture Implementation (Latest)
+
+The payment processing system has been significantly enhanced with advanced multicapture and refund capabilities:
+
+#### 🚀 New Features
+- **Multicapture Support**: Enhanced payment capture functionality to support multiple partial captures on the same payment intent
+- **Advanced Refund Processing**: New refund handling that fetches accurate refund details directly from Stripe API
+- **Incremental Capture Tracking**: Sophisticated tracking of incremental captured amounts using Stripe's previous attributes
+- **Enhanced Webhook Routing**: Dedicated event handlers for `charge.updated` and `charge.refunded` events
+- **Balance Transaction Tracking**: Improved PSP reference tracking using Stripe balance transaction IDs
+
+#### 🔧 Technical Improvements
+- **API-Based Refund Details**: Refund processing now fetches actual refund amounts and IDs from Stripe API for precise transaction records
+- **Partial Capture Detection**: Automatic detection of partial captures with proper `final_capture` handling
+- **Simplified Payment Updates**: Removed manual commercetools payment updates in favor of webhook-based processing
+- **Enhanced Error Handling**: Comprehensive validation and error management for multicapture scenarios
+- **Improved Event Converter**: Added support for `CHARGE__UPDATED` events and enhanced refund processing
+
+#### 🧪 Testing Infrastructure Enhancements
+- **Comprehensive Test Coverage**: Updated test suites to cover all new multicapture and refund functionality
+- **Enhanced Webhook Testing**: Improved webhook routing tests for new event types
+- **Converter Testing**: Added tests for new event converter functionality
+- **Edge Case Coverage**: Enhanced testing for various multicapture and refund scenarios
+
+#### 📚 Documentation and Architecture Updates
+- **Enhanced Webhook Documentation**: Updated webhook event descriptions to reflect new capabilities
+- **Improved Transaction Tracking**: Better PSP reference tracking for audit and debugging purposes
+- **Comprehensive Logging**: Enhanced logging throughout the payment processing pipeline
+- **Better Error Management**: Structured error handling with detailed transaction information
+
+### Enhanced Subscription Service Architecture and Testing Infrastructure
 
 The subscription service has undergone major architectural improvements with comprehensive testing enhancements:
 
@@ -201,9 +232,10 @@ The following webhooks are currently supported, and the payment transactions in 
 - **payment_intent.succeeded**: Creates a payment transaction Charge: Success.
 - **payment_intent.requires_action**: Logs the information in the connector app inside the Processor logs.
 - **payment_intent.payment_failed**: Modify the payment transaction Authorization to Failure.
-- **charge.refunded**: Create a payment transaction Refund to Success and a Chargeback to Success.
+- **charge.refunded**: Creates payment transactions Refund: Success and Chargeback: Success with accurate refund amounts fetched from Stripe API.
 - **charge.succeeded**: Create the payment transaction to 'Authorization:Success' if charge is not captured, and update the payment method type that was used to pay.
 - **charge.captured**: Logs the information in the connector app inside the Processor logs.
+- **charge.updated**: Handles multicapture scenarios by creating Charge: Success transactions with incremental captured amounts.
 - **invoice.paid**: If payment charge is pending, we update the payment transaction to Charge:Success. If charge is not pending, we update the payment transaction to Authorization:Success and create a payment transaction Charge:Success.
 - **invoice.payment_failed**: If payment charge is pending, we update the payment transaction to Charge:Failure. If charge is not pending, we update the payment transaction to Authorization:Failure and create a payment transaction Charge:Failure.
 - **invoice.upcoming**: Handles upcoming invoice events for subscription payments, supporting the new subscription payment handling strategy.

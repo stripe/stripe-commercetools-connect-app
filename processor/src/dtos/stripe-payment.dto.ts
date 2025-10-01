@@ -121,6 +121,12 @@ export const SubscriptionUpdateRequestSchema = Type.Object({
   newSubscriptionPriceId: Type.String(),
 });
 
+export const SubscriptionPatchRequestSchema = Type.Object({
+  id: Type.String(),
+  params: Type.Optional(Type.Any()),
+  options: Type.Optional(Type.Any()),
+});
+
 export type PaymentRequestSchemaDTO = Static<typeof PaymentRequestSchema>;
 export type PaymentResponseSchemaDTO = Static<typeof PaymentResponseSchema>;
 export type ConfigElementResponseSchemaDTO = Static<typeof ConfigElementResponseSchema>;
@@ -133,3 +139,4 @@ export type SetupIntentResponseSchemaDTO = Static<typeof SetupIntentResponseSche
 export type SubscriptionListResponseSchemaDTO = Static<typeof SubscriptionListResponseSchema>;
 export type SubscriptionModifyResponseSchemaDTO = Static<typeof SubscriptionModifyResponseSchema>;
 export type SubscriptionUpdateRequestSchemaDTO = Static<typeof SubscriptionUpdateRequestSchema>;
+export type SubscriptionPatchRequestSchemaDTO = Static<typeof SubscriptionPatchRequestSchema>;

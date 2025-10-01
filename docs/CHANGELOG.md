@@ -2,6 +2,75 @@
 
 ## Latest
 
+### Multiple Refunds and Multicapture Implementation
+
+**Added:**
+- **Multicapture Support**: Enhanced `capturePayment()` method to support multiple partial captures with proper `final_capture` handling
+- **Advanced Refund Processing**: New `processStripeEventRefunded()` method that fetches refund details from Stripe API for accurate refund amounts and IDs
+- **Multicapture Event Handling**: New `processStripeEventMultipleCaptured()` method for handling incremental capture amounts using previous attributes
+- **Enhanced Webhook Routing**: Added dedicated handlers for `charge.updated` and `charge.refunded` events with proper routing logic
+- **New Event Type Support**: Added `CHARGE__UPDATED` event type to StripeEvent enum for multicapture support
+- **Comprehensive Test Coverage**: Updated test suites to cover new multicapture and refund functionality
+
+**Changed:**
+- **Simplified Payment Updates**: Removed manual commercetools payment updates from capture/cancel methods (now handled automatically by webhooks)
+- **Enhanced Event Converter**: Updated `StripeEventConverter` to handle `CHARGE__UPDATED` events and removed captured-only restriction for refunds
+- **Improved Webhook Logic**: Enhanced webhook routing to properly handle subscription vs. non-subscription events for refunds and multicapture
+- **Better Error Handling**: Added comprehensive validation and error handling for multicapture scenarios
+
+**Technical Details:**
+
+#### Multicapture Implementation
+- **Partial Capture Detection**: Automatically detects partial captures by comparing `amount_received` with `amountPlanned`
+- **Final Capture Handling**: Sets `final_capture: false` for partial captures to allow future captures
+- **Incremental Amount Calculation**: Calculates incremental captured amounts by comparing current and previous `amount_captured` values
+- **Balance Transaction Tracking**: Uses Stripe balance transaction ID as PSP reference for better tracking
+
+#### Enhanced Refund Processing
+- **API-Based Refund Details**: Fetches actual refund details from Stripe API instead of relying on event data
+- **Accurate Amount Tracking**: Uses actual refund amounts and IDs from Stripe API for precise transaction records
+- **Multiple Refund Support**: Handles scenarios with multiple refunds on the same charge
+- **Comprehensive Logging**: Enhanced logging for refund processing with detailed transaction information
+
+#### Webhook Event Routing
+- **Dedicated Handlers**: Separate processing methods for different event types (refunds vs. multicapture)
+- **Subscription Awareness**: Proper routing between subscription and non-subscription event handling
+- **Event Type Support**: Added support for `charge.updated` events for multicapture scenarios
+
+#### Files Modified
+- `processor/src/services/stripe-payment.service.ts`: Added multicapture and refund processing methods
+- `processor/src/routes/stripe-payment.route.ts`: Enhanced webhook routing for new event types
+- `processor/src/services/converters/stripeEventConverter.ts`: Added CHARGE__UPDATED support
+- `processor/src/services/types/stripe-payment.type.ts`: Added CHARGE__UPDATED event type
+- `processor/test/services/stripe-payment.service.spec.ts`: Updated tests for new functionality
+- `processor/test/routes.test/stripe-payment.spec.ts`: Enhanced webhook routing tests
+- `processor/test/services/converters/stripeEvent.converter.spec.ts`: Added converter tests for new events
+
+#### Benefits
+- **Flexible Payment Capture**: Support for multiple partial captures on the same payment intent
+- **Accurate Refund Tracking**: Precise refund amount and ID tracking using Stripe API
+- **Better Transaction Management**: Improved transaction handling with proper PSP reference tracking
+- **Enhanced Webhook Processing**: More robust webhook event handling with dedicated processors
+- **Improved Error Handling**: Better validation and error management for edge cases
+
+#### Breaking Changes
+None - all changes are backward compatible and enhance existing functionality.
+
+#### Migration Guide
+No migration required - existing functionality remains unchanged with enhanced capabilities.
+
+#### Performance Impact
+- **Improved Efficiency**: Reduced manual payment updates through webhook-based processing
+- **Better API Utilization**: More efficient use of Stripe API for refund and capture operations
+- **Enhanced Logging**: Better debugging capabilities with comprehensive transaction logging
+
+#### Security
+- **Enhanced Validation**: Improved validation for multicapture and refund scenarios
+- **Better Error Handling**: Prevents information leakage through structured error handling
+- **Accurate Transaction Records**: More precise transaction tracking improves audit capabilities
+
+---
+
 ### Refactored Price Synchronization Configuration (Breaking Change)
 
 **Breaking Change:**

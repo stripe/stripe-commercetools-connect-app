@@ -15,6 +15,13 @@ Overview of the connector's implementation architecture and design decisions.
 
 ## Feature Documentation
 
+### [multiple-refunds-multicapture.md](./multiple-refunds-multicapture.md)
+**NEW**: Comprehensive guide to multiple refunds and multicapture support. Covers:
+- Multicapture implementation and partial capture handling
+- Enhanced refund processing with Stripe API integration
+- Webhook event routing and transaction management
+- Configuration, testing, and troubleshooting
+
 ### [subscription-price-synchronization.md](./subscription-price-synchronization.md)
 **NEW**: Comprehensive guide to subscription price synchronization and the enhanced `updateSubscription` method. Covers:
 - Price synchronization architecture and configuration

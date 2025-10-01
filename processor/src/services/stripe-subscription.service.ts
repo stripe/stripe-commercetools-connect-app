@@ -1007,6 +1007,41 @@ export class StripeSubscriptionService {
     }
   }
 
+  async patchSubscription({
+    customerId,
+    subscriptionId,
+    params,
+    options,
+  }: {
+    customerId: string;
+    subscriptionId: string;
+    params?: Stripe.SubscriptionUpdateParams;
+    options?: Stripe.RequestOptions;
+  }): Promise<Stripe.Subscription> {
+    const idempotencyKey = options?.idempotencyKey || randomUUID();
+    await this.validateCustomerSubscription(customerId, subscriptionId);
+
+    try {
+      const updatedSubscription = await stripe.subscriptions.update(subscriptionId, params, {
+        ...options,
+        idempotencyKey: idempotencyKey,
+      });
+      log.info(
+        `Successfully updated subscription ${subscriptionId} for customer ${customerId}`,
+        {
+          updatedSubscriptionId: updatedSubscription.id,
+          changes: JSON.stringify(params),
+        },
+        { idempotencyKey: idempotencyKey },
+      );
+
+      return updatedSubscription;
+    } catch (error) {
+      log.error(`Failed to update subscription ${subscriptionId}`, { error });
+      throw wrapStripeError(error);
+    }
+  }
+
   public async updateSubscriptionMetadata({
     subscriptionId,
     cart,
@@ -1188,13 +1223,15 @@ export class StripeSubscriptionService {
         await this.paymentService.createOrder({ cart: updatedCart, paymentIntentId: updateData.pspReference });
       }
     } catch (e) {
-      log.error(`Error processing Subscription notification: ${JSON.stringify(e, null, 2)}`);
+      log.error(
+        `Error processing Subscription processSubscriptionEventPaid notification: ${JSON.stringify(e, null, 2)}`,
+      );
       return;
     }
   }
 
-  public async processSubscriptionEventChargedRefund(event: Stripe.Event): Promise<void> {
-    log.info('Processing subscription processSubscriptionEventChargedRefund notification', {
+  public async processSubscriptionEventCharged(event: Stripe.Event): Promise<void> {
+    log.info('Processing subscription processSubscriptionEventCharged notification', {
       event: JSON.stringify(event.id),
     });
     try {
@@ -1254,7 +1291,9 @@ export class StripeSubscriptionService {
         await this.paymentService.createOrder({ cart: updatedCart, paymentIntentId: updateData.pspReference });
       }
     } catch (e) {
-      log.error(`Error processing Subscription notification: ${JSON.stringify(e, null, 2)}`);
+      log.error(
+        `Error processing Subscription processSubscriptionEventCharged notification: ${JSON.stringify(e, null, 2)}`,
+      );
       return;
     }
   }

@@ -570,7 +570,6 @@ The response will provide the necessary information to populate the payment elem
 - **setupFutureUsage**: The current setup future usage configured in the payment connector.[More information](https://docs.stripe.com/api/customer_sessions/object#customer_session_object-components-payment_element-features).
 - **layout**: This configuration enables the Layout for the payment component. The value needs to be a valid stringified JSON. [More information](https://docs.stripe.com/payments/payment-element#layout).
 - **collectBillingAddress**: This configuration enables the collection of billing address for the Stripe Payment Element component. The default value is 'auto'. [More information](https://docs.stripe.com/payments/payment-element#collecting-billing-address).
-# add to the response the attribute: webElements that can be paymentElement or expressCheckout
 - **webElements**: The web elements that can be used in the payment component. It can be `paymentElement` or `expressCheckout`. This is used to determine which payment element to render in the frontend.
 - **paymentMode**: The payment mode used in the payment component. It can be `subscription`, `setup`, or `payment`. This is used to determine the flow that the payment needs to follow. [More information](https://docs.stripe.com/payments/payment-element#payment-mode).
 
@@ -1031,6 +1030,50 @@ When `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true` is enabled, this method works
 - Updated subscriptions automatically benefit from future price synchronization
 - Price changes in commercetools will be automatically reflected in updated subscriptions
 - Maintains consistency between manual updates and automatic synchronization
+
+#### Patch Customer Subscription
+Updates a specific Stripe subscription related to a customer, according to the Stripe [update subscription](https://docs.stripe.com/api/subscriptions/update?api-version=2025-02-24.acacia) functionality. This method doesn't provide data consistency between systems, unlike the `updateSubscription` method, which is why its recommended to use it carefully when updating subscription data that may cause inconsistencies (such as prices and products). Examples of safe subscription data to update include descriptions, quantity of items, and the like.
+
+##### Endpoint
+`POST /subscription-api/advanced/:customerId`
+
+##### Authentication
+OAuth2 authentication with "manage_project" and "manage_subscriptions" scopes.
+
+##### Use Cases
+The `patchSubscription` method handles Stripe subscription update scenarios not covered by the `updateSubscription` method, but lacks the consistency mechanism between systems of the latter. 
+
+##### Example Request (Update subscription description)
+```bash
+curl -X POST "https://your-connector-url/subscription-api/advanced/customer-12345" \
+  -H "Authorization: Bearer <commercetools-oauth2-token>" \
+  -H "Content-Type: application/json" \
+  -d '{ "id": "sub_1234567890", "params": {"description": "updated description"}}'
+```
+
+##### Example Response
+```json
+{
+  "id": "sub_1234567890",
+  "status": "active",
+  "outcome": "updated",
+  "message": "Subscription sub_1234567890 has been successfully updated."
+}
+```
+
+##### Path Parameters
+- **customerId**: The commercetools customer ID.
+
+##### Request Body
+- **id**: The ID of the subscription to update.
+- **parameters**: The Stripe [update subscription](https://docs.stripe.com/api/subscriptions/update?api-version=2025-02-24.acacia) parameters.
+- **options**: The Stripe request options.
+
+##### Response Parameters
+- **id**: The subscription ID.
+- **status**: Current status of the subscription.
+- **outcome**: Result of the update ("updated" or "error").
+- **message**: Details about the update operation.
 
 ### Express Checkout methods
 

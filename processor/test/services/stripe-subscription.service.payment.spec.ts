@@ -367,7 +367,6 @@ describe('stripe-subscription.service.payment', () => {
 
       await stripeSubscriptionService.processSubscriptionEventPaid(mockEvent);
 
-
       expect(paymentSDK.ctCartService.getCart).toHaveBeenCalledWith({ id: 'cart_123' });
     });
 

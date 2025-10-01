@@ -284,6 +284,7 @@ export const mock_ProductType: ProductType = {
       attributeConstraint: 'None',
       isSearchable: false,
       inputHint: 'SingleLine',
+      level: 'Variant',
     },
     {
       name: 'stripeConnector_recurring_interval',
@@ -293,6 +294,7 @@ export const mock_ProductType: ProductType = {
       attributeConstraint: 'None',
       isSearchable: false,
       inputHint: 'SingleLine',
+      level: 'Variant',
     },
   ],
   createdAt: '2025-01-01T00:00:00.000Z',
