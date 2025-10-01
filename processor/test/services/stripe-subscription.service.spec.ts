@@ -398,8 +398,6 @@ describe('stripe-subscription.service', () => {
         .spyOn(stripeSubscriptionService as any, 'getAllLineItemPrices')
         .mockResolvedValue([{ price: 'price_123', quantity: 1 }]);
 
-      jest.spyOn(stripeSubscriptionService as any, 'createOneTimeItemsInvoice').mockResolvedValue(undefined);
-
       jest.spyOn(Stripe.prototype.subscriptions, 'create').mockResolvedValue({
         id: 'sub_123',
         latest_invoice: { id: 'in_123' },
@@ -414,7 +412,6 @@ describe('stripe-subscription.service', () => {
         subscriptionId: 'sub_123',
         paymentReference: 'payment_ref_123',
       });
-      expect((stripeSubscriptionService as any).createOneTimeItemsInvoice).toHaveBeenCalled();
     });
 
     test('should handle invoice status variations correctly', async () => {

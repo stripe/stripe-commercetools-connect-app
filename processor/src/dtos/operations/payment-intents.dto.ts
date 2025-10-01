@@ -98,5 +98,5 @@ export enum PaymentTransactions {
 export type PaymentIntentRequestSchemaDTO = Static<typeof PaymentIntentRequestSchema>;
 export type PaymentIntentResponseSchemaDTO = Static<typeof PaymentIntentResponseSchema>;
 export type AmountSchemaDTO = Static<typeof AmountSchema>;
-export type PaymentIntenConfirmRequestSchemaDTO = Static<typeof PaymentIntentConfirmRequestSchema>;
+export type PaymentIntentConfirmRequestSchemaDTO = Static<typeof PaymentIntentConfirmRequestSchema>;
 export type PaymentIntentConfirmResponseSchemaDTO = Static<typeof PaymentIntentResponseSchema>;

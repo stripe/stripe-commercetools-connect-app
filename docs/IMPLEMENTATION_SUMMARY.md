@@ -38,7 +38,6 @@ This document provides a comprehensive overview of the Stripe-Commercetools paym
 - **Cart Analysis**: Automatic detection of subscription vs. one-time items
 - **Separate Processing**: Different billing treatment for different item types
 - **Unified Checkout**: Single checkout experience regardless of cart composition
-- **One-Time Item Invoicing**: Automatic creation of separate Stripe invoices for non-subscription items
 
 #### Attribute Name Standardization
 - **Consistent Naming**: All subscription attributes now use `stripeConnector_` prefix

@@ -7,6 +7,27 @@ import { lineItemStripeSubscriptionIdField, typeLineItem } from '../../custom-ty
 
 const apiClient = paymentSDK.ctAPI.client;
 
+/**
+ * Creates a new cart in commercetools using the provided cart draft.
+ * @param cartDraft - The draft object containing cart details
+ * @returns A promise that resolves to the created Cart object.
+ */
+export const createCartFromDraft = async (cartDraft: CartDraft): Promise<Cart> => {
+  const cartResponse = await apiClient
+    .carts()
+    .post({
+      body: cartDraft,
+    })
+    .execute();
+
+  return cartResponse.body;
+};
+
+/**
+ * Retrieves a cart by ID and expands related resources.
+ * @param id - The cart ID. If not provided, retrieves it from context.
+ * @returns A promise that resolves to the expanded Cart object.
+ */
 export const getCartExpanded = async (id?: string): Promise<Cart> => {
   const cart = await apiClient
     .carts()
@@ -20,6 +41,12 @@ export const getCartExpanded = async (id?: string): Promise<Cart> => {
   return cart.body;
 };
 
+/**
+ * Updates a cart by its ID with the specified update actions.
+ * @param cart - The cart object to update.
+ * @param actions - Array of update actions to apply.
+ * @returns A promise that resolves to the updated Cart object.
+ */
 export const updateCartById = async (cart: Cart, actions: CartUpdateAction[]) => {
   const updatedCart = await apiClient
     .carts()
