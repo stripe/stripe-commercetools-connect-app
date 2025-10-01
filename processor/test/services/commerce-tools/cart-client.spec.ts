@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { paymentSDK } from '../../../src/payment-sdk';
-import { mockGetCartResult } from '../../utils/mock-cart-data';
+import { mockCartDraft, mockGetCartResult } from '../../utils/mock-cart-data';
 import {
   getCartExpanded,
   updateCartById,
   createCartWithProduct,
+  createCartFromDraft,
 } from '../../../src/services/commerce-tools/cart-client';
 import { Product, ProductVariant } from '@commercetools/platform-sdk';
 import { PaymentAmount } from '@commercetools/connect-payments-sdk/dist/commercetools/types/payment.type';
@@ -28,6 +29,21 @@ describe('CartClient testing', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+  });
+
+  describe('createCartFromDraft', () => {
+    it('should create the cart from a draft successfully', async () => {
+      const mockCart = mockGetCartResult()
+      const executeMock = jest.fn().mockReturnValue(Promise.resolve({ body: mockCart }));
+      const client = paymentSDK.ctAPI.client;
+      client.carts = jest.fn(() => ({
+        post: jest.fn(() => ({
+          execute: executeMock,
+        })),
+      })) as never;
+      const result = await createCartFromDraft(mockCartDraft);
+      expect(result).toEqual(mockCart);
+    });
   });
 
   describe('getCartExpanded', () => {

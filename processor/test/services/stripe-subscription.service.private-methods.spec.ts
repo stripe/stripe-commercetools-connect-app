@@ -486,11 +486,7 @@ describe('StripeSubscriptionService - Private Methods', () => {
         ],
       };
 
-      const mockExecute = (jest.fn() as any).mockResolvedValue({ body: mockCart } as any);
-      const mockPost = jest.fn().mockReturnValue({ execute: mockExecute });
-      const mockCarts = jest.fn().mockReturnValue({ post: mockPost });
-      (paymentSDK.ctAPI.client as any).carts = mockCarts;
-
+      jest.spyOn(CartClient, 'createCartFromDraft').mockResolvedValue(mockCart as any);
       jest.spyOn(CartClient, 'updateCartById').mockResolvedValue(mockUpdatedCart as any);
       jest.spyOn(CartClient, 'getCartExpanded').mockResolvedValue(mockUpdatedCart as any);
 
@@ -510,16 +506,12 @@ describe('StripeSubscriptionService - Private Methods', () => {
 
       expect(result).toBe(mockUpdatedCart);
 
-      expect(mockCarts).toHaveBeenCalled();
-      expect(mockPost).toHaveBeenCalledWith({
-        body: {
-          currency: 'USD',
-          customerId: mockCustomer.id,
-          customerEmail: mockCustomer.email,
-          country: 'US',
-        },
+      expect(CartClient.createCartFromDraft).toHaveBeenCalledWith({
+        currency: 'USD',
+        customerId: mockCustomer.id,
+        customerEmail: mockCustomer.email,
+        country: 'US',
       });
-      expect(mockExecute).toHaveBeenCalled();
       expect(CartClient.updateCartById).toHaveBeenCalled();
       expect(CartClient.getCartExpanded).toHaveBeenCalled();
     });
@@ -554,11 +546,7 @@ describe('StripeSubscriptionService - Private Methods', () => {
         totalPrice: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
       };
 
-      const mockExecute = (jest.fn() as any).mockResolvedValue({ body: mockCart } as any);
-      const mockPost = jest.fn().mockReturnValue({ execute: mockExecute });
-      const mockCarts = jest.fn().mockReturnValue({ post: mockPost });
-      (paymentSDK.ctAPI.client as any).carts = mockCarts;
-
+      jest.spyOn(CartClient, 'createCartFromDraft').mockResolvedValue(mockCart as any);
       jest.spyOn(CartClient, 'updateCartById').mockResolvedValue(mockCart as any);
 
       const result = await (stripeSubscriptionService as any).createNewCartFromOrder(
@@ -569,16 +557,13 @@ describe('StripeSubscriptionService - Private Methods', () => {
 
       expect(result).toBe(mockCart);
 
-      expect(mockCarts).toHaveBeenCalled();
-      expect(mockPost).toHaveBeenCalledWith({
-        body: {
-          currency: 'USD',
-          customerId: mockCustomer.id,
-          customerEmail: mockCustomer.email,
-          country: 'US',
-        },
+      expect(CartClient.createCartFromDraft).toHaveBeenCalledWith({
+        currency: 'USD',
+        customerId: mockCustomer.id,
+        customerEmail: mockCustomer.email,
+        country: 'US',
       });
-      expect(mockExecute).toHaveBeenCalled();
+      expect(CartClient.updateCartById).toHaveBeenCalledTimes(1);
     });
   });
 });
