@@ -511,6 +511,10 @@ describe('StripeSubscriptionService - Private Methods', () => {
         customerId: mockCustomer.id,
         customerEmail: mockCustomer.email,
         country: 'US',
+        taxMode: 'Platform',
+        taxRoundingMode: 'HalfEven',
+        taxCalculationMode: 'LineItemLevel',
+        priceRoundingMode: 'HalfEven',
       });
       expect(CartClient.updateCartById).toHaveBeenCalled();
       expect(CartClient.getCartExpanded).toHaveBeenCalled();
@@ -562,6 +566,10 @@ describe('StripeSubscriptionService - Private Methods', () => {
         customerId: mockCustomer.id,
         customerEmail: mockCustomer.email,
         country: 'US',
+        taxMode: 'Platform',
+        taxRoundingMode: 'HalfEven',
+        taxCalculationMode: 'LineItemLevel',
+        priceRoundingMode: 'HalfEven',
       });
       expect(CartClient.updateCartById).toHaveBeenCalledTimes(1);
     });
