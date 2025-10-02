@@ -1739,6 +1739,10 @@ export class StripeSubscriptionService {
       customerId: customer.id,
       customerEmail: customer.email,
       country: originalOrder.shippingAddress?.country || originalOrder.billingAddress?.country || 'US',
+      taxMode: originalOrder.taxMode || 'Platform',
+      taxRoundingMode: originalOrder.taxRoundingMode || 'HalfEven',
+      taxCalculationMode: originalOrder.taxCalculationMode || 'LineItemLevel',
+      priceRoundingMode: originalOrder.priceRoundingMode || 'HalfEven',
     };
 
     let newCart = await createCartFromDraft(cartDraft);
