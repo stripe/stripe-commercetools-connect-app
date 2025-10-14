@@ -139,10 +139,11 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
           break;
         case StripeEvent.CHARGE__REFUNDED:
           if (getConfig().stripeEnableMultiOperations) {
-            log.info(`Processing Stripe multirefund event: ${event.type}`);
+            log.info(`Processing Stripe multirefund event with enhanced tracking: ${event.type}`);
             await opts.paymentService.processStripeEventRefunded(event);
           } else {
-            log.info(`Multi-operations disabled, skipping multirefund: ${event.type}`);
+            log.info(`Processing Stripe refund event with basic tracking (multi-operations disabled): ${event.type}`);
+            await opts.paymentService.processStripeEvent(event);
           }
           break;
         case StripeSubscriptionEvent.INVOICE_PAID:

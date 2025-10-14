@@ -165,12 +165,14 @@ export class StripePaymentService extends AbstractPaymentService {
    *
    * @remarks
    * Supports capturing the total or a partial amount multiple times, as allowed by Stripe.
+   * Partial captures are only allowed when STRIPE_ENABLE_MULTI_OPERATIONS is enabled.
    *
    * @param {CapturePaymentRequest} request - Information about the ct payment and the amount.
    * @returns Promise with data containing operation status and PSP reference
    */
   public async capturePayment(request: CapturePaymentRequest): Promise<PaymentProviderModificationResponse> {
     try {
+      const config = getConfig();
       const paymentIntentId = request.payment.interfaceId as string;
       const amountToBeCaptured = request.amount.centAmount;
       const stripePaymentIntent: Stripe.PaymentIntent = await stripeApi().paymentIntents.retrieve(paymentIntentId);
@@ -182,11 +184,25 @@ export class StripePaymentService extends AbstractPaymentService {
       const cartTotalAmount = request.payment.amountPlanned.centAmount;
       const isPartialCapture = stripePaymentIntent.amount_received + amountToBeCaptured < cartTotalAmount;
 
+      // Check if partial capture is attempted without multicapture enabled
+      if (isPartialCapture && !config.stripeEnableMultiOperations) {
+        log.error('Partial capture attempted without STRIPE_ENABLE_MULTI_OPERATIONS enabled', {
+          paymentId: paymentIntentId,
+          amountToBeCaptured,
+          amountReceived: stripePaymentIntent.amount_received,
+          cartTotalAmount,
+        });
+        throw new Error(
+          'Partial captures require STRIPE_ENABLE_MULTI_OPERATIONS=true and multicapture support in your Stripe account',
+        );
+      }
+
       const response = await stripeApi().paymentIntents.capture(paymentIntentId, {
         amount_to_capture: amountToBeCaptured,
-        ...(isPartialCapture && {
-          final_capture: false,
-        }),
+        ...(isPartialCapture &&
+          config.stripeEnableMultiOperations && {
+            final_capture: false,
+          }),
       });
 
       log.info(`Payment modification completed.`, {
@@ -195,6 +211,7 @@ export class StripePaymentService extends AbstractPaymentService {
         result: PaymentModificationStatus.APPROVED,
         trackingId: response.id,
         isPartialCapture: isPartialCapture,
+        multiOperationsEnabled: config.stripeEnableMultiOperations,
       });
 
       return {
@@ -241,13 +258,37 @@ export class StripePaymentService extends AbstractPaymentService {
   /**
    * Refund payment in Stripe.
    *
+   * @remarks
+   * Creates a refund in Stripe. When STRIPE_ENABLE_MULTI_OPERATIONS is disabled,
+   * webhook-based refund tracking may be limited. Enable the feature flag for
+   * full multirefund support.
+   *
    * @param {RefundPaymentRequest} request - contains amount and {@link https://docs.commercetools.com/api/projects/payments | Payment } defined in composable commerce
    * @returns Promise with mocking data containing operation status and PSP reference
    */
   public async refundPayment(request: RefundPaymentRequest): Promise<PaymentProviderModificationResponse> {
     try {
+      const config = getConfig();
       const paymentIntentId = request.payment.interfaceId as string;
       const amount = request.amount.centAmount;
+
+      // Check if there are existing successful refunds
+      const existingRefunds = this.ctPaymentService.hasTransactionInState({
+        payment: request.payment,
+        transactionType: 'Refund',
+        states: ['Success'],
+      });
+
+      // Warn if multiple refunds attempted without feature enabled
+      if (existingRefunds && !config.stripeEnableMultiOperations) {
+        log.warn('Multiple refunds attempted without STRIPE_ENABLE_MULTI_OPERATIONS enabled', {
+          paymentId: request.payment.id,
+          paymentIntentId,
+          amount,
+          note: 'Webhook-based refund tracking may not work properly. Consider enabling STRIPE_ENABLE_MULTI_OPERATIONS.',
+        });
+      }
+
       const response = await stripeApi().refunds.create({
         payment_intent: paymentIntentId,
         amount: amount,
@@ -258,6 +299,8 @@ export class StripePaymentService extends AbstractPaymentService {
         action: PaymentTransactions.REFUND,
         result: PaymentModificationStatus.APPROVED,
         trackingId: response.id,
+        multiOperationsEnabled: config.stripeEnableMultiOperations,
+        isMultipleRefund: existingRefunds,
       });
 
       return { outcome: PaymentModificationStatus.RECEIVED, pspReference: response.id };
