@@ -460,6 +460,168 @@ export STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true  # Enable automatic price syn
 export STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=false  # Use default post-payment price updates
 ```
 
+## Environment Variables Reference
+
+This section provides a comprehensive reference for all environment variables used by the processor.
+
+### Required Variables
+
+#### commercetools Configuration
+- **`CTP_PROJECT_KEY`**: Your commercetools project key
+- **`CTP_CLIENT_ID`**: commercetools API client ID with required scopes
+- **`CTP_CLIENT_SECRET`**: commercetools API client secret
+- **`CTP_API_URL`**: commercetools API URL (default: `https://api.europe-west1.gcp.commercetools.com`)
+- **`CTP_AUTH_URL`**: commercetools Auth URL (default: `https://auth.europe-west1.gcp.commercetools.com`)
+- **`CTP_SESSION_URL`**: commercetools Session URL (default: `https://session.europe-west1.gcp.commercetools.com/`)
+- **`CTP_JWKS_URL`**: JWKs URL for JWT validation (default: `https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json`)
+- **`CTP_JWT_ISSUER`**: JWT Issuer for validation (default: `https://mc-api.europe-west1.gcp.commercetools.com`)
+
+#### Stripe Configuration
+- **`STRIPE_SECRET_KEY`**: Stripe secret key (format: `sk_***`)
+- **`STRIPE_PUBLISHABLE_KEY`**: Stripe publishable key (format: `pk_***`)
+- **`STRIPE_WEBHOOK_SIGNING_SECRET`**: Stripe webhook signing secret (format: `whsec_***`)
+
+### Optional Variables
+
+#### Stripe Payment Configuration
+- **`STRIPE_WEBHOOK_ID`**: Webhook endpoint ID (format: `we_***`) - Used by post-deploy script
+- **`STRIPE_CAPTURE_METHOD`**: Payment capture method
+  - Values: `automatic` | `manual` | `automatic_async`
+  - Default: `automatic`
+  - Note: Set to `manual` for multicapture support
+- **`STRIPE_APPEARANCE_PAYMENT_ELEMENT`**: JSON string for Payment Element theming
+  - Format: Escaped JSON (e.g., `{\"theme\":\"night\",\"labels\":\"floating\"}`)
+  - See: [Stripe Element Appearance API](https://docs.stripe.com/elements/appearance-api)
+- **`STRIPE_APPEARANCE_EXPRESS_CHECKOUT`**: JSON string for Express Checkout theming
+  - Format: Escaped JSON
+  - See: [Stripe Element Appearance API](https://docs.stripe.com/elements/appearance-api)
+- **`STRIPE_LAYOUT`**: JSON string for Payment Element layout
+  - Default: `{"type":"tabs","defaultCollapsed":false}`
+  - See: [Stripe Payment Element Layout](https://docs.stripe.com/payments/payment-element#layout)
+- **`STRIPE_SAVED_PAYMENT_METHODS_CONFIG`**: JSON configuration for saved payment methods
+  - Default: `{"payment_method_save":"disabled"}`
+  - See: [Stripe Customer Sessions](https://docs.stripe.com/api/customer_sessions/object#customer_session_object-components-payment_element-features)
+- **`STRIPE_COLLECT_BILLING_ADDRESS`**: Billing address collection mode
+  - Values: `auto` | `never` | `if_required`
+  - Default: `auto`
+  - See: [Collecting Billing Address](https://docs.stripe.com/payments/payment-element#collecting-billing-address)
+- **`STRIPE_API_VERSION`**: Stripe API version
+  - Default: `2025-02-24.acacia`
+- **`STRIPE_APPLE_PAY_WELL_KNOWN`**: Domain association file content for Apple Pay
+  - See: [Apple Pay Domain Association](https://stripe.com/files/apple-pay/apple-developer-merchantid-domain-association)
+
+#### Advanced Payment Features
+- **`STRIPE_ENABLE_MULTI_OPERATIONS`**: Enable multicapture and multirefund support
+  - Values: `true` | `false`
+  - Default: `false` (disabled)
+  - **When enabled**: Activates both multicapture and multirefund features
+  - **When disabled**: Standard single-capture payment processing
+  - **Requirements**:
+    - Your Stripe account must have multicapture enabled
+    - Set `STRIPE_CAPTURE_METHOD=manual` for multicapture to work
+  - See: [Multiple Refunds and Multicapture Documentation](../docs/multiple-refunds-multicapture.md)
+
+#### Subscription Management
+- **`STRIPE_SUBSCRIPTION_PAYMENT_HANDLING`**: Subscription payment handling strategy
+  - Values: `createOrder` | `addPaymentToOrder`
+  - Default: `createOrder`
+  - **`createOrder`**: Creates a new order for each subscription payment (recommended)
+  - **`addPaymentToOrder`**: Adds payment to existing order
+- **`STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED`**: Enable automatic subscription price synchronization
+  - Values: `true` | `false`
+  - Default: `false`
+  - **When enabled**: Subscription prices sync with commercetools before each invoice
+  - **When disabled**: Price updates apply to next billing cycle
+  - See: [Subscription Price Synchronization Documentation](./docs/subscription-price-synchronization.md)
+
+#### General Configuration
+- **`MERCHANT_RETURN_URL`**: Return URL for payment confirmation
+  - Used for Buy Now Pay Later (BNPL) payment methods
+  - Format: Full URL (e.g., `https://your-store.com/payment/return`)
+- **`HEALTH_CHECK_TIMEOUT`**: Health check timeout in milliseconds
+  - Default: `5000`
+- **`LOGGER_LEVEL`**: Logging level
+  - Values: `error` | `warn` | `info` | `debug`
+  - Default: `info`
+- **`NODE_ENV`**: Node environment
+  - Values: `development` | `production` | `test`
+  - Default: `production`
+
+#### MCP (Model Context Protocol) Configuration
+- **`ENABLE_MCP`**: Enable MCP debugging tools
+  - Values: `true` | `false`
+  - Default: `false`
+  - Note: Only works when `NODE_ENV=development`
+- **`MCP_STRIPE_SECRET_KEY`**: Optional separate Stripe secret key for MCP debugging
+  - Falls back to `STRIPE_SECRET_KEY` if not provided
+
+### Configuration Examples
+
+#### Basic Setup
+```bash
+# Required commercetools configuration
+CTP_PROJECT_KEY=your-project-key
+CTP_CLIENT_ID=your-client-id
+CTP_CLIENT_SECRET=your-client-secret
+
+# Required Stripe configuration
+STRIPE_SECRET_KEY=sk_test_***
+STRIPE_PUBLISHABLE_KEY=pk_test_***
+STRIPE_WEBHOOK_SIGNING_SECRET=whsec_***
+```
+
+#### With Multicapture Support
+```bash
+# Enable multicapture and multirefund
+STRIPE_ENABLE_MULTI_OPERATIONS=true
+STRIPE_CAPTURE_METHOD=manual
+
+# Required Stripe configuration
+STRIPE_SECRET_KEY=sk_live_***
+STRIPE_PUBLISHABLE_KEY=pk_live_***
+STRIPE_WEBHOOK_SIGNING_SECRET=whsec_***
+```
+
+#### With Subscription Features
+```bash
+# Subscription configuration
+STRIPE_SUBSCRIPTION_PAYMENT_HANDLING=createOrder
+STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true
+
+# Standard Stripe configuration
+STRIPE_SECRET_KEY=sk_live_***
+STRIPE_PUBLISHABLE_KEY=pk_live_***
+STRIPE_WEBHOOK_SIGNING_SECRET=whsec_***
+```
+
+#### Full Production Configuration
+```bash
+# commercetools
+CTP_PROJECT_KEY=production-project
+CTP_CLIENT_ID=production-client-id
+CTP_CLIENT_SECRET=production-secret
+CTP_API_URL=https://api.europe-west1.gcp.commercetools.com
+CTP_AUTH_URL=https://auth.europe-west1.gcp.commercetools.com
+CTP_SESSION_URL=https://session.europe-west1.gcp.commercetools.com/
+
+# Stripe
+STRIPE_SECRET_KEY=sk_live_***
+STRIPE_PUBLISHABLE_KEY=pk_live_***
+STRIPE_WEBHOOK_SIGNING_SECRET=whsec_***
+STRIPE_CAPTURE_METHOD=manual
+STRIPE_COLLECT_BILLING_ADDRESS=auto
+
+# Advanced Features
+STRIPE_ENABLE_MULTI_OPERATIONS=true
+STRIPE_SUBSCRIPTION_PAYMENT_HANDLING=createOrder
+STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true
+
+# General
+MERCHANT_RETURN_URL=https://your-store.com/payment/return
+LOGGER_LEVEL=info
+NODE_ENV=production
+```
+
 ## Authentication
 
 Some of the services have authentication mechanism.

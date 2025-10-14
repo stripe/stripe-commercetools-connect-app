@@ -57,7 +57,7 @@ jest.mock('../../src/libs/logger/index');
 interface FlexibleConfig {
   [key: string]: string | number | boolean | Config.PaymentFeatures;
 }
-function setupMockConfig(keysAndValues: Record<string, string>) {
+function setupMockConfig(keysAndValues: Record<string, string | boolean>) {
   const mockConfig: FlexibleConfig = {};
   Object.keys(keysAndValues).forEach((key) => {
     mockConfig[key] = keysAndValues[key];
@@ -204,6 +204,7 @@ describe('Stripe Payment APIs', () => {
         stripeSecretKey: 'stripeSecretKey',
         stripeWebhookSigningSecret: 'stripeWebhookSigningSecret',
         authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
+        stripeEnableMultiOperations: true,
       });
 
       // Set mocked functions to Stripe and spyOn to set the result expected
@@ -230,6 +231,7 @@ describe('Stripe Payment APIs', () => {
         stripeSecretKey: 'stripeSecretKey',
         stripeWebhookSigningSecret: 'stripeWebhookSigningSecret',
         authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
+        stripeEnableMultiOperations: true,
       });
 
       const mockChargeUpdatedEvent: Stripe.Event = {

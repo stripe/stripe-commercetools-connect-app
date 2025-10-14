@@ -21,7 +21,7 @@ import {
   PaymentModificationStatus,
 } from '../dtos/operations/payment-intents.dto';
 import { StripeEvent, StripeSubscriptionEvent } from '../services/types/stripe-payment.type';
-import { isFromSubscriptionInvoice, isEventRefund } from '../utils';
+import { isFromSubscriptionInvoice } from '../utils';
 import { StripeSubscriptionService } from '../services/stripe-subscription.service';
 
 type PaymentRoutesOptions = {
@@ -130,12 +130,20 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
           }
           break;
         case StripeEvent.CHARGE__UPDATED:
-          log.info(`Processing Stripe multicapture event: ${event.type}`);
-          await opts.paymentService.processStripeEventMultipleCaptured(event);
+          if (getConfig().stripeEnableMultiOperations) {
+            log.info(`Processing Stripe multicapture event: ${event.type}`);
+            await opts.paymentService.processStripeEventMultipleCaptured(event);
+          } else {
+            log.info(`Multi-operations disabled, skipping multicapture: ${event.type}`);
+          }
           break;
         case StripeEvent.CHARGE__REFUNDED:
-          log.info(`Processing Stripe refund event: ${event.type}`);
-          await opts.paymentService.processStripeEventRefunded(event);
+          if (getConfig().stripeEnableMultiOperations) {
+            log.info(`Processing Stripe multirefund event: ${event.type}`);
+            await opts.paymentService.processStripeEventRefunded(event);
+          } else {
+            log.info(`Multi-operations disabled, skipping multirefund: ${event.type}`);
+          }
           break;
         case StripeSubscriptionEvent.INVOICE_PAID:
           log.info(`Processing Stripe Subscription event: ${event.type}`);

@@ -351,7 +351,9 @@ export class StripePaymentService extends AbstractPaymentService {
           metadata: this.paymentCreationService.getPaymentMetadata(cart),
           payment_method_options: {
             card: {
-              request_multicapture: 'if_available',
+              ...(config.stripeEnableMultiOperations && {
+                request_multicapture: 'if_available',
+              }),
             },
           },
           /*...(config.stripeCollectBillingAddress === 'auto' && {

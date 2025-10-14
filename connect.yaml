@@ -66,6 +66,9 @@ deployAs:
         - key: STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED
           description: Enable automatic price synchronization for subscriptions (true|false). When true, prices are synchronized before invoice creation. When false, prices are updated after payment for next billing cycle.
           default: 'false'
+        - key: STRIPE_ENABLE_MULTI_OPERATIONS
+          description: Enable multicapture and multirefund support (true|false). When enabled, allows multiple partial captures and multiple refunds on payments. IMPORTANT - Requires multicapture to be enabled in your Stripe account.
+          default: 'false'
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
           description: commercetools client secret.

@@ -6,7 +6,71 @@ This document summarizes the recent architectural improvements and enhancements 
 
 ## Key Improvements
 
-### 1. Refactored Price Synchronization Configuration (Breaking Change)
+### 1. Multicapture and Multirefund Opt-In Feature (Configuration Change)
+
+The connector now provides opt-in support for advanced multicapture and multirefund features, ensuring backward compatibility for merchants without multicapture support in their Stripe accounts.
+
+#### Feature Overview
+- **New Environment Variable**: `STRIPE_ENABLE_MULTI_OPERATIONS` (default: `false`)
+- **Purpose**: Enable/disable multicapture and multirefund features
+- **Backward Compatible**: Features are disabled by default
+
+#### Configuration Details
+- **When disabled (default)**:
+  - Standard single-capture payment processing
+  - `charge.updated` and `charge.refunded` webhook events are gracefully skipped
+  - No `request_multicapture` flag set on payment intents
+  - Ensures compatibility with Stripe accounts without multicapture support
+
+- **When enabled** (`STRIPE_ENABLE_MULTI_OPERATIONS=true`):
+  - Multicapture: `request_multicapture: 'if_available'` set on payment intents
+  - Multirefund: `charge.refunded` webhook events are processed
+  - `charge.updated` webhook events processed for multicapture scenarios
+  - Creates incremental Charge and Refund transactions in commercetools
+
+#### Prerequisites for Enabling
+Before setting `STRIPE_ENABLE_MULTI_OPERATIONS=true`, ensure:
+1. **Stripe Account Support**: Multicapture must be enabled in your Stripe account
+2. **Manual Capture Mode**: Set `STRIPE_CAPTURE_METHOD=manual`
+3. **Webhook Configuration**: Webhook endpoint includes `charge.updated` and `charge.refunded` events
+
+#### Technical Implementation
+The feature uses conditional processing in webhook routing:
+- **File**: `processor/src/routes/stripe-payment.route.ts`
+- **Mechanism**: Checks `getConfig().stripeEnableMultiOperations` before processing events
+- **Logging**: Clear log messages when events are skipped due to disabled features
+- **Payment Intents**: Conditionally sets multicapture flag in payment creation
+
+#### Key Methods Updated
+- `createPaymentForCart()`: Conditionally sets `request_multicapture` on payment intents
+- `processStripeEventMultipleCaptured()`: Only invoked when feature enabled
+- `processStripeEventRefunded()`: Only invoked when feature enabled
+
+#### Benefits
+- **Graceful Degradation**: Merchants without multicapture can continue using the connector without issues
+- **Explicit Opt-In**: Merchants must explicitly enable advanced features
+- **Clear Communication**: Log messages indicate when events are skipped
+- **No Breaking Changes**: Existing merchants experience no disruption
+
+#### Configuration Example
+```bash
+# For merchants WITH multicapture support in Stripe account
+STRIPE_ENABLE_MULTI_OPERATIONS=true
+STRIPE_CAPTURE_METHOD=manual
+
+# For merchants WITHOUT multicapture support (or default behavior)
+# STRIPE_ENABLE_MULTI_OPERATIONS=false  # or leave unset
+STRIPE_CAPTURE_METHOD=automatic
+```
+
+#### Documentation
+See `docs/multiple-refunds-multicapture.md` for comprehensive documentation including:
+- Detailed configuration guide
+- Webhook event handling
+- Upgrade paths for both merchant types
+- Testing procedures
+
+### 2. Refactored Price Synchronization Configuration (Breaking Change)
 
 The connector has been refactored to separate price synchronization from payment handling strategy, providing clearer configuration options and better separation of concerns.
 
@@ -87,7 +151,7 @@ The method follows this workflow:
 - **Error Handling**: Comprehensive error messages for missing products, variants, or prices
 - **Performance**: Optimized for minimal API calls and maximum reliability
 
-### 2. Enhanced Subscription Service Architecture
+### 4. Enhanced Subscription Service Architecture
 
 The subscription service has undergone major architectural improvements with better separation of concerns and enhanced maintainability.
 
@@ -99,7 +163,7 @@ The subscription service has undergone major architectural improvements with bet
   - `getProductMasterPrice(productId)`: Gets current price from product master variant
 - **Features**: Enhanced error handling, comprehensive logging, expanded price data support
 
-### 2. Comprehensive Testing Infrastructure Restructuring
+### 5. Comprehensive Testing Infrastructure Restructuring
 
 The subscription service testing has been completely restructured for better maintainability and comprehensive coverage.
 
@@ -144,7 +208,7 @@ The subscription service testing has been completely restructured for better mai
 - **Purpose**: Comprehensive configuration validation and testing
 - **Features**: Environment variable testing, type safety validation, default value testing
 
-### 3. Enhanced Mock Data Management
+### 6. Enhanced Mock Data Management
 
 Improved mock data structures for better test reliability and realistic testing scenarios:
 
@@ -153,7 +217,7 @@ Improved mock data structures for better test reliability and realistic testing 
 - **Comprehensive Subscription Data**: Enhanced subscription mock data for various scenarios
 - **Better Payment Results**: Improved mock payment results for testing different outcomes
 
-### 4. Technical Improvements
+### 7. Technical Improvements
 
 #### Better Error Handling
 - Comprehensive error management throughout the subscription service
