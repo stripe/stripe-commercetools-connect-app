@@ -26,7 +26,7 @@ This repository provides a commercetools [connect](https://docs.commercetools.co
 - **Attribute Name Standardization**: All subscription-related product type attributes now use the `stripeConnector_` prefix for better organization and consistency. The system automatically handles the transformation between prefixed attribute names and internal field names. [Learn more](./docs/attribute-name-standardization.md).
 - **Enhanced Subscription Management**: Comprehensive subscription update capabilities including product variant switching, price updates, and configuration changes. The new `updateSubscription` method provides seamless subscription management while maintaining data consistency. [Learn more](./docs/subscription-price-synchronization.md).
 - **Enhanced Payment Intent Error Handling**: Improved error management for payment intent statuses including `requires_action` and `payment_failed` with structured error objects for better debugging.
-- **Multiple Refunds and Multicapture Support**: Advanced payment processing capabilities including multiple partial captures and accurate refund tracking using Stripe API integration. [Learn more](./docs/multiple-refunds-multicapture.md).
+- **Multiple Refunds and Multicapture Support (Opt-in)**: Advanced payment processing capabilities including multiple partial captures and accurate refund tracking using Stripe API integration. This feature is **disabled by default** and must be explicitly enabled via `STRIPE_ENABLE_MULTI_OPERATIONS=true`. Requires multicapture enabled in your Stripe account and manual capture mode. [Learn more](./docs/multiple-refunds-multicapture.md).
 - Provides a subscription management API via the commercetools connector, enabling Stripe subscription operations directly through commercetools API endpoints.
 - Customers can update their shipping and billing addresses directly within the Stripe Express Checkout. When an address is changed, the connector automatically fetches the latest shipping rates from commercetools and updates the cart to reflect the new information. [See Details](README.md#sequence-diagrams-for-the-payment-connector)
 
@@ -136,15 +136,24 @@ Each diagram details the interactions and steps involved in processing the respe
 
 ## Recent Updates and Improvements
 
-### Multiple Refunds and Multicapture Implementation (Latest)
+### Multiple Refunds and Multicapture Implementation (Latest) - OPT-IN FEATURE
 
-The payment processing system has been significantly enhanced with advanced multicapture and refund capabilities:
+The payment processing system has been significantly enhanced with advanced multicapture and refund capabilities. **These features are opt-in and disabled by default** to ensure backward compatibility.
 
-#### 🚀 New Features
+#### ⚙️ Configuration Required
+- **Environment Variable**: `STRIPE_ENABLE_MULTI_OPERATIONS=true` (default: `false`)
+- **Prerequisites**:
+  - Multicapture must be enabled in your Stripe account
+  - Set `STRIPE_CAPTURE_METHOD=manual`
+  - Webhook endpoint must include `charge.updated` and `charge.refunded` events
+- **Default Behavior**: When disabled, webhook events are gracefully skipped with logging
+- **Backward Compatible**: Existing merchants experience no disruption
+
+#### 🚀 New Features (When Enabled)
 - **Multicapture Support**: Enhanced payment capture functionality to support multiple partial captures on the same payment intent
 - **Advanced Refund Processing**: New refund handling that fetches accurate refund details directly from Stripe API
 - **Incremental Capture Tracking**: Sophisticated tracking of incremental captured amounts using Stripe's previous attributes
-- **Enhanced Webhook Routing**: Dedicated event handlers for `charge.updated` and `charge.refunded` events
+- **Conditional Webhook Routing**: Dedicated event handlers for `charge.updated` and `charge.refunded` events that only process when feature is enabled
 - **Balance Transaction Tracking**: Improved PSP reference tracking using Stripe balance transaction IDs
 
 #### 🔧 Technical Improvements
@@ -232,10 +241,10 @@ The following webhooks are currently supported, and the payment transactions in 
 - **payment_intent.succeeded**: Creates a payment transaction Charge: Success.
 - **payment_intent.requires_action**: Logs the information in the connector app inside the Processor logs.
 - **payment_intent.payment_failed**: Modify the payment transaction Authorization to Failure.
-- **charge.refunded**: Creates payment transactions Refund: Success and Chargeback: Success with accurate refund amounts fetched from Stripe API.
+- **charge.refunded**: Creates payment transactions Refund: Success and Chargeback: Success with accurate refund amounts fetched from Stripe API. **Note**: Only processed when `STRIPE_ENABLE_MULTI_OPERATIONS=true`; gracefully skipped when disabled.
 - **charge.succeeded**: Create the payment transaction to 'Authorization:Success' if charge is not captured, and update the payment method type that was used to pay.
 - **charge.captured**: Logs the information in the connector app inside the Processor logs.
-- **charge.updated**: Handles multicapture scenarios by creating Charge: Success transactions with incremental captured amounts.
+- **charge.updated**: Handles multicapture scenarios by creating Charge: Success transactions with incremental captured amounts. **Note**: Only processed when `STRIPE_ENABLE_MULTI_OPERATIONS=true`; gracefully skipped when disabled.
 - **invoice.paid**: If payment charge is pending, we update the payment transaction to Charge:Success. If charge is not pending, we update the payment transaction to Authorization:Success and create a payment transaction Charge:Success.
 - **invoice.payment_failed**: If payment charge is pending, we update the payment transaction to Charge:Failure. If charge is not pending, we update the payment transaction to Authorization:Failure and create a payment transaction Charge:Failure.
 - **invoice.upcoming**: Handles upcoming invoice events for subscription payments, supporting the new subscription payment handling strategy.
@@ -252,7 +261,7 @@ Before installing the connector, you must create a Stripe account and obtain the
 2. **STRIPE_CAPTURE_METHOD**: Configuration that enables the capture method selected by the user. The capture method controls when Stripe will capture the funds from the customer's account. Possible enum values:
    - `automatic`: Stripe automatically captures funds when the customer authorizes the Payment.
    - `automatic_async`: (Default) Stripe asynchronously captures funds when the customer authorizes the Payment. Recommended over `capture_method=automatic` due to improved latency. Read the [integration guide](https://docs.stripe.com/elements/appearance-api) for more information.
-   - `manual`: Places a hold on the funds when the customer authorizes the Payment but doesn't capture the funds until later. (Not all payment methods support this.)
+   - `manual`: Places a hold on the funds when the customer authorizes the Payment but doesn't capture the funds until later. (Not all payment methods support this.) **Required for multicapture support** - must be set to `manual` when `STRIPE_ENABLE_MULTI_OPERATIONS=true`.
 3. **STRIPE_APPEARANCE_PAYMENT_ELEMENT**: This configuration enables the theming for the payment element component. The value needs to be a valid stringified JSON. More information about the properties can be found [here](https://docs.stripe.com/elements/appearance-api).
 ```
 //stringified, eg.
@@ -419,6 +428,9 @@ deployAs:
         - key: STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED
           description: Enable automatic price synchronization for subscriptions (true|false).
           default: false
+        - key: STRIPE_ENABLE_MULTI_OPERATIONS
+          description: Enable multicapture and multirefund support (true|false). When enabled, allows multiple partial captures and multiple refunds on payments. IMPORTANT - Requires multicapture to be enabled in your Stripe account.
+          default: 'false'
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
           description: commercetools client secret.
@@ -460,9 +472,14 @@ Here, you can see the details about various variables in the configuration
 - `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING`: Defines the strategy for handling subscription payments. Options are:
   - `createOrder` (creates a new order for each subscription payment - default)
   - `addPaymentToOrder` (adds payment to existing order)
-- `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED`: Enables automatic price synchronization for subscriptions. 
+- `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED`: Enables automatic price synchronization for subscriptions.
   - `true`: Subscription prices are automatically synchronized with current commercetools product prices **before** each invoice is created via `invoice.upcoming` webhook events (price changes take effect in current billing cycle)
   - `false` (default): Price updates happen **after** invoice payment via `createOrder` method (price changes take effect in next billing cycle)
+- `STRIPE_ENABLE_MULTI_OPERATIONS`: **Opt-in Feature** - Enables multicapture and multirefund support.
+  - `true`: Enables multiple partial captures and multiple refunds on payments. Sets `request_multicapture: 'if_available'` on payment intents. Processes `charge.updated` and `charge.refunded` webhook events.
+  - `false` (default): Standard single-capture payment processing. Webhook events are gracefully skipped with informative logging.
+  - **Prerequisites**: Requires multicapture enabled in your Stripe account AND `STRIPE_CAPTURE_METHOD=manual`
+  - **See**: [Multiple Refunds and Multicapture Documentation](./docs/multiple-refunds-multicapture.md) for detailed configuration
 
 ## Development
 

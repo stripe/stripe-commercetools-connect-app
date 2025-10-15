@@ -57,7 +57,7 @@ jest.mock('../../src/libs/logger/index');
 interface FlexibleConfig {
   [key: string]: string | number | boolean | Config.PaymentFeatures;
 }
-function setupMockConfig(keysAndValues: Record<string, string>) {
+function setupMockConfig(keysAndValues: Record<string, string | boolean>) {
   const mockConfig: FlexibleConfig = {};
   Object.keys(keysAndValues).forEach((key) => {
     mockConfig[key] = keysAndValues[key];
@@ -199,11 +199,12 @@ describe('Stripe Payment APIs', () => {
       expect(spiedPaymentService.processStripeEvent).toHaveBeenCalledTimes(1);
     });
 
-    test('it should handle a charge.refunded event gracefully.', async () => {
+    test('it should handle a charge.refunded event gracefully with enhanced multirefund tracking.', async () => {
       setupMockConfig({
         stripeSecretKey: 'stripeSecretKey',
         stripeWebhookSigningSecret: 'stripeWebhookSigningSecret',
         authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
+        stripeEnableMultiOperations: true,
       });
 
       // Set mocked functions to Stripe and spyOn to set the result expected
@@ -225,11 +226,40 @@ describe('Stripe Payment APIs', () => {
       expect(spiedPaymentService.processStripeEventRefunded).toHaveBeenCalled();
     });
 
-    test('it should handle a charge.updated event and route to multicapture handler.', async () => {
+    test('it should handle a charge.refunded event with basic tracking when multi-operations disabled.', async () => {
       setupMockConfig({
         stripeSecretKey: 'stripeSecretKey',
         stripeWebhookSigningSecret: 'stripeWebhookSigningSecret',
         authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
+        stripeEnableMultiOperations: false,
+      });
+
+      // Set mocked functions to Stripe and spyOn to set the result expected
+      Stripe.prototype.webhooks = { constructEvent: jest.fn() } as unknown as Stripe.Webhooks;
+      jest.spyOn(Stripe.prototype.webhooks, 'constructEvent').mockReturnValue(mockEvent__charge_refund_captured);
+      jest.spyOn(StripePaymentService.prototype, 'processStripeEvent').mockReturnValue(Promise.resolve());
+
+      //When
+      const response = await fastifyApp.inject({
+        method: 'POST',
+        url: `/stripe/webhooks`,
+        headers: {
+          'stripe-signature': 't=123123123,v1=gk2j34gk2j34g2k3j4',
+        },
+      });
+
+      //Then
+      expect(response.statusCode).toEqual(200);
+      expect(spiedPaymentService.processStripeEvent).toHaveBeenCalled();
+      expect(spiedPaymentService.processStripeEventRefunded).not.toHaveBeenCalled();
+    });
+
+    test('it should handle a charge.updated event and route to multicapture handler when enabled.', async () => {
+      setupMockConfig({
+        stripeSecretKey: 'stripeSecretKey',
+        stripeWebhookSigningSecret: 'stripeWebhookSigningSecret',
+        authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
+        stripeEnableMultiOperations: true,
       });
 
       const mockChargeUpdatedEvent: Stripe.Event = {
@@ -276,6 +306,60 @@ describe('Stripe Payment APIs', () => {
       //Then
       expect(response.statusCode).toEqual(200);
       expect(spiedPaymentService.processStripeEventMultipleCaptured).toHaveBeenCalled();
+    });
+
+    test('it should skip charge.updated event when multi-operations disabled.', async () => {
+      setupMockConfig({
+        stripeSecretKey: 'stripeSecretKey',
+        stripeWebhookSigningSecret: 'stripeWebhookSigningSecret',
+        authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
+        stripeEnableMultiOperations: false,
+      });
+
+      const mockChargeUpdatedEvent: Stripe.Event = {
+        id: 'evt_charge_updated',
+        object: 'event',
+        type: 'charge.updated',
+        created: Date.now(),
+        api_version: '2024-04-10',
+        livemode: false,
+        pending_webhooks: 0,
+        request: null,
+        data: {
+          object: {
+            id: 'ch_123',
+            object: 'charge',
+            amount_captured: 50000,
+            captured: true,
+            currency: 'usd',
+            balance_transaction: 'txn_123',
+            payment_intent: 'pi_123',
+          } as Stripe.Charge,
+          previous_attributes: {
+            amount_captured: 30000,
+          } as Partial<Stripe.Charge>,
+        },
+      } as Stripe.Event;
+
+      // Set mocked functions to Stripe and spyOn to set the result expected
+      Stripe.prototype.webhooks = { constructEvent: jest.fn() } as unknown as Stripe.Webhooks;
+      jest.spyOn(Stripe.prototype.webhooks, 'constructEvent').mockReturnValue(mockChargeUpdatedEvent);
+      jest
+        .spyOn(StripePaymentService.prototype, 'processStripeEventMultipleCaptured')
+        .mockReturnValue(Promise.resolve());
+
+      //When
+      const response = await fastifyApp.inject({
+        method: 'POST',
+        url: `/stripe/webhooks`,
+        headers: {
+          'stripe-signature': 't=123123123,v1=gk2j34gk2j34g2k3j4',
+        },
+      });
+
+      //Then
+      expect(response.statusCode).toEqual(200);
+      expect(spiedPaymentService.processStripeEventMultipleCaptured).not.toHaveBeenCalled();
     });
 
     test('it should handle a payment_intent.canceled event gracefully.', async () => {

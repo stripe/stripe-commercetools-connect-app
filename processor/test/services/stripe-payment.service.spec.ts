@@ -557,7 +557,7 @@ describe('stripe-payment.service', () => {
       expect(getPaymentMock).toHaveBeenCalled();
       expect(updatePaymentMock).toHaveBeenCalledTimes(0);
       expect(stripeApiMock).toHaveBeenCalled();
-      expect(mockHasTransactionInState).toHaveBeenCalledTimes(3);
+      expect(mockHasTransactionInState).toHaveBeenCalledTimes(4);
     });
 
     test('should reverse refund a payment rejected', async () => {
@@ -600,7 +600,7 @@ describe('stripe-payment.service', () => {
       expect(getPaymentMock).toHaveBeenCalled();
       expect(updatePaymentMock).toHaveBeenCalledTimes(0);
       expect(stripeApiMock).toHaveBeenCalled();
-      expect(mockHasTransactionInState).toHaveBeenCalledTimes(3);
+      expect(mockHasTransactionInState).toHaveBeenCalledTimes(4);
     });
   });
 

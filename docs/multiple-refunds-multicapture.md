@@ -153,25 +153,35 @@ public async processStripeEventRefunded(event: Stripe.Event): Promise<void> {
 
 ## Webhook Event Routing
 
-### Enhanced Event Handling
+### Conditional Event Handling
 
-The webhook routing has been simplified to always route events to their dedicated handlers:
+The webhook routing now uses conditional processing based on the `STRIPE_ENABLE_MULTI_OPERATIONS` configuration:
 
 ```typescript
 case StripeEvent.CHARGE__UPDATED:
-  // Always route to dedicated multicapture handler
-  log.info(`Processing Stripe multicapture event: ${event.type}`);
-  await opts.paymentService.processStripeEventMultipleCaptured(event);
+  if (getConfig().stripeEnableMultiOperations) {
+    log.info(`Processing Stripe multicapture event: ${event.type}`);
+    await opts.paymentService.processStripeEventMultipleCaptured(event);
+  } else {
+    log.info(`Multi-operations disabled, skipping multicapture: ${event.type}`);
+  }
   break;
 
 case StripeEvent.CHARGE__REFUNDED:
-  // Always route to dedicated refund handler
-  log.info(`Processing Stripe refund event: ${event.type}`);
-  await opts.paymentService.processStripeEventRefunded(event);
+  if (getConfig().stripeEnableMultiOperations) {
+    log.info(`Processing Stripe multirefund event: ${event.type}`);
+    await opts.paymentService.processStripeEventRefunded(event);
+  } else {
+    log.info(`Multi-operations disabled, skipping multirefund: ${event.type}`);
+  }
   break;
 ```
 
-**Note**: The subscription invoice checks have been removed to simplify the routing logic and ensure consistent processing of multicapture and refund events.
+**Benefits of Conditional Processing**:
+- **Backward Compatibility**: Ensures merchants without multicapture in their Stripe accounts can continue using the connector
+- **Explicit Opt-In**: Merchants must explicitly enable these features via environment variable
+- **Graceful Handling**: Webhook events are gracefully skipped when features are disabled
+- **Clear Logging**: Informative log messages indicate when events are skipped
 
 ### Event Type Support
 
@@ -231,16 +241,46 @@ await this.ctPaymentService.updatePayment({
 
 ## Configuration
 
-### Capture Method Configuration
+### Enabling Multicapture and Multirefund Features
 
-The connector now uses manual capture mode by default to enable multicapture functionality:
+**IMPORTANT**: Multicapture and multirefund features are now **opt-in** and must be explicitly enabled via environment variable configuration. This ensures backward compatibility with Stripe accounts that don't support these advanced features.
 
-```typescript
-// In config.ts
-stripeCaptureMethod: 'manual', // Hardcoded for multicapture support
+#### Environment Variable Configuration
+
+Set the following environment variable to enable both features:
+
+```bash
+# Enable multicapture and multirefund support
+STRIPE_ENABLE_MULTI_OPERATIONS=true
 ```
 
-This change ensures that all payments are created with manual capture, which is required for:
+**Default Behavior** (when not set or set to `false`):
+- Multicapture: Disabled - `request_multicapture` is not set on payment intents
+- Multirefund: Disabled - `charge.refunded` webhook events are skipped
+- Standard single-capture payment processing continues to work normally
+
+**When Enabled** (`STRIPE_ENABLE_MULTI_OPERATIONS=true`):
+- Multicapture: Enabled - `request_multicapture: 'if_available'` is set on payment intents
+- Multirefund: Enabled - `charge.refunded` webhook events are processed
+- `charge.updated` webhook events are processed for multicapture scenarios
+
+### Prerequisites
+
+Before enabling these features, ensure:
+1. **Stripe Account Support**: Your Stripe account has multicapture enabled
+2. **Manual Capture Mode**: Set `STRIPE_CAPTURE_METHOD=manual` for multicapture to work
+3. **Webhook Configuration**: Webhook endpoint includes `charge.updated` and `charge.refunded` events
+
+### Capture Method Configuration
+
+For multicapture to work, you must use manual capture mode:
+
+```bash
+# Required for multicapture support
+STRIPE_CAPTURE_METHOD=manual
+```
+
+This ensures that all payments are created with manual capture, which is required for:
 - Multiple partial captures on the same payment intent
 - Proper multicapture event handling
 - Accurate incremental capture tracking
@@ -252,7 +292,14 @@ The following environment variables are used for multicapture and refund support
 **Required Variables:**
 - **`STRIPE_SECRET_KEY`**: Required for API calls to fetch refund details
 - **`STRIPE_WEBHOOK_SIGNING_SECRET`**: Required for webhook signature verification
-- **`STRIPE_CAPTURE_METHOD`**: Controls capture behavior (now hardcoded to 'manual' for multicapture support)
+- **`STRIPE_CAPTURE_METHOD`**: Controls capture behavior (set to 'manual' for multicapture support)
+
+**Feature Control Variables:**
+- **`STRIPE_ENABLE_MULTI_OPERATIONS`**: Enable/disable multicapture and multirefund support (default: false)
+  - Values: `true` | `false`
+  - When `false` (default): Features are disabled for backward compatibility
+  - When `true`: Enables both multicapture and multirefund features
+  - **NOTE**: Requires multicapture to be enabled in your Stripe account
 
 **Optional Variables:**
 - **`STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED`**: Enable automatic subscription price synchronization (default: false)
@@ -261,12 +308,18 @@ The following environment variables are used for multicapture and refund support
 ### Webhook Configuration
 
 Ensure your Stripe webhook endpoint includes the following events:
-- `charge.updated` - For multicapture support (now always routed to multicapture handler)
-- `charge.refunded` - For refund processing (now always routed to refund handler)
+- `charge.updated` - For multicapture support (conditionally processed when `STRIPE_ENABLE_MULTI_OPERATIONS=true`)
+- `charge.refunded` - For refund processing (conditionally processed when `STRIPE_ENABLE_MULTI_OPERATIONS=true`)
 - `payment_intent.succeeded` - For successful payments
 - `payment_intent.canceled` - For canceled payments
 
-**Note**: The webhook routing has been simplified. `charge.updated` and `charge.refunded` events are now always processed by their respective handlers, regardless of whether they originate from subscription invoices.
+**Webhook Event Routing**:
+- When `STRIPE_ENABLE_MULTI_OPERATIONS=false` (default):
+  - `charge.updated` events are received but skipped (logged as "Multi-operations disabled, skipping multicapture")
+  - `charge.refunded` events are received but skipped (logged as "Multi-operations disabled, skipping multirefund")
+- When `STRIPE_ENABLE_MULTI_OPERATIONS=true`:
+  - `charge.updated` events are processed by the dedicated multicapture handler
+  - `charge.refunded` events are processed by the dedicated refund handler
 
 ## Testing
 
@@ -321,17 +374,44 @@ The implementation includes comprehensive error handling:
 
 ### Backward Compatibility
 
-All changes are backward compatible:
-- **Existing Functionality**: All existing payment processing continues to work
-- **Enhanced Capabilities**: New features are additive and don't break existing flows
-- **Configuration**: No configuration changes required
+All changes are fully backward compatible with **opt-in** configuration:
+- **Existing Functionality**: All existing payment processing continues to work without changes
+- **Default Behavior**: Features are disabled by default (`STRIPE_ENABLE_MULTI_OPERATIONS=false`)
+- **No Breaking Changes**: Merchants without multicapture support in Stripe accounts are not affected
+- **Graceful Handling**: Webhook events are gracefully skipped when features are disabled
+- **Enhanced Capabilities**: New features are additive and only activate when explicitly enabled
 
 ### Upgrade Path
 
+#### For Merchants WITHOUT Multicapture Support
+1. **Deploy Updated Code**: Deploy the updated connector
+2. **No Configuration Changes**: Leave `STRIPE_ENABLE_MULTI_OPERATIONS` unset or set to `false`
+3. **Verify Functionality**: Existing payment processing continues to work normally
+4. **Monitor Logs**: Check logs to confirm webhook events are being skipped appropriately
+
+#### For Merchants WITH Multicapture Support
 1. **Deploy Updated Code**: Deploy the updated connector with multicapture and refund support
-2. **Verify Webhook Events**: Ensure webhook endpoint includes `charge.updated` and `charge.refunded` events
-3. **Test Functionality**: Test multicapture and refund scenarios in your environment
-4. **Monitor Logs**: Monitor logs for any issues with the new functionality
+2. **Enable Feature**: Set `STRIPE_ENABLE_MULTI_OPERATIONS=true` in environment variables
+3. **Verify Webhook Events**: Ensure webhook endpoint includes `charge.updated` and `charge.refunded` events
+4. **Set Capture Method**: Ensure `STRIPE_CAPTURE_METHOD=manual` for multicapture to work
+5. **Test Functionality**: Test multicapture and refund scenarios in your environment
+6. **Monitor Logs**: Monitor logs for multicapture and refund processing confirmation
+
+### Configuration Example
+
+```bash
+# For merchants WITH multicapture support in Stripe account
+STRIPE_ENABLE_MULTI_OPERATIONS=true
+STRIPE_CAPTURE_METHOD=manual
+STRIPE_SECRET_KEY=sk_...
+STRIPE_WEBHOOK_SIGNING_SECRET=whsec_...
+
+# For merchants WITHOUT multicapture support (or default behavior)
+# STRIPE_ENABLE_MULTI_OPERATIONS=false  # or leave unset
+STRIPE_CAPTURE_METHOD=automatic  # or manual for single captures
+STRIPE_SECRET_KEY=sk_...
+STRIPE_WEBHOOK_SIGNING_SECRET=whsec_...
+```
 
 ## Best Practices
 

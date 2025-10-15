@@ -16,11 +16,14 @@ Overview of the connector's implementation architecture and design decisions.
 ## Feature Documentation
 
 ### [multiple-refunds-multicapture.md](./multiple-refunds-multicapture.md)
-**NEW**: Comprehensive guide to multiple refunds and multicapture support. Covers:
+**OPT-IN FEATURE**: Comprehensive guide to multiple refunds and multicapture support. Covers:
+- **Opt-in configuration**: Disabled by default via `STRIPE_ENABLE_MULTI_OPERATIONS` feature flag
 - Multicapture implementation and partial capture handling
 - Enhanced refund processing with Stripe API integration
-- Webhook event routing and transaction management
-- Configuration, testing, and troubleshooting
+- Webhook event routing and conditional processing
+- Configuration prerequisites and requirements
+- Testing, troubleshooting, and backward compatibility
+- **Prerequisites**: Requires multicapture enabled in Stripe account + manual capture mode
 
 ### [subscription-price-synchronization.md](./subscription-price-synchronization.md)
 **NEW**: Comprehensive guide to subscription price synchronization and the enhanced `updateSubscription` method. Covers:
