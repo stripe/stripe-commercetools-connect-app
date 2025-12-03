@@ -800,7 +800,7 @@ export class StripePaymentService extends AbstractPaymentService {
   }
 
   public async updateCartAddress(charge: Stripe.Charge, ctCart: Cart): Promise<Cart> {
-    if (!charge) {
+    if (!charge || !ctCart.shippingAddress || !ctCart.itemShippingAddresses) {
       return ctCart;
     }
     const { billing_details, shipping } = charge;
