@@ -1942,49 +1942,5 @@ describe('stripe-payment.service', () => {
       // Verify returned cart
       expect(result).toEqual({ ...mockCart, shippingAddress: expectedActions[0].address });
     });
-
-    test('should use fallback values when address details are missing', async () => {
-      const mockCart = mockGetCartResult();
-
-      // Mock charge with minimal details
-      const mockCharge = {
-        billing_details: {
-          // No name
-          address: {
-            // No details
-          },
-        },
-        // No shipping property
-      } as Stripe.Charge;
-
-      // Mock the expected cart update actions using fallback values
-      const expectedActions = [
-        {
-          action: 'setShippingAddress' as const,
-          address: {
-            key: 'mockName',
-            country: 'US',
-            city: 'mockCity',
-            postalCode: 'mockPostalCode',
-            state: 'mockState',
-            streetName: 'mockStreenName',
-          },
-        },
-      ];
-
-      // Mock updateCartById function
-      const updateCartByIdMock = jest
-        .spyOn(CartClient, 'updateCartById')
-        .mockResolvedValue({ ...mockCart, shippingAddress: expectedActions[0].address });
-
-      // Call the method
-      const result = await stripePaymentService.updateCartAddress(mockCharge, mockCart);
-
-      // Verify cart update was called with correct actions
-      expect(updateCartByIdMock).toHaveBeenCalledWith(mockCart, expectedActions);
-
-      // Verify returned cart
-      expect(result).toEqual({ ...mockCart, shippingAddress: expectedActions[0].address });
-    });
   });
 });

@@ -15,6 +15,8 @@ describe('CartClient testing', () => {
 
   describe('createOrderFromCart', () => {
     it('should create the order successfully', async () => {
+      const mockCart = mockGetCartResult();
+      jest.spyOn(paymentSDK.ctCartService, 'getCart').mockResolvedValue(mockCart);
       const executeMock = jest.fn().mockReturnValue(Promise.resolve({ body: orderMock }));
       const client = paymentSDK.ctAPI.client;
       client.orders = jest.fn(() => ({
@@ -22,7 +24,7 @@ describe('CartClient testing', () => {
           execute: executeMock,
         })),
       })) as never;
-      const result = await createOrderFromCart(mockGetCartResult());
+      const result = await createOrderFromCart(mockCart);
       expect(result).toEqual(orderMock);
     });
   });
