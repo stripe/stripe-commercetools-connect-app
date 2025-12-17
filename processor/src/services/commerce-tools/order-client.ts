@@ -4,6 +4,8 @@ import { paymentSDK } from '../../payment-sdk';
 const apiClient = paymentSDK.ctAPI.client;
 
 export const createOrderFromCart = async (cart: Cart) => {
+  const latestCart = await paymentSDK.ctCartService.getCart({ id: cart.id });
+
   const res = await apiClient
     .orders()
     .post({
@@ -14,7 +16,7 @@ export const createOrderFromCart = async (cart: Cart) => {
         },
         shipmentState: 'Pending',
         orderState: 'Open',
-        version: cart.version,
+        version: latestCart.version,
         paymentState: 'Paid',
       },
     })

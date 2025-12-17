@@ -803,27 +803,48 @@ export class StripePaymentService extends AbstractPaymentService {
     if (!charge) {
       return ctCart;
     }
+
     const { billing_details, shipping } = charge;
-    let billingAlias: Stripe.Charge.BillingDetails | Stripe.Charge.Shipping;
-    if (!shipping) {
-      billingAlias = billing_details;
-    } else {
-      billingAlias = shipping;
+
+    // Prioritize shipping over billing_details
+    const addressSource = shipping || billing_details;
+    const address = addressSource?.address;
+
+    // Verify if Stripe has a complete and valid address
+    const hasCompleteStripeAddress = !!(
+      address?.country &&
+      address?.state &&
+      address?.city &&
+      address?.postal_code &&
+      address?.line1
+    );
+
+    // If Stripe does not have a complete address, keep the cart's address
+    if (!hasCompleteStripeAddress) {
+      // If the cart already has an address, do not overwrite it with incomplete data
+      if (ctCart.shippingAddress?.country) {
+        return ctCart;
+      }
+      // If the cart also does not have an address, do nothing (avoid using mocks)
+      return ctCart;
     }
 
+    // Stripe has complete address → update the cart
     const actions: CartUpdateAction[] = [
       {
         action: 'setShippingAddress',
         address: {
-          key: billingAlias.name || 'mockName',
-          country: billingAlias.address?.country || 'US',
-          city: billingAlias.address?.city || 'mockCity',
-          postalCode: billingAlias.address?.postal_code || 'mockPostalCode',
-          state: billingAlias.address?.state || 'mockState',
-          streetName: billingAlias.address?.line1 || 'mockStreenName',
+          key: addressSource?.name ?? undefined,
+          country: address.country!,
+          city: address.city ?? undefined,
+          postalCode: address.postal_code ?? undefined,
+          state: address.state ?? undefined,
+          streetName: address.line1 ?? undefined,
+          streetNumber: address.line2 ?? undefined,
         },
       },
     ];
+
     return await updateCartById(ctCart, actions);
   }
 }
