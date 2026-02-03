@@ -146,6 +146,7 @@ export class StripePaymentService extends AbstractPaymentService {
    *
    * @remarks
    * Implementation to provide the mocking payment components supported by the processor.
+   * Note: PayPal is rendered within the paymentElement component, not as a separate type.
    *
    * @returns Promise with mocking data containing a list of supported payment components
    */

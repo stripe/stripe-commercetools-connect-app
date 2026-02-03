@@ -9,6 +9,8 @@ import { subscriptionRoutes } from '../../routes/stripe-subscription.route';
 import { StripeSubscriptionService } from '../../services/stripe-subscription.service';
 import { StripeShippingService } from '../../services/stripe-shipping.service';
 import { stripeShippingRoute } from '../../routes/stripe-shipping.route';
+import { PayPalPaymentService } from '../../services/paypal-payment.service';
+import { paypalPaymentRoutes } from '../../routes/paypal-payment.route';
 
 export default async function (server: FastifyInstance) {
   const stripeCustomerService = new StripeCustomerService(paymentSDK.ctCartService);
@@ -62,6 +64,17 @@ export default async function (server: FastifyInstance) {
 
   await server.register(stripeShippingRoute, {
     shippingMethodsService: stripeShippingService,
+    sessionHeaderAuthHook: paymentSDK.sessionHeaderAuthHookFn,
+  });
+
+  // PayPal routes
+  const paypalPaymentService = new PayPalPaymentService({
+    ctCartService: paymentSDK.ctCartService,
+    ctPaymentService: paymentSDK.ctPaymentService,
+  });
+
+  await server.register(paypalPaymentRoutes, {
+    paypalService: paypalPaymentService,
     sessionHeaderAuthHook: paymentSDK.sessionHeaderAuthHookFn,
   });
 }

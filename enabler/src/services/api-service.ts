@@ -10,6 +10,7 @@ import {
   SubscriptionResponseSchemaDTO,
 } from "../dtos/mock-payment.dto";
 import {ExpressCheckoutPartialAddress, ShippingRate} from "@stripe/stripe-js/dist/stripe-js/elements/express-checkout";
+import { PayPalConfig, PayPalCaptureResponse } from "./paypal-service";
 
 export interface ApiServiceProps {
   baseApi: string;
@@ -39,6 +40,9 @@ export interface ApiService {
   getShippingMethods: (data: ExpressCheckoutPartialAddress) => Promise<ShippingMethodsResponseSchemaDTO>;
   updateShippingRate: (data: ShippingRate) => Promise<ShippingMethodsResponseSchemaDTO>;
   removeShippingRate: () => Promise<ShippingMethodsResponseSchemaDTO>;
+  // PayPal methods
+  getPayPalConfig: () => Promise<PayPalConfig>;
+  capturePayPalOrder: (orderId: string) => Promise<PayPalCaptureResponse>;
 }
 
 export const apiService = ({
@@ -265,6 +269,40 @@ export const apiService = ({
     return await response.json();
   }
 
+  // PayPal methods
+  const getPayPalConfig = async (): Promise<PayPalConfig> => {
+    const apiUrl = `${baseApi}/paypal/config`;
+    const response = await fetch(apiUrl, {
+      method: "GET",
+      headers: getHeadersConfig(),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.warn(`Error getting PayPal config: ${error.message}`);
+      throw error;
+    }
+
+    return await response.json();
+  };
+
+  // Records the PayPal payment in commercetools after client-side capture
+  const capturePayPalOrder = async (orderId: string): Promise<PayPalCaptureResponse> => {
+    const apiUrl = `${baseApi}/paypal/orders/${orderId}/capture`;
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: getHeadersConfig(),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.warn(`Error capturing PayPal order: ${error.message}`);
+      throw error;
+    }
+
+    return await response.json();
+  };
+
   return {
     getHeadersConfig,
     getCustomerOptions,
@@ -277,6 +315,8 @@ export const apiService = ({
     confirmSubscriptionPayment,
     getShippingMethods,
     updateShippingRate,
-    removeShippingRate
+    removeShippingRate,
+    getPayPalConfig,
+    capturePayPalOrder,
   };
 };

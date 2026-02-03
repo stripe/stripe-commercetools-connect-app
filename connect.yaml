@@ -69,6 +69,11 @@ deployAs:
         - key: STRIPE_ENABLE_MULTI_OPERATIONS
           description: Enable multicapture and multirefund support (true|false). When enabled, allows multiple partial captures and multiple refunds on payments. IMPORTANT - Requires multicapture to be enabled in your Stripe account.
           default: 'false'
+        - key: PAYPAL_CLIENT_ID
+          description: PayPal REST API Client ID
+        - key: PAYPAL_ENVIRONMENT
+          description: PayPal environment (sandbox|live)
+          default: sandbox
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
           description: commercetools client secret.
@@ -82,3 +87,5 @@ deployAs:
         - key: STRIPE_WEBHOOK_SIGNING_SECRET
           description: Stripe Webhook signing secret  (example - whsec_*****).
           required: true
+        - key: PAYPAL_CLIENT_SECRET
+          description: PayPal REST API Client Secret
