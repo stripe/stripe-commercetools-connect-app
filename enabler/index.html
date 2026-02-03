@@ -95,12 +95,6 @@
             option.textContent = method.type;
             paymentMethodSelect.appendChild(option);
           });
-          paymentMethods.dropins.forEach((method) => {
-            const option = document.createElement("option");
-            option.value = `${method.type}`;
-            option.textContent = `dropin-${method.type}`;
-            paymentMethodSelect.appendChild(option);
-          });
         });
 
         document
@@ -113,10 +107,6 @@
             const paymentMethodSelect =
                     document.getElementById("paymentMethod");
             const selectedValue = paymentMethodSelect.value;
-            const selectedText = paymentMethodSelect.options[
-                    paymentMethodSelect.selectedIndex
-                    ].text;
-            const isDropin = selectedText.startsWith('dropin');
             //temporal stripe customer id
             const stripeCustomerId = "cus_Example";
 
@@ -134,14 +124,8 @@
               stripeCustomerId,
             });
 
-            let builder;
-
-            if(isDropin){
-              builder = await enabler.createDropinBuilder(selectedValue);
-            } else {
-              builder = await enabler.createComponentBuilder(selectedValue);
-            }
-            const component = await builder.build({
+            const builder = await enabler.createComponentBuilder(selectedValue);
+            const component = builder.build({
               showPayButton: !builder.componentHasSubmit,
               ...(builder.componentHasSubmit
                 ? {}
@@ -161,11 +145,11 @@
                   },
                 }),
             });
-            if (builder.componentHasSubmit) {
-              if (selectedValue === 'card' || selectedValue === 'purchaseorder' ) {
-                component.mount("#container--external");
-              }
+            // Mount the component
+            component.mount("#container--external");
 
+            if (builder.componentHasSubmit) {
+              // For paymentElement: add a custom submit button
               const customButton = document.createElement("button");
               customButton.textContent = "Pay with "+ selectedValue;
               customButton.className = "btn btn-lg btn-primary btn-block";
@@ -182,25 +166,8 @@
               document
                       .getElementById("container--internal")
                       .appendChild(customButton);
-            } else{
-              component.mount("#container--external");
-              const customButton = document.createElement("button");
-              customButton.textContent = "Pay with "+ selectedValue;
-              customButton.className = "btn btn-lg btn-primary btn-block";
-              customButton.addEventListener("click", () => {
-                const termsChecked =
-                        document.getElementById("termsCheckbox").checked;
-                if (!termsChecked) {
-                  event.preventDefault();
-                  alert("You must agree to the terms and conditions.");
-                  return;
-                }
-                component.submit();
-              });
-              document
-                      .getElementById("container--external")
-                      .appendChild(customButton);
             }
+            // For expressCheckout: no custom button needed, submit is handled via the element's confirm event
           });
       </script>
 

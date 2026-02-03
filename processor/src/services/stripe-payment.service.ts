@@ -151,12 +151,11 @@ export class StripePaymentService extends AbstractPaymentService {
    */
   public async getSupportedPaymentComponents(): Promise<SupportedPaymentComponentsSchemaDTO> {
     return {
-      dropins: [
-        {
-          type: 'embedded',
-        },
+      dropins: [],
+      components: [
+        { type: 'paymentElement' },
+        { type: 'expressCheckout' },
       ],
-      components: [],
     };
   }
 

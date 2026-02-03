@@ -1,12 +1,11 @@
 import {
-  DropinType,
   EnablerOptions,
   PaymentComponentBuilder,
-  PaymentDropinBuilder,
   PaymentEnabler,
   PaymentResult,
 } from "./payment-enabler";
-import {DropinEmbeddedBuilder} from "../dropin/dropin-embedded";
+import { PaymentElementBuilder } from "../components/payment-element";
+import { ExpressCheckoutBuilder } from "../components/express-checkout";
 import {
   Appearance,
   LayoutObject,
@@ -107,7 +106,10 @@ export class MockPaymentEnabler implements PaymentEnabler {
     type: string
   ): Promise<PaymentComponentBuilder | never> {
     const { baseOptions } = await this.setupData;
-    const supportedMethods = {};
+    const supportedMethods: Record<string, new (baseOptions: BaseOptions) => PaymentComponentBuilder> = {
+      paymentElement: PaymentElementBuilder,
+      expressCheckout: ExpressCheckoutBuilder,
+    };
 
     if (!Object.keys(supportedMethods).includes(type)) {
       throw new Error(
@@ -118,28 +120,6 @@ export class MockPaymentEnabler implements PaymentEnabler {
     }
 
     return new supportedMethods[type](baseOptions);
-  }
-
-  async createDropinBuilder(
-    type: DropinType
-  ): Promise<PaymentDropinBuilder | never> {
-    const setupData = await this.setupData;
-    if (!setupData) {
-      throw new Error("StripePaymentEnabler not initialized");
-    }
-    const supportedMethods = {
-      embedded: DropinEmbeddedBuilder,
-      // hpp: DropinHppBuilder,
-    };
-
-    if (!Object.keys(supportedMethods).includes(type)) {
-      throw new Error(
-        `Component type not supported: ${type}. Supported types: ${Object.keys(
-          supportedMethods
-        ).join(", ")}`
-      );
-    }
-    return new supportedMethods[type](setupData.baseOptions);
   }
 
   private static async getStripeSDK(configEnvResponse: ConfigResponseSchemaDTO): Promise<Stripe | null> {

@@ -152,8 +152,10 @@ describe('stripe-payment.service', () => {
   describe('method getSupportedPaymentComponents', () => {
     test('should return supported payment components successfully', async () => {
       const result: SupportedPaymentComponentsSchemaDTO = await paymentService.getSupportedPaymentComponents();
-      expect(result?.dropins).toHaveLength(1);
-      expect(result?.dropins[0]?.type).toStrictEqual('embedded');
+      expect(result?.dropins).toHaveLength(0);
+      expect(result?.components).toHaveLength(2);
+      expect(result?.components[0]?.type).toStrictEqual('paymentElement');
+      expect(result?.components[1]?.type).toStrictEqual('expressCheckout');
     });
   });
 

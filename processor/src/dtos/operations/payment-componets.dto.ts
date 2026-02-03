@@ -41,8 +41,8 @@ export const SupportedPaymentComponentsSchema = Type.Object({
 });
 
 export enum PaymentComponentsSupported {
-  PAYMENT_ELEMENT = 'payment',
-  EMBEDDED = 'embedded',
+  PAYMENT_ELEMENT = 'paymentElement',
+  EXPRESS_CHECKOUT = 'expressCheckout',
 }
 
 export type SupportedPaymentComponentsSchemaDTO = Static<typeof SupportedPaymentComponentsSchema>;
