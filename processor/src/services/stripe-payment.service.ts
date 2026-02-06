@@ -964,7 +964,7 @@ export class StripePaymentService extends AbstractPaymentService {
   private validateAndGetStripeAddress(
     charge: Stripe.Charge,
     ctCart: Cart,
-  ): { address: Stripe.Address; addressSource: Stripe.Shipping | Stripe.Charge.BillingDetails | null } | null {
+  ): { address: Stripe.Address; addressSource: Stripe.Charge.Shipping | Stripe.Charge.BillingDetails | null } | null {
     const { billing_details, shipping } = charge;
 
     // Prioritize shipping over billing_details
