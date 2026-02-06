@@ -127,6 +127,12 @@ export const SubscriptionPatchRequestSchema = Type.Object({
   options: Type.Optional(Type.Any()),
 });
 
+export const PaymentMethodOptionsSchema = Type.Object({
+  paymentMethodOptions: Type.Optional(Type.Record(Type.String(), Type.Record(Type.String(), Type.Unknown()))),
+});
+
+export type PaymentMethodOptionsSchemaDTO = Static<typeof PaymentMethodOptionsSchema>;
+
 export type PaymentRequestSchemaDTO = Static<typeof PaymentRequestSchema>;
 export type PaymentResponseSchemaDTO = Static<typeof PaymentResponseSchema>;
 export type ConfigElementResponseSchemaDTO = Static<typeof ConfigElementResponseSchema>;

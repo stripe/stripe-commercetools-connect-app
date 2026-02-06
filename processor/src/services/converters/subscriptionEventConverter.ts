@@ -9,16 +9,18 @@ import {
 } from '../types/stripe-payment.type';
 import { PaymentTransactions } from '../../dtos/operations/payment-intents.dto';
 import { wrapStripeError } from '../../clients/stripe.client';
+import { StripeInvoiceExpanded } from '../types/stripe-subscription.type';
 
 export class SubscriptionEventConverter {
   public convert(
     opts: Stripe.Event,
-    invoice: Stripe.Invoice,
+    invoice: StripeInvoiceExpanded,
     isPaymentChargePending: boolean,
     payment: Payment,
   ): StripeEventUpdatePayment {
-    let paymentIntentId = invoice.id,
-      paymentMethod;
+    // invoice.id is always defined when retrieved from Stripe API
+    let paymentIntentId: string = invoice.id!;
+    let paymentMethod: string | undefined;
 
     if (invoice.payment_intent) {
       const invoicePaymentIntent = invoice.payment_intent as Stripe.PaymentIntent;
@@ -28,16 +30,18 @@ export class SubscriptionEventConverter {
     }
 
     if (isPaymentChargePending) {
-      paymentIntentId = invoice.id;
+      paymentIntentId = invoice.id!;
     }
 
-    if (invoice.paid && !invoice.payment_intent && !invoice.charge) {
+    // Check if invoice is paid without payment_intent or charge (e.g., applied balance)
+    const invoicePaid = (invoice as unknown as { paid?: boolean }).paid;
+    if (invoicePaid && !invoice.payment_intent && !invoice.charge) {
       paymentMethod = 'Stripe Applied Balance';
     }
 
     return {
       id: payment.id,
-      pspReference: paymentIntentId as string,
+      pspReference: paymentIntentId,
       paymentMethod: paymentMethod,
       pspInteraction: {
         response: JSON.stringify(opts),
@@ -49,7 +53,7 @@ export class SubscriptionEventConverter {
   private populateTransactions(
     event: Stripe.Event,
     paymentIntentId: string,
-    invoice: Stripe.Invoice,
+    invoice: StripeInvoiceExpanded,
     isPaymentChargePending: boolean,
   ): TransactionData[] {
     const charge = invoice.charge as Stripe.Charge;
@@ -164,7 +168,7 @@ export class SubscriptionEventConverter {
     }
   }
 
-  private populateAmount(invoice: Stripe.Invoice): Money {
+  private populateAmount(invoice: StripeInvoiceExpanded): Money {
     return {
       centAmount: invoice.amount_paid,
       currencyCode: invoice.currency.toUpperCase(),
@@ -178,14 +182,14 @@ export class SubscriptionEventConverter {
     };
   }
 
-  private populateFailedAmount(invoice: Stripe.Invoice): Money {
+  private populateFailedAmount(invoice: StripeInvoiceExpanded): Money {
     return {
       centAmount: invoice.amount_due,
       currencyCode: invoice.currency.toUpperCase(),
     };
   }
 
-  private getCtPaymentId(invoice: Stripe.Invoice): string {
+  private getCtPaymentId(invoice: StripeInvoiceExpanded): string {
     return invoice.subscription_details?.metadata?.ctPaymentId ?? '';
   }
 }

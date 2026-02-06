@@ -2,6 +2,7 @@ import { Cart, LineItem, CustomLineItem, ShippingInfo, Order } from '@commerceto
 import { CartDraft, ProductVariant } from '@commercetools/platform-sdk';
 import { randomUUID } from 'crypto';
 import { mockCtCustomerId } from './mock-customer-data';
+import { productTypeSubscription } from '../../src/custom-types/custom-types';
 
 export const mockGetCartResult = () => {
   const cartId = randomUUID();
@@ -283,7 +284,7 @@ export const lineItemSubscription: LineItem = {
     obj: {
       id: 'product-type-id',
       version: 1,
-      name: 'payment-connector-subscription-information',
+      name: productTypeSubscription.name,
       createdAt: '2024-01-01T00:00:00Z',
       lastModifiedAt: '2024-01-01T00:00:00Z',
       description: 'The product type.',

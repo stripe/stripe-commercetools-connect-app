@@ -62,6 +62,12 @@ export const stripeService = ({
     }
 
     if (paymentIntent.status === "requires_action") {
+      // Boleto: voucher was generated successfully - this is the expected flow
+      if (paymentIntent.next_action?.type === "boleto_display_details") {
+        return paymentIntent;
+      }
+
+      // For all other requires_action types, follow the original flow
       const error: any = new Error("Payment requires additional action");
       error.type = "requires_action";
       error.next_action = paymentIntent.next_action;

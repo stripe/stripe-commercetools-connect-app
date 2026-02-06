@@ -30,12 +30,12 @@ export const isValidUUID = (uuid: string): boolean => {
 
 export const isFromSubscriptionInvoice = (event: Stripe.Event): boolean => {
   if (event.type.startsWith('payment')) {
-    const paymentIntent = event.data.object as Stripe.PaymentIntent;
+    const paymentIntent = event.data.object as Stripe.PaymentIntent & { invoice?: string | Stripe.Invoice | null };
     return !!paymentIntent.invoice;
   }
 
   if (event.type.startsWith('charge')) {
-    const charge = event.data.object as Stripe.Charge;
+    const charge = event.data.object as Stripe.Charge & { invoice?: string | Stripe.Invoice | null };
     return !!charge.invoice;
   }
 

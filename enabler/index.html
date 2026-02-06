@@ -132,6 +132,24 @@
               },
               paymentElementType: selectedValue,
               stripeCustomerId,
+              stripeConfig: {
+                elements: {
+                  layout: {
+                    type: 'accordion',
+                    defaultCollapsed: false,
+                  },
+                },
+                paymentIntent: {
+                  paymentMethodOptions: {
+                    pix: {
+                      expires_after_seconds: 3600
+                    },
+                    boleto: {
+                      expires_after_days: 15
+                    }
+                  }
+                }
+              },
             });
 
             let builder;

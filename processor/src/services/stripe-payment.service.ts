@@ -5,6 +5,7 @@ import {
   ErrorInvalidOperation,
   healthCheckCommercetoolsPermissions,
   statusHandler,
+  TransactionData,
 } from '@commercetools/connect-payments-sdk';
 import {
   CancelPaymentRequest,
@@ -26,6 +27,7 @@ import {
   CreateOrderProps,
   PaymentStatus,
   StripeEvent,
+  StripeEventUpdatePayment,
   StripePaymentServiceOptions,
 } from './types/stripe-payment.type';
 import {
@@ -42,8 +44,8 @@ import { convertPaymentResultCode } from '../utils';
 import { CtPaymentCreationService } from './ct-payment-creation.service';
 import { stripeCustomerIdFieldName } from '../custom-types/custom-types';
 import { StripeCustomerService } from './stripe-customer.service';
-import { getCartExpanded, updateCartById } from './commerce-tools/cart-client';
-import { METADATA_ORDER_ID_FIELD } from '../constants';
+import { getCartExpanded, updateCartById, freezeCart, unfreezeCart, isCartFrozen } from './commerce-tools/cart-client';
+import { METADATA_ORDER_ID_FIELD, CT_CUSTOM_FIELD_TAX_CALCULATIONS } from '../constants';
 import { addOrderPayment, createOrderFromCart } from './commerce-tools/order-client';
 import { StripeSubscriptionService } from './stripe-subscription.service';
 import { CartUpdateAction } from '@commercetools/platform-sdk';
@@ -364,9 +366,12 @@ export class StripePaymentService extends AbstractPaymentService {
   /**
    * Creates a payment intent using the Stripe API and create commercetools payment with Initial transaction.
    *
+   * @param options - Optional configuration including paymentMethodOptions from frontend
    * @return Promise<PaymentResponseSchemaDTO> A Promise that resolves to a PaymentResponseSchemaDTO object containing the client secret and payment reference.
    */
-  public async createPaymentIntent(): Promise<PaymentResponseSchemaDTO> {
+  public async createPaymentIntent(options?: {
+    paymentMethodOptions?: Record<string, Record<string, unknown>>;
+  }): Promise<PaymentResponseSchemaDTO> {
     try {
       const config = getConfig();
       const cart = await this.ctCartService.getCart({ id: getCartIdFromContext() });
@@ -379,6 +384,16 @@ export class StripePaymentService extends AbstractPaymentService {
         customer?.addresses[0],
       );
       const stripeCustomerId = customer?.custom?.fields?.[stripeCustomerIdFieldName];
+
+      // Tax calculation integration
+      const taxCalculationReferences = cart.custom?.fields?.[CT_CUSTOM_FIELD_TAX_CALCULATIONS] as string[] | undefined;
+      const taxCalculationCount = taxCalculationReferences?.length ?? 0;
+      const hasSingleTaxCalculation = taxCalculationCount === 1;
+      const hasTaxCalculations = taxCalculationCount > 0;
+
+      // Merge backend defaults with frontend options (frontend takes priority)
+      const paymentMethodOptions = this.mergePaymentMethodOptions(options?.paymentMethodOptions);
+
       const paymentIntent = await stripeApi().paymentIntents.create(
         {
           ...(stripeCustomerId && {
@@ -392,13 +407,17 @@ export class StripePaymentService extends AbstractPaymentService {
           },
           capture_method: config.stripeCaptureMethod as CaptureMethod,
           metadata: this.paymentCreationService.getPaymentMetadata(cart),
-          payment_method_options: {
-            card: {
-              ...(config.stripeEnableMultiOperations && {
-                request_multicapture: 'if_available',
-              }),
+          payment_method_options: paymentMethodOptions,
+          // Tax calculation integration
+          ...(hasSingleTaxCalculation && {
+            hooks: {
+              inputs: {
+                tax: {
+                  calculation: taxCalculationReferences![0],
+                },
+              },
             },
-          },
+          }),
           /*...(config.stripeCollectBillingAddress === 'auto' && {
             shipping: shippingAddress,
           }),*/
@@ -411,6 +430,15 @@ export class StripePaymentService extends AbstractPaymentService {
       log.info(`Stripe PaymentIntent created.`, {
         ctCartId: cart.id,
         stripePaymentIntentId: paymentIntent.id,
+        // Tax calculation integration
+        ...(hasTaxCalculations && {
+          hasTaxCalculations,
+          taxCalculationCount
+        }),
+        // Log if frontend options were applied
+        ...(options?.paymentMethodOptions && {
+          frontendPaymentMethodOptions: Object.keys(options.paymentMethodOptions),
+        }),
       });
 
       const paymentReference = await this.paymentCreationService.handleCtPaymentCreation({
@@ -418,6 +446,24 @@ export class StripePaymentService extends AbstractPaymentService {
         amountPlanned,
         cart,
       });
+
+      // Freeze cart after payment creation to prevent modifications
+      // Get the updated cart to ensure we have the correct version after payment creation
+      try {
+        const updatedCart = await this.ctCartService.getCart({ id: cart.id });
+        await freezeCart(updatedCart);
+        log.info(`Cart frozen after PaymentIntent creation.`, {
+          ctCartId: updatedCart.id,
+          stripePaymentIntentId: paymentIntent.id,
+        });
+      } catch (error) {
+        log.error(`Error freezing cart after PaymentIntent creation.`, {
+          error,
+          ctCartId: cart.id,
+          stripePaymentIntentId: paymentIntent.id,
+        });
+        // Continue - do not break the payment flow if freeze fails
+      }
 
       return {
         cartId: cart.id,
@@ -431,6 +477,38 @@ export class StripePaymentService extends AbstractPaymentService {
     } catch (error) {
       throw wrapStripeError(error);
     }
+  }
+
+  /**
+   * Merges backend default payment method options with frontend provided options.
+   * Frontend options take priority over backend defaults for the same payment method.
+   * 
+   * @param frontendOptions - Payment method options provided from the frontend
+   * @returns Merged payment method options
+   */
+  private mergePaymentMethodOptions(
+    frontendOptions?: Record<string, Record<string, unknown>>,
+  ): Stripe.PaymentIntentCreateParams.PaymentMethodOptions {
+    const config = getConfig();
+
+    const backendDefaults: Record<string, Record<string, unknown>> = {
+      card: {
+        ...(config.stripeEnableMultiOperations && { request_multicapture: 'if_available' }),
+      },
+    };
+
+    if (!frontendOptions) {
+      return backendDefaults as Stripe.PaymentIntentCreateParams.PaymentMethodOptions;
+    }
+
+    // Merge: backend defaults + frontend options (frontend takes priority)
+    return Object.entries(frontendOptions).reduce(
+      (merged, [method, options]) => ({
+        ...merged,
+        [method]: { ...merged[method], ...options },
+      }),
+      backendDefaults,
+    ) as Stripe.PaymentIntentCreateParams.PaymentMethodOptions;
   }
 
   /**
@@ -573,31 +651,7 @@ export class StripePaymentService extends AbstractPaymentService {
           paymentMethod: updateData.paymentMethod,
         });
       } else {
-        //does payment intent event have multicapture?
-        if (event.type.startsWith('payment')) {
-          const pi = event.data.object as Stripe.PaymentIntent;
-          if (
-            pi.capture_method === 'manual' &&
-            pi.payment_method_options?.card?.request_multicapture === 'if_available' &&
-            typeof pi.latest_charge === 'string'
-          ) {
-            const balanceTransactions = await stripeApi().balanceTransactions.list({
-              source: pi.latest_charge,
-              limit: 10,
-            });
-
-            if (balanceTransactions.data.length > 1) {
-              //it is multicapture, so we need to update the transactions
-              updateData.transactions.forEach((tx) => {
-                tx.interactionId = balanceTransactions.data[0].id;
-                tx.amount = {
-                  centAmount: balanceTransactions.data[0].amount,
-                  currencyCode: balanceTransactions.data[0].currency.toUpperCase(),
-                };
-              });
-            }
-          }
-        }
+        await this.handleMulticaptureIfNeeded(event, updateData);
 
         for (const tx of updateData.transactions) {
           const updatedPayment = await this.ctPaymentService.updatePayment({
@@ -615,6 +669,31 @@ export class StripePaymentService extends AbstractPaymentService {
         }
       }
 
+      // Handle payment cancellation or failure - unfreeze cart
+      if (
+        event.type === StripeEvent.PAYMENT_INTENT__CANCELED ||
+        event.type === StripeEvent.PAYMENT_INTENT__PAYMENT_FAILED
+      ) {
+        try {
+          const ctCart = await this.ctCartService.getCartByPaymentId({ paymentId: updateData.id });
+          if (isCartFrozen(ctCart)) {
+            await unfreezeCart(ctCart);
+            log.info(`Cart unfrozen after payment ${event.type}.`, {
+              ctCartId: ctCart.id,
+              paymentId: updateData.id,
+              eventType: event.type,
+            });
+          }
+        } catch (error) {
+          log.error(`Error unfreezing cart after payment ${event.type}.`, {
+            error,
+            paymentId: updateData.id,
+            eventType: event.type,
+          });
+          // Continue processing the event even if unfreeze fails
+        }
+      }
+
       if (event.type === StripeEvent.PAYMENT_INTENT__SUCCEEDED) {
         const ctCart = await this.ctCartService.getCartByPaymentId({ paymentId: updateData.id });
         const { latest_charge } = event.data.object as Stripe.PaymentIntent;
@@ -625,6 +704,46 @@ export class StripePaymentService extends AbstractPaymentService {
     } catch (e) {
       log.error('Error processing notification', { error: e });
       return;
+    }
+  }
+
+  /**
+   * Handles multicapture scenarios for payment intent events.
+   * Checks if the event is a payment intent with manual capture and multicapture enabled,
+   * then updates the transaction data with balance transaction information if multiple captures exist.
+   *
+   * @param {Stripe.Event} event - The Stripe event object to process.
+   * @param {StripeEventUpdatePayment} updateData - The payment update data to modify with multicapture information.
+   * @returns {Promise<void>}
+   */
+  private async handleMulticaptureIfNeeded(event: Stripe.Event, updateData: StripeEventUpdatePayment): Promise<void> {
+    if (!event.type.startsWith('payment')) {
+      return;
+    }
+
+    const pi = event.data.object as Stripe.PaymentIntent;
+    if (
+      pi.capture_method !== 'manual' ||
+      pi.payment_method_options?.card?.request_multicapture !== 'if_available' ||
+      typeof pi.latest_charge !== 'string'
+    ) {
+      return;
+    }
+
+    const balanceTransactions = await stripeApi().balanceTransactions.list({
+      source: pi.latest_charge,
+      limit: 10,
+    });
+
+    if (balanceTransactions.data.length > 1) {
+      //it is multicapture, so we need to update the transactions
+      updateData.transactions.forEach((tx: TransactionData) => {
+        tx.interactionId = balanceTransactions.data[0].id;
+        tx.amount = {
+          centAmount: balanceTransactions.data[0].amount,
+          currencyCode: balanceTransactions.data[0].currency.toUpperCase(),
+        };
+      });
     }
   }
 
@@ -829,6 +948,26 @@ export class StripePaymentService extends AbstractPaymentService {
       return ctCart;
     }
 
+    // Unfreeze cart temporarily if frozen (for successful payment address update)
+    let cartToUpdate = ctCart;
+    const wasFrozen = isCartFrozen(ctCart);
+
+    if (wasFrozen) {
+      try {
+        cartToUpdate = await unfreezeCart(ctCart);
+        log.info(`Cart temporarily unfrozen for address update from successful payment.`, {
+          ctCartId: cartToUpdate.id,
+        });
+      } catch (error) {
+        log.error(`Error unfreezing cart for address update.`, {
+          error,
+          ctCartId: ctCart.id,
+        });
+        // If unfreeze fails, try to update anyway (might work if cart was already unfrozen)
+        cartToUpdate = ctCart;
+      }
+    }
+
     // Stripe has complete address → update the cart
     const actions: CartUpdateAction[] = [
       {
@@ -845,6 +984,26 @@ export class StripePaymentService extends AbstractPaymentService {
       },
     ];
 
-    return await updateCartById(ctCart, actions);
+    const updatedCart = await updateCartById(cartToUpdate, actions);
+
+    // Re-freeze cart if it was frozen before
+    if (wasFrozen) {
+      try {
+        const reFrozenCart = await freezeCart(updatedCart);
+        log.info(`Cart re-frozen after address update from successful payment.`, {
+          ctCartId: reFrozenCart.id,
+        });
+        return reFrozenCart;
+      } catch (error) {
+        log.error(`Error re-freezing cart after address update.`, {
+          error,
+          ctCartId: updatedCart.id,
+        });
+        // Return updated cart even if re-freeze fails
+        return updatedCart;
+      }
+    }
+
+    return updatedCart;
   }
 }

@@ -4,6 +4,8 @@ import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import {
   ConfigElementResponseSchema,
   ConfigElementResponseSchemaDTO,
+  PaymentMethodOptionsSchema,
+  PaymentMethodOptionsSchemaDTO,
   PaymentResponseSchema,
   PaymentResponseSchemaDTO,
 } from '../dtos/stripe-payment.dto';
@@ -37,6 +39,7 @@ type StripeRoutesOptions = {
 };
 
 export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPluginOptions & PaymentRoutesOptions) => {
+  // GET /payments - Backward compatible endpoint (no payment method options)
   fastify.get<{ Reply: PaymentResponseSchemaDTO }>(
     '/payments',
     {
@@ -52,6 +55,25 @@ export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPlugi
       return reply.status(200).send(resp);
     },
   );
+
+  // POST /payments - New endpoint with payment method options support
+  fastify.post<{ Body: PaymentMethodOptionsSchemaDTO; Reply: PaymentResponseSchemaDTO }>(
+    '/payments',
+    {
+      preHandler: [opts.sessionHeaderAuthHook.authenticate()],
+      schema: {
+        body: PaymentMethodOptionsSchema,
+        response: {
+          200: PaymentResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const resp = await opts.paymentService.createPaymentIntent(request.body);
+      return reply.status(200).send(resp);
+    },
+  );
+
   fastify.post<{
     Body: PaymentIntentConfirmRequestSchemaDTO;
     Reply: PaymentIntentConfirmResponseSchemaDTO;

@@ -132,3 +132,40 @@ export const createCartWithProduct = async (
     throw error;
   }
 };
+
+/**
+ * Freezes a cart to prevent modifications (products, quantities, discounts, addresses, shipping).
+ * @param cart - The cart object to freeze.
+ * @returns A promise that resolves to the frozen Cart object.
+ */
+export const freezeCart = async (cart: Cart): Promise<Cart> => {
+  const actions: CartUpdateAction[] = [
+    {
+      action: 'freezeCart',
+    },
+  ];
+  return await updateCartById(cart, actions);
+};
+
+/**
+ * Unfreezes a cart to allow modifications again.
+ * @param cart - The cart object to unfreeze.
+ * @returns A promise that resolves to the unfrozen Cart object.
+ */
+export const unfreezeCart = async (cart: Cart): Promise<Cart> => {
+  const actions: CartUpdateAction[] = [
+    {
+      action: 'unfreezeCart',
+    },
+  ];
+  return await updateCartById(cart, actions);
+};
+
+/**
+ * Checks if a cart is frozen.
+ * @param cart - The cart object to check.
+ * @returns True if the cart is frozen, false otherwise.
+ */
+export const isCartFrozen = (cart: Cart): boolean => {
+  return 'frozen' in cart && (cart as Cart & { frozen?: boolean }).frozen === true;
+};

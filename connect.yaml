@@ -24,6 +24,9 @@ deployAs:
           description: Session API URL (example - https://session.europe-west1.gcp.commercetools.com).
           required: true
           default: https://session.europe-west1.gcp.commercetools.com
+        - key: CTP_CHECKOUT_URL
+          description: Checkout API URL (example - https://checkout.europe-west1.gcp.commercetools.com).
+          required: true
         - key: CTP_JWKS_URL
           description: JWKs url (example - https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json)
           required: true
@@ -69,6 +72,22 @@ deployAs:
         - key: STRIPE_ENABLE_MULTI_OPERATIONS
           description: Enable multicapture and multirefund support (true|false). When enabled, allows multiple partial captures and multiple refunds on payments. IMPORTANT - Requires multicapture to be enabled in your Stripe account.
           default: 'false'
+        - key: CT_CUSTOM_TYPE_LAUNCHPAD_PURCHASE_ORDER_KEY
+          description: Custom type key for launchpad purchase order number.
+          required: true
+          default: 'payment-launchpad-purchase-order'
+        - key: CT_CUSTOM_TYPE_STRIPE_CUSTOMER_KEY
+          description: Custom type key for Stripe customer ID.
+          required: true
+          default: 'payment-connector-stripe-customer-id'
+        - key: CT_CUSTOM_TYPE_SUBSCRIPTION_LINE_ITEM_KEY
+          description: Custom type key for subscription line item.
+          required: true
+          default: 'payment-connector-subscription-line-item-type'
+        - key: CT_PRODUCT_TYPE_SUBSCRIPTION_KEY
+          description: Product type key for subscription information.
+          required: true
+          default: 'payment-connector-subscription-information'
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
           description: commercetools client secret.

@@ -5,6 +5,7 @@ import {
   PaymentDropinBuilder,
   PaymentEnabler,
   PaymentResult,
+  StripeConfig,
 } from "./payment-enabler";
 import {DropinEmbeddedBuilder} from "../dropin/dropin-embedded";
 import {
@@ -47,6 +48,7 @@ export interface BaseOptions {
   elements: StripeElements; // MVP https://docs.stripe.com/js/elements_object
   paymentMode: StripeElementsOptionsMode['mode']
   stripeCustomerId?: string;
+  stripeConfig?: StripeConfig;
 }
 
 interface ElementsOptions {
@@ -56,11 +58,7 @@ interface ElementsOptions {
   onError: (error?: any) => void;
   layout: LayoutObject;
   appearance: Appearance;
-  fields: {
-    billingDetails: {
-      address: string;
-    };
-  };
+  fields?: StripePaymentElementOptions['fields'];
   billingAddressRequired: boolean;
   shippingAddressRequired: boolean;
 }
@@ -83,8 +81,12 @@ export class MockPaymentEnabler implements PaymentEnabler {
     const [cartInfoResponse, configEnvResponse] = await getConfigData(options.paymentElementType);
     const customer = await getCustomerOptions();
     const stripeSDK = await MockPaymentEnabler.getStripeSDK(configEnvResponse);
-    const elements = MockPaymentEnabler.getElements(stripeSDK, cartInfoResponse, customer);
-    const elementsOptions = MockPaymentEnabler.getElementsOptions(options, cartInfoResponse);
+    
+    // Merge frontend options with backend configuration (frontend overrides backend)
+    const mergedConfig = MockPaymentEnabler.mergeConfiguration(cartInfoResponse, options);
+    
+    const elements = MockPaymentEnabler.getElements(stripeSDK, mergedConfig, customer);
+    const elementsOptions = MockPaymentEnabler.getElementsOptions(options, mergedConfig);
 
     return Promise.resolve({
       baseOptions: {
@@ -95,10 +97,11 @@ export class MockPaymentEnabler implements PaymentEnabler {
         onComplete: options.onComplete || (() => {}),
         onError: options.onError || (() => {}),
         paymentElement: MockPaymentEnabler.getPaymentElement(elementsOptions, options.paymentElementType, elements),
-        paymentElementValue: cartInfoResponse.webElements,
+        paymentElementValue: mergedConfig.webElements,
         elements: elements,
-        paymentMode: cartInfoResponse.paymentMode,
+        paymentMode: mergedConfig.paymentMode,
         stripeCustomerId: customer ? customer?.stripeCustomerId : undefined,
+        stripeConfig: options.stripeConfig,
       },
     });
   };
@@ -244,4 +247,42 @@ export class MockPaymentEnabler implements PaymentEnabler {
     const validLayouts = ['tabs', 'accordion', 'auto'];
     return validLayouts.includes(layout.type);
   }
+
+  /**
+   * Merges frontend stripeConfig with backend configuration.
+   * Frontend stripeConfig takes priority over backend configuration when provided.
+   * 
+   * @param backendConfig - Configuration from the processor (backend)
+   * @param frontendOptions - Options passed to the Enabler constructor (frontend)
+   * @returns Merged configuration with frontend overrides applied
+   */
+  private static mergeConfiguration(
+    backendConfig: ConfigElementResponseSchemaDTO,
+    frontendOptions: EnablerOptions
+  ): ConfigElementResponseSchemaDTO {
+    const elementsConfig = frontendOptions.stripeConfig?.elements;
+    
+    // Early return: if no frontend config, return backend config as-is
+    if (!elementsConfig) {
+      return backendConfig;
+    }
+    
+    return {
+      ...backendConfig,
+      
+      // Appearance: stripeConfig.elements.appearance overrides backend if provided
+      appearance: elementsConfig.appearance 
+        ? JSON.stringify(elementsConfig.appearance)
+        : backendConfig.appearance,
+      
+      // Layout: stripeConfig.elements.layout overrides backend if provided
+      layout: elementsConfig.layout 
+        ? JSON.stringify(elementsConfig.layout)
+        : backendConfig.layout,
+      
+      // Billing address collection: stripeConfig.elements.collectBillingAddress overrides backend if provided
+      collectBillingAddress: elementsConfig.collectBillingAddress ?? backendConfig.collectBillingAddress,
+    };
+  }
+
 }

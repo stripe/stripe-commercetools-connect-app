@@ -128,6 +128,8 @@ The connector now provides comprehensive error handling for various payment inte
 ### Payment Intent Status Handling
 
 - **`requires_action` Status**: Properly handles payment intents that require additional authentication or action from the customer
+  - **Boleto Special Handling**: For Boleto payments, when `status === "requires_action"` with `next_action.type === "boleto_display_details"`, this is treated as successful completion (voucher generation is the expected flow for Boleto)
+  - **Other Payment Methods**: All other payment methods with `requires_action` status trigger error handling
 - **`payment_failed` Status**: Enhanced error handling for failed payments with detailed error information
 - **Structured Error Objects**: Error objects now include additional context such as `next_action` and `last_payment_error` for better debugging
 
@@ -143,6 +145,12 @@ The enhanced error handling is implemented in the enabler's `stripe-service.ts`:
 
 ```typescript
 if (paymentIntent.status === "requires_action") {
+  // Boleto: voucher was generated successfully - this is the expected flow
+  if (paymentIntent.next_action?.type === "boleto_display_details") {
+    return paymentIntent;
+  }
+
+  // For all other requires_action types, follow the original flow
   const error: any = new Error("Payment requires additional action");
   error.type = "requires_action";
   error.next_action = paymentIntent.next_action;
@@ -473,6 +481,7 @@ This section provides a comprehensive reference for all environment variables us
 - **`CTP_API_URL`**: commercetools API URL (default: `https://api.europe-west1.gcp.commercetools.com`)
 - **`CTP_AUTH_URL`**: commercetools Auth URL (default: `https://auth.europe-west1.gcp.commercetools.com`)
 - **`CTP_SESSION_URL`**: commercetools Session URL (default: `https://session.europe-west1.gcp.commercetools.com/`)
+- **`CTP_CHECKOUT_URL`**: commercetools Checkout API URL (required for checkout operations)
 - **`CTP_JWKS_URL`**: JWKs URL for JWT validation (default: `https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json`)
 - **`CTP_JWT_ISSUER`**: JWT Issuer for validation (default: `https://mc-api.europe-west1.gcp.commercetools.com`)
 
@@ -506,7 +515,8 @@ This section provides a comprehensive reference for all environment variables us
   - Default: `auto`
   - See: [Collecting Billing Address](https://docs.stripe.com/payments/payment-element#collecting-billing-address)
 - **`STRIPE_API_VERSION`**: Stripe API version
-  - Default: `2025-02-24.acacia`
+  - Default: `2025-12-15.clover`
+  - Allows merchants to pin to specific Stripe API versions for stability
 - **`STRIPE_APPLE_PAY_WELL_KNOWN`**: Domain association file content for Apple Pay
   - See: [Apple Pay Domain Association](https://stripe.com/files/apple-pay/apple-developer-merchantid-domain-association)
 
@@ -546,6 +556,16 @@ This section provides a comprehensive reference for all environment variables us
 - **`NODE_ENV`**: Node environment
   - Values: `development` | `production` | `test`
   - Default: `production`
+
+#### Custom Type Configuration
+- **`CT_CUSTOM_TYPE_LAUNCHPAD_PURCHASE_ORDER_KEY`**: Custom type key for launchpad purchase order number
+  - Default: `payment-launchpad-purchase-order`
+- **`CT_CUSTOM_TYPE_STRIPE_CUSTOMER_KEY`**: Custom type key for Stripe customer ID
+  - Default: `payment-connector-stripe-customer-id`
+- **`CT_CUSTOM_TYPE_SUBSCRIPTION_LINE_ITEM_KEY`**: Custom type key for subscription line item
+  - Default: `payment-connector-subscription-line-item-type`
+- **`CT_PRODUCT_TYPE_SUBSCRIPTION_KEY`**: Product type key for subscription information
+  - Default: `payment-connector-subscription-information`
 
 #### MCP (Model Context Protocol) Configuration
 - **`ENABLE_MCP`**: Enable MCP debugging tools
@@ -700,6 +720,76 @@ For **Buy Now Pay Later (BNPL)** payment methods, Stripe appends the `payment_in
 
 By implementing this workflow, seamless integration of BNPL payment methods with commercetools Checkout is achieved.
 
+## Frontend Configuration Override (stripeConfig)
+
+The Enabler supports a `stripeConfig` option that allows the frontend to override backend configuration for Stripe Elements and PaymentIntent. This provides per-implementation customization without requiring backend changes.
+
+### Configuration Precedence
+
+When `stripeConfig` is provided in the Enabler, frontend configuration takes precedence over backend environment variables. The precedence order is:
+
+1. **Frontend `stripeConfig`** (highest priority) - Configuration provided in the Enabler instance
+2. **Backend Environment Variables** (fallback) - Configuration from environment variables
+
+### Variable Mapping
+
+The following backend environment variables can be overridden by `stripeConfig`:
+
+| Backend Variable | Frontend stripeConfig Path | Description |
+|-----------------|---------------------------|-------------|
+| `STRIPE_APPEARANCE_PAYMENT_ELEMENT` | `stripeConfig.elements.appearance` | Payment Element appearance/theme |
+| `STRIPE_APPEARANCE_EXPRESS_CHECKOUT` | `stripeConfig.elements.appearance` | Express Checkout appearance/theme |
+| `STRIPE_LAYOUT` | `stripeConfig.elements.layout` | Payment Element layout (accordion/tabs) |
+| `STRIPE_COLLECT_BILLING_ADDRESS` | `stripeConfig.elements.collectBillingAddress` | Billing address collection mode |
+| Payment method options | `stripeConfig.paymentIntent.paymentMethodOptions` | Payment method-specific options (PIX, Boleto, etc.) |
+
+### Example: Overriding Backend Configuration
+
+**Backend Configuration (Environment Variables):**
+```bash
+STRIPE_APPEARANCE_PAYMENT_ELEMENT='{"theme":"stripe","variables":{"colorPrimary":"#0570DE"}}'
+STRIPE_LAYOUT='{"type":"tabs","defaultCollapsed":false}'
+STRIPE_COLLECT_BILLING_ADDRESS=auto
+```
+
+**Frontend Override (stripeConfig):**
+```javascript
+const enabler = new Enabler({
+  processorUrl: PROCESSOR_URL,
+  sessionId: SESSION_ID,
+  stripeConfig: {
+    elements: {
+      appearance: {
+        theme: 'night',
+        variables: { colorPrimary: '#7c3aed' },  // Overrides backend appearance
+      },
+      layout: {
+        type: 'accordion',                        // Overrides backend layout
+        defaultCollapsed: false,
+      },
+      collectBillingAddress: 'never',            // Overrides backend setting
+    },
+    paymentIntent: {
+      paymentMethodOptions: {
+        pix: { expires_after_seconds: 3600 },    // Adds payment method options
+      },
+    },
+  },
+});
+```
+
+**Result**: The frontend configuration will be used, and the backend environment variables will be ignored for this Enabler instance.
+
+### Payment Method Options
+
+Payment method options can be specified in three ways (in order of precedence):
+
+1. **`stripeConfig.paymentIntent.paymentMethodOptions`** (Enabler) - Highest priority
+2. **`POST /payments` request body** - Medium priority
+3. **Backend defaults** - Lowest priority (fallback)
+
+This allows maximum flexibility: use `stripeConfig` for global frontend overrides, `POST /payments` for per-payment customization, or rely on backend defaults.
+
 ## APIs
 The processor exposes the following endpoints to execute various operations with the Stripe platform:
 
@@ -726,9 +816,13 @@ The response will provide the necessary information to populate the payment elem
 - **paymentMode**: The payment mode used in the payment component. It can be `subscription`, `setup`, or `payment`. This is used to determine the flow that the payment needs to follow. [More information](https://docs.stripe.com/payments/payment-element#payment-mode).
 
 ### Create Payment Intent from Stripe
-This endpoint creates a new [payment intent](https://docs.stripe.com/api/payment_intents) in Stripe. It is called after the user fills out all the payment information and submits the payment. 
-#### Endpoint
+
+These endpoints create a new [payment intent](https://docs.stripe.com/api/payment_intents) in Stripe. They are called after the user fills out all the payment information and submits the payment.
+
+#### Endpoint (GET)
 `GET /payments`
+
+This is the backward-compatible endpoint that creates a payment intent using backend configuration defaults.
 
 #### Query Parameters
 N/A
@@ -739,6 +833,41 @@ N/A
 - **merchantReturnUrl**: The URL used as the `return_url` parameter in Stripe's [confirmPayment](https://docs.stripe.com/js/payment_intents/confirm_payment) process. After the payment confirmation, Stripe appends the `paymentReference` and `cartId` as query parameters to this URL. For Buy Now, Pay Later (BNPL) payment methods, this URL can be used to reinitialize the commercetools Checkout SDK.
 - **cartId**: The cartId of the current process.
 - **billingAddress**: The billing address provided by the merchant, which will be sent to Stripe during the `confirmPayment` process (optional).
+
+#### Endpoint (POST)
+`POST /payments`
+
+This endpoint allows you to specify payment method options in the request body, enabling per-payment customization of payment method behavior (e.g., PIX expiration times, Boleto settings, multicapture configurations).
+
+#### Request Body
+```json
+{
+  "paymentMethodOptions": {
+    "pix": {
+      "expires_after_seconds": 3600
+    },
+    "boleto": {
+      "expires_after_days": 15
+    }
+  }
+}
+```
+
+- **`paymentMethodOptions`** (optional): Payment method-specific options. These options are merged with backend defaults and any options specified via `stripeConfig` in the Enabler (frontend options take precedence).
+
+#### Response Parameters
+Same as `GET /payments` endpoint:
+- **clientSecret**: The client secret is used to complete the payment from your frontend.
+- **paymentReference**: The payment reference of the current process (optional).
+- **merchantReturnUrl**: The URL used as the `return_url` parameter in Stripe's [confirmPayment](https://docs.stripe.com/js/payment_intents/confirm_payment) process.
+- **cartId**: The cartId of the current process.
+- **billingAddress**: The billing address provided by the merchant (optional).
+
+#### When to Use Each Endpoint
+- **Use `GET /payments`**: When you want to use backend configuration defaults and don't need to customize payment method options per payment.
+- **Use `POST /payments`**: When you need to specify payment method options for a specific payment (e.g., custom PIX expiration, Boleto settings) without using `stripeConfig` in the Enabler.
+
+**Note**: Payment method options can also be specified via the `stripeConfig.paymentIntent.paymentMethodOptions` option in the Enabler. When both are provided, the Enabler's `stripeConfig` takes precedence over the `POST /payments` request body.
 
 ### Confirm the Payment Intent to commercetools
 
@@ -1229,8 +1358,22 @@ curl -X POST "https://your-connector-url/subscription-api/advanced/customer-1234
 
 ### Express Checkout methods
 
+The Express Checkout methods handle shipping information updates while managing cart state appropriately. Carts are automatically frozen after PaymentIntent or Subscription creation to prevent modifications during payment processing. During Express Checkout operations, frozen carts are temporarily unfrozen to allow shipping updates, then re-frozen to maintain cart integrity.
+
+#### Cart State Management
+
+- **Frozen Carts**: Carts are frozen after payment or subscription creation to prevent modifications (products, quantities, discounts, addresses, shipping)
+- **Temporary Unfreezing**: During Express Checkout shipping operations, frozen carts are temporarily unfrozen to allow address and shipping method updates
+- **Automatic Re-freezing**: After shipping updates complete, carts are automatically re-frozen to maintain protection during payment flow
+- **Cancellation Handling**: When Express Checkout is cancelled, the cart remains unfrozen to allow users to modify the cart
+
 #### Get Shipping Methods for Cart
 Retrieves the shipping methods available for a specific cart and updates the cart's shipping method by adding the new address and the first available shipping method to the cart.
+
+**Cart State Behavior:**
+- If the cart is frozen, it will be temporarily unfrozen to perform the update
+- After updating the shipping address and methods, the cart will be re-frozen if it was previously frozen
+- If the cart was not frozen, it remains unfrozen
 
 ##### Endpoint
 `POST /shipping-methods`
@@ -1251,6 +1394,11 @@ Cart session authentication required.
 #### Update Shipping Methods selected for the Cart
 This endpoint updates the shipping methods selected in the Stripe Express Checkout Component and retrieves the line items and shipping cost for the selected shipping method.
 
+**Cart State Behavior:**
+- If the cart is frozen, it will be temporarily unfrozen to perform the update
+- After updating the shipping method, the cart will be re-frozen if it was previously frozen
+- If the cart was not frozen, it remains unfrozen
+
 ##### Endpoint
 `POST /shipping-methods/update`
 
@@ -1268,6 +1416,11 @@ Cart session authentication required.
 
 #### Remove Shipping Methods Selected for the Cart
 This endpoint is called when the user exits the Express Checkout component without completing payment. It removes the selected shipping method from the cart and returns the updated cart total amount to refresh the Stripe component.
+
+**Cart State Behavior:**
+- If the cart is frozen, it will be unfrozen to allow the user to modify the cart
+- The cart remains unfrozen after cancellation to allow users to make changes
+- This behavior ensures users can modify their cart after cancelling Express Checkout
 
 ##### Endpoint
 `GET /shipping-methods/remove`

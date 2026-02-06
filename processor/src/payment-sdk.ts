@@ -27,6 +27,7 @@ export const paymentSDK = setupPaymentSDK({
   clientSecret: config.clientSecret,
   projectKey: config.projectKey,
   sessionUrl: config.sessionUrl,
+  checkoutUrl: config.checkoutUrl,
   jwksUrl: config.jwksUrl,
   jwtIssuer: config.jwtIssuer,
   getContextFn: (): RequestContextData => {
