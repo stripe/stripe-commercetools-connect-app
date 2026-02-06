@@ -1,3 +1,114 @@
+import type { Appearance, LayoutObject } from "@stripe/stripe-js";
+
+/**
+ * Configuration for Stripe Elements appearance and layout.
+ * Uses native Stripe types for type safety and autocompletion.
+ * @see https://stripe.com/docs/elements/appearance-api
+ * @see https://stripe.com/docs/payments/payment-element#layout
+ */
+export interface StripeElementsConfig {
+  /**
+   * Customizes the appearance of the Payment Element or Express Checkout.
+   * If provided, overrides the backend configuration (STRIPE_APPEARANCE_PAYMENT_ELEMENT).
+   * @see https://stripe.com/docs/elements/appearance-api
+   * @example
+   * ```typescript
+   * appearance: {
+   *   theme: 'night',
+   *   variables: {
+   *     colorPrimary: '#7c3aed',
+   *     borderRadius: '12px',
+   *   }
+   * }
+   * ```
+   */
+  appearance?: Appearance;
+
+  /**
+   * Configures the layout of the Payment Element.
+   * If provided, overrides the backend configuration (STRIPE_LAYOUT).
+   * @see https://stripe.com/docs/payments/payment-element#layout
+   * @example
+   * ```typescript
+   * layout: {
+   *   type: 'accordion',
+   *   defaultCollapsed: false,
+   *   radios: true,
+   * }
+   * ```
+   */
+  layout?: LayoutObject;
+
+  /**
+   * Controls how billing address is collected in the Payment Element.
+   * If provided, overrides the backend configuration (STRIPE_COLLECT_BILLING_ADDRESS).
+   * - 'auto': Stripe decides based on the payment method
+   * - 'never': Never show address fields (you provide the address)
+   * - 'if_required': Show address fields only if required by the payment method
+   * @default 'auto'
+   */
+  collectBillingAddress?: 'auto' | 'never' | 'if_required';
+}
+
+/**
+ * Configuration for Stripe PaymentIntent options.
+ * Contains options that affect the PaymentIntent creation.
+ * @see https://stripe.com/docs/api/payment_intents/create
+ */
+export interface StripePaymentIntentConfig {
+  /**
+   * Payment method specific options for Stripe PaymentIntent.
+   * These options are merged with backend defaults (frontend takes priority).
+   * Use this to customize behavior for specific payment methods like PIX, Boleto, etc.
+   * @see https://stripe.com/docs/api/payment_intents/create#create_payment_intent-payment_method_options
+   * @example
+   * ```typescript
+   * paymentMethodOptions: {
+   *   pix: {
+   *     expires_after_seconds: 3600,
+   *   },
+   *   boleto: {
+   *     expires_after_days: 15,
+   *   }
+   * }
+   * ```
+   */
+  paymentMethodOptions?: Record<string, Record<string, unknown>>;
+}
+
+/**
+ * Main container object for all Stripe-related configurations.
+ * Groups Elements and PaymentIntent configurations using native Stripe types.
+ * 
+ * @example
+ * ```typescript
+ * stripeConfig: {
+ *   elements: {
+ *     appearance: { theme: 'night' },
+ *     layout: { type: 'accordion' },
+ *     collectBillingAddress: 'never',
+ *   },
+ *   paymentIntent: {
+ *     paymentMethodOptions: {
+ *       pix: { expires_after_seconds: 3600 },
+ *     },
+ *   },
+ * }
+ * ```
+ */
+export interface StripeConfig {
+  /**
+   * Configuration for Stripe Elements (appearance, layout, billing address).
+   */
+  elements?: StripeElementsConfig;
+
+  /**
+   * Configuration for PaymentIntent (payment method options).
+   * @see https://stripe.com/docs/api/payment_intents/create
+   */
+  paymentIntent?: StripePaymentIntentConfig;
+}
+
 /**
  * Represents the payment enabler. The payment enabler is the entry point for creating the components.
  *
@@ -157,6 +268,36 @@ export type EnablerOptions = {
    * The Stripe customer ID.
    */
   stripeCustomerId?: string;
+
+  /**
+   * Stripe configuration object that groups all Stripe-related options.
+   * Uses native Stripe types for type safety and autocompletion.
+   * 
+   * @example
+   * ```typescript
+   * stripeConfig: {
+   *   elements: {
+   *     appearance: {
+   *       theme: 'night',
+   *       variables: { colorPrimary: '#7c3aed' },
+   *     },
+   *     layout: {
+   *       type: 'accordion',
+   *       defaultCollapsed: false,
+   *     },
+   *     collectBillingAddress: {
+   *       billingDetails: { address: 'never' },
+   *     },
+   *   },
+   *   paymentIntent: {
+   *     paymentMethodOptions: {
+   *       pix: { expires_after_seconds: 3600 },
+   *     },
+   *   },
+   * }
+   * ```
+   */
+  stripeConfig?: StripeConfig;
 };
 
 /**

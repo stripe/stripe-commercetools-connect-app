@@ -2,6 +2,293 @@
 
 ## Latest
 
+### Cart Freezing and Unfreezing for Express Checkout
+
+**Added:**
+- **Cart Protection During Payment Flow**: Carts are automatically frozen after PaymentIntent or Subscription creation to prevent modifications during the payment process
+- **Temporary Cart Unfreezing for Express Checkout**: Carts are temporarily unfrozen during Express Checkout shipping operations to allow address and shipping method updates
+- **Automatic Cart Re-freezing**: Carts are automatically re-frozen after Express Checkout shipping updates complete
+- **Cancellation Handling**: When Express Checkout is cancelled, the cart remains unfrozen to allow users to modify the cart
+
+**Changed:**
+- **Express Checkout Shipping Methods**: `getShippingMethods()` now temporarily unfreezes frozen carts to update shipping addresses and methods
+- **Express Checkout Shipping Updates**: `updateShippingRate()` now temporarily unfreezes frozen carts to update selected shipping methods
+- **Express Checkout Cancellation**: `removeShippingRate()` unfreezes carts when users cancel Express Checkout, allowing cart modifications
+
+**Technical Details:**
+
+#### Cart Freezing Behavior
+The connector implements cart freezing to protect cart integrity during payment flows:
+
+1. **After Payment Creation**: When a PaymentIntent is created, the cart is frozen to prevent modifications (products, quantities, discounts, addresses, shipping)
+2. **After Subscription Creation**: When a subscription is created, the cart is frozen to maintain consistency between commercetools and Stripe
+3. **During Express Checkout**: Frozen carts are temporarily unfrozen to allow Express Checkout components to update shipping information
+4. **After Express Checkout Updates**: Carts are automatically re-frozen after shipping updates complete
+5. **On Cancellation**: If Express Checkout is cancelled, the cart remains unfrozen to allow user modifications
+
+#### Express Checkout Flow
+The Express Checkout shipping service handles cart state management:
+
+```typescript
+// Example: getShippingMethods flow
+const wasFrozen = isCartFrozen(ctCart);
+if (wasFrozen) {
+  cartToUpdate = await unfreezeCart(ctCart);
+  // Update shipping address and methods
+  updatedCart = await updateShippingAddress(cartToUpdate, address);
+  // Re-freeze after updates
+  updatedCart = await freezeCart(updatedCart);
+}
+```
+
+#### Benefits
+- **Cart Integrity**: Prevents unauthorized or accidental cart modifications during payment processing
+- **Express Checkout Compatibility**: Allows Express Checkout to update shipping information even when cart is frozen
+- **User Experience**: Maintains cart state appropriately based on payment flow stage
+- **Error Resilience**: Continues payment flow even if re-freezing fails, with proper error logging
+
+#### Files Modified
+- `processor/src/services/stripe-shipping.service.ts`: Added cart freezing/unfreezing logic for Express Checkout operations
+- `processor/src/services/stripe-payment.service.ts`: Added cart freezing after PaymentIntent creation
+- `processor/src/services/stripe-subscription.service.ts`: Added cart freezing after subscription creation
+- `processor/src/services/commerce-tools/cart-client.ts`: Contains `freezeCart()`, `unfreezeCart()`, and `isCartFrozen()` utility functions
+
+---
+
+### Boleto Payment Handling Enhancement
+
+**Added:**
+- **Special Boleto Flow Handling**: Added special handling for Boleto payments when `paymentIntent.status === "requires_action"` with `next_action.type === "boleto_display_details"`
+- **Correct Payment Completion**: Boleto payments now complete successfully when vouchers are generated, as this is the expected completion flow for Boleto payments
+- **Improved Error Handling**: Other payment methods with `requires_action` status continue to follow the original error handling flow
+
+**Technical Details:**
+
+#### Boleto Payment Flow
+For Boleto payments, when Stripe returns a payment intent with `status === "requires_action"` and `next_action.type === "boleto_display_details"`, this indicates that the voucher has been successfully generated. This is the normal completion state for Boleto payments, not an error condition.
+
+The implementation in `enabler/src/services/stripe-service.ts`:
+```typescript
+if (paymentIntent.status === "requires_action") {
+  // Boleto: voucher was generated successfully - this is the expected flow
+  if (paymentIntent.next_action?.type === "boleto_display_details") {
+    return paymentIntent;
+  }
+
+  // For all other requires_action types, follow the original flow
+  const error: any = new Error("Payment requires additional action");
+  error.type = "requires_action";
+  error.next_action = paymentIntent.next_action;
+  throw error;
+}
+```
+
+#### Benefits
+- **Correct Boleto Flow**: Boleto payments complete successfully when vouchers are generated
+- **Better User Experience**: Users can see their Boleto vouchers without encountering errors
+- **Proper Error Handling**: Other payment methods that require action still trigger appropriate error handling
+- **Stripe API Compliance**: Aligns with Stripe's Boleto payment flow expectations
+
+#### Files Modified
+- `enabler/src/services/stripe-service.ts`: Added special handling for Boleto `boleto_display_details` action type
+
+---
+
+### Enhanced Enabler Configuration with stripeConfig Support
+
+**Added:**
+- **Frontend Configuration Override**: New `stripeConfig` option in Enabler allows frontend to override backend configuration for Stripe Elements and PaymentIntent
+- **Stripe Elements Configuration**: Support for overriding `appearance`, `layout`, and `collectBillingAddress` from frontend
+- **Payment Method Options**: Support for configuring payment method-specific options (e.g., PIX expiration, Boleto settings) via `paymentIntent.paymentMethodOptions`
+- **Type-Safe Configuration**: Uses native Stripe types (`Appearance`, `LayoutObject`) for better type safety and autocompletion
+
+**Technical Details:**
+
+#### stripeConfig Structure
+The new `stripeConfig` option in `EnablerOptions` provides:
+- **`elements`**: Configuration for Stripe Elements
+  - `appearance`: Overrides `STRIPE_APPEARANCE_PAYMENT_ELEMENT` or `STRIPE_APPEARANCE_EXPRESS_CHECKOUT`
+  - `layout`: Overrides `STRIPE_LAYOUT` configuration
+  - `collectBillingAddress`: Overrides `STRIPE_COLLECT_BILLING_ADDRESS` setting
+- **`paymentIntent`**: Configuration for PaymentIntent creation
+  - `paymentMethodOptions`: Payment method-specific options (e.g., `pix.expires_after_seconds`, `boleto.expires_after_days`)
+
+#### Usage Example
+```typescript
+const enabler = new Enabler({
+  processorUrl: PROCESSOR_URL,
+  sessionId: sessionId,
+  paymentElementType: 'paymentElement',
+  stripeConfig: {
+    elements: {
+      appearance: {
+        theme: 'night',
+        variables: { colorPrimary: '#7c3aed' },
+      },
+      layout: {
+        type: 'accordion',
+        defaultCollapsed: false,
+      },
+      collectBillingAddress: 'never',
+    },
+    paymentIntent: {
+      paymentMethodOptions: {
+        pix: { expires_after_seconds: 3600 },
+      },
+    },
+  },
+});
+```
+
+#### Benefits
+- **Frontend Control**: Merchants can customize Stripe Elements appearance per implementation without backend changes
+- **Payment Method Customization**: Configure payment method-specific options (PIX, Boleto, etc.) from frontend
+- **Type Safety**: Native Stripe types ensure correct configuration
+- **Backward Compatible**: All `stripeConfig` properties are optional
+
+#### Files Modified
+- `enabler/src/payment-enabler/payment-enabler.ts`: Added `stripeConfig` to `EnablerOptions` interface
+- `enabler/src/payment-enabler/payment-enabler-mock.ts`: Implemented `stripeConfig` handling
+- `enabler/src/dropin/dropin-embedded.ts`: Integrated `stripeConfig` for payment intent creation
+- `enabler/index.html`: Added example usage of `stripeConfig`
+
+---
+
+### New POST /payments Endpoint with Payment Method Options
+
+**Added:**
+- **New Endpoint**: `POST /payments` endpoint that accepts payment method options in request body
+- **Payment Method Options Support**: Allows frontend to specify payment method-specific options (e.g., PIX expiration, multicapture settings) when creating payment intents
+- **Backward Compatibility**: Existing `GET /payments` endpoint remains unchanged for backward compatibility
+
+**Technical Details:**
+
+#### Endpoint Details
+- **Route**: `POST /payments`
+- **Authentication**: Session authentication required
+- **Request Body**: 
+  ```typescript
+  {
+    paymentMethodOptions?: Record<string, Record<string, unknown>>
+  }
+  ```
+- **Response**: Same as `GET /payments` (PaymentResponseSchemaDTO)
+
+#### Use Cases
+- Configure PIX payment expiration times
+- Set Boleto expiration dates
+- Configure multicapture settings per payment
+- Customize payment method behavior on a per-payment basis
+
+#### Files Modified
+- `processor/src/routes/stripe-payment.route.ts`: Added new POST endpoint
+- `processor/src/services/stripe-payment.service.ts`: Enhanced `createPaymentIntent` to accept payment method options
+- `processor/src/services/types/stripe-payment.type.ts`: Added request schema types
+
+#### Benefits
+- **Flexible Configuration**: Per-payment customization of payment method options
+- **Frontend Control**: Frontend can specify payment options without backend changes
+- **Backward Compatible**: Existing GET endpoint continues to work
+
+---
+
+### New Environment Variables and Configuration Options
+
+**Added:**
+- **`CTP_CHECKOUT_URL`**: New required environment variable for commercetools Checkout API URL
+- **`STRIPE_API_VERSION`**: Optional environment variable for Stripe API version (default: `2025-12-15.clover`)
+- **`HEALTH_CHECK_TIMEOUT`**: Optional environment variable for health check timeout in milliseconds (default: `5000`)
+- **`LOGGER_LEVEL`**: Optional environment variable for logging level (default: `info`)
+- **Custom Type Configuration Variables**: New environment variables for customizing commercetools custom type keys:
+  - `CT_CUSTOM_TYPE_LAUNCHPAD_PURCHASE_ORDER_KEY` (default: `payment-launchpad-purchase-order`)
+  - `CT_CUSTOM_TYPE_STRIPE_CUSTOMER_KEY` (default: `payment-connector-stripe-customer-id`)
+  - `CT_CUSTOM_TYPE_SUBSCRIPTION_LINE_ITEM_KEY` (default: `payment-connector-subscription-line-item-type`)
+  - `CT_PRODUCT_TYPE_SUBSCRIPTION_KEY` (default: `payment-connector-subscription-information`)
+
+**Technical Details:**
+
+#### New Required Variables
+- **`CTP_CHECKOUT_URL`**: Required for commercetools Checkout API integration
+  - Example: `https://checkout.europe-west1.gcp.commercetools.com`
+  - Used for checkout-related operations
+
+#### New Optional Variables
+- **`STRIPE_API_VERSION`**: Controls which Stripe API version to use
+  - Default: `2025-12-15.clover`
+  - Allows merchants to pin to specific Stripe API versions
+
+- **`HEALTH_CHECK_TIMEOUT`**: Configures health check timeout
+  - Default: `5000` milliseconds
+  - Used in `/operations/status` endpoint
+
+- **`LOGGER_LEVEL`**: Sets logging verbosity
+  - Default: `info`
+  - Values: `error`, `warn`, `info`, `debug`
+
+#### Custom Type Variables
+These variables allow customization of commercetools custom type keys used by the connector:
+- Used during post-deploy script execution
+- Allows merchants to use custom naming conventions
+- All have sensible defaults matching the connector's standard naming
+
+#### Files Modified
+- `processor/src/config/config.ts`: Added new configuration variables
+- `connect.yaml`: Added new environment variables to deployment configuration
+- `processor/src/services/stripe-payment.service.ts`: Integrated `CTP_CHECKOUT_URL` usage
+
+#### Migration Guide
+- **For New Deployments**: Set `CTP_CHECKOUT_URL` as required variable
+- **For Existing Deployments**: Add `CTP_CHECKOUT_URL` to your environment variables
+- **Optional Variables**: Can be added as needed for customization
+
+---
+
+### Current Project Dependencies
+
+**Dependencies (Processor):**
+- `@commercetools/connect-payments-sdk`: 0.27.2
+- `stripe`: ^20.1.0
+- `fastify`: ^5.7.4
+- `@commercetools-backend/loggers`: ^25.2.0
+- `@fastify/type-provider-typebox`: 5.2.0
+- `@fastify/autoload`: 6.3.1
+- `@fastify/cors`: 11.2.0
+- `@fastify/formbody`: 8.0.2
+- `@fastify/http-proxy`: 11.4.1
+- `@fastify/request-context`: 6.2.1
+- `@fastify/static`: 8.3.0
+- `@sinclair/typebox`: 0.34.41
+- `dotenv`: 17.2.3
+- `fastify-plugin`: 5.1.0
+- `fastify-raw-body`: ^5.0.0
+- `fluent-schema`: ^1.1.0
+
+**Dev Dependencies (Processor):**
+- `typescript`: 5.9.3
+- `jest`: 30.2.0
+- `eslint`: 9.39.1
+- `prettier`: 3.7.4
+- `@typescript-eslint/eslint-plugin`: 8.49.0
+- `@typescript-eslint/parser`: 8.49.0
+- `ts-jest`: 29.4.6
+- `ts-node`: 10.9.2
+
+**Dependencies (Enabler):**
+- `@stripe/stripe-js`: ^8.0.0
+- `@babel/preset-typescript`: ^7.28.5
+- `serve`: 14.2.5
+- `ts-node`: ^10.9.2
+
+**Dev Dependencies (Enabler):**
+- `typescript`: 5.9.3
+- `vite`: 7.2.7
+- `jest`: 30.2.0
+- `sass`: 1.96.0
+- `ts-jest`: ^29.4.6
+- `vite-plugin-css-injected-by-js`: 3.5.2
+
+---
+
 ### Multiple Refunds and Multicapture Implementation
 
 **Added:**

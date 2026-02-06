@@ -7,6 +7,7 @@ import {
   updateShippingAddress,
   updateShippingRate,
 } from './commerce-tools/shipping-client';
+import { freezeCart, unfreezeCart, isCartFrozen } from './commerce-tools/cart-client';
 import { ShippingMethod } from '@commercetools/platform-sdk/dist/declarations/src/generated/models/shipping-method';
 import { StripeShippingServiceOptions } from './types/stripe-shipping.type';
 import { log } from '../libs/logger';
@@ -28,7 +29,27 @@ export class StripeShippingService {
   public async getShippingMethods(address: ShippingMethodsRequestSchemaDTO): Promise<ShippingMethodsResponseSchemaDTO> {
     try {
       const ctCart = await this.ctCartService.getCart({ id: getCartIdFromContext() });
-      let updatedCart = await updateShippingAddress(ctCart, address as _BaseAddress);
+
+      // Unfreeze cart temporarily for Express Checkout shipping updates
+      let cartToUpdate = ctCart;
+      const wasFrozen = isCartFrozen(ctCart);
+
+      if (wasFrozen) {
+        try {
+          cartToUpdate = await unfreezeCart(ctCart);
+          log.info(`Cart temporarily unfrozen for Express Checkout shipping address update.`, {
+            ctCartId: cartToUpdate.id,
+          });
+        } catch (error) {
+          log.error(`Error unfreezing cart for shipping address update.`, {
+            error,
+            ctCartId: ctCart.id,
+          });
+          throw wrapStripeError(error);
+        }
+      }
+
+      let updatedCart = await updateShippingAddress(cartToUpdate, address as _BaseAddress);
       const response = await getShippingMethodsFromCart(updatedCart);
 
       if (response.results.length === 0) {
@@ -54,6 +75,23 @@ export class StripeShippingService {
       } else {
         updatedCart = await updateShippingRate(updatedCart, shippingMethods[0].id);
       }
+
+      // Re-freeze cart after shipping updates
+      if (wasFrozen) {
+        try {
+          updatedCart = await freezeCart(updatedCart);
+          log.info(`Cart re-frozen after Express Checkout shipping address update.`, {
+            ctCartId: updatedCart.id,
+          });
+        } catch (error) {
+          log.error(`Error re-freezing cart after shipping address update.`, {
+            error,
+            ctCartId: updatedCart.id,
+          });
+          // Continue even if re-freeze fails
+        }
+      }
+
       const lineItems = await this.getCartLineItems(updatedCart);
 
       return {
@@ -70,7 +108,44 @@ export class StripeShippingService {
   ): Promise<ShippingMethodsResponseSchemaDTO> {
     try {
       const ctCart = await this.ctCartService.getCart({ id: getCartIdFromContext() });
-      const updatedCart = await updateShippingRate(ctCart, shippingRate.id);
+
+      // Unfreeze cart temporarily for Express Checkout shipping method update
+      let cartToUpdate = ctCart;
+      const wasFrozen = isCartFrozen(ctCart);
+
+      if (wasFrozen) {
+        try {
+          cartToUpdate = await unfreezeCart(ctCart);
+          log.info(`Cart temporarily unfrozen for Express Checkout shipping method update.`, {
+            ctCartId: cartToUpdate.id,
+          });
+        } catch (error) {
+          log.error(`Error unfreezing cart for shipping method update.`, {
+            error,
+            ctCartId: ctCart.id,
+          });
+          throw wrapStripeError(error);
+        }
+      }
+
+      let updatedCart = await updateShippingRate(cartToUpdate, shippingRate.id);
+
+      // Re-freeze cart after shipping method update
+      if (wasFrozen) {
+        try {
+          updatedCart = await freezeCart(updatedCart);
+          log.info(`Cart re-frozen after Express Checkout shipping method update.`, {
+            ctCartId: updatedCart.id,
+          });
+        } catch (error) {
+          log.error(`Error re-freezing cart after shipping method update.`, {
+            error,
+            ctCartId: updatedCart.id,
+          });
+          // Continue even if re-freeze fails
+        }
+      }
+
       const lineItems = await this.getCartLineItems(updatedCart);
       return {
         lineItems: lineItems,
@@ -83,7 +158,31 @@ export class StripeShippingService {
   public async removeShippingRate(): Promise<ShippingMethodsResponseSchemaDTO> {
     try {
       const ctCart = await this.ctCartService.getCart({ id: getCartIdFromContext() });
-      const updatedCart = await removeShippingRate(ctCart);
+
+      // Unfreeze cart when user cancels Express Checkout
+      let cartToUpdate = ctCart;
+      const wasFrozen = isCartFrozen(ctCart);
+
+      if (wasFrozen) {
+        try {
+          cartToUpdate = await unfreezeCart(ctCart);
+          log.info(`Cart unfrozen after Express Checkout cancellation.`, {
+            ctCartId: cartToUpdate.id,
+          });
+        } catch (error) {
+          log.error(`Error unfreezing cart after Express Checkout cancellation.`, {
+            error,
+            ctCartId: ctCart.id,
+          });
+          throw wrapStripeError(error);
+        }
+      }
+
+      const updatedCart = await removeShippingRate(cartToUpdate);
+
+      // Note: Cart remains unfrozen after cancellation to allow user to modify cart
+      // We don't re-freeze here because the payment flow was cancelled
+
       const lineItems = await this.getCartLineItems(updatedCart);
       return {
         lineItems: lineItems,

@@ -42,7 +42,14 @@ Guide to handling mixed carts with both subscription and one-time items.
 Information about the `stripeConnector_` prefix system for product type attributes.
 
 ### [enabler-improvements.md](./enabler-improvements.md)
-Documentation for frontend enabler improvements and features.
+Comprehensive guide to frontend enabler improvements and payment service enhancements. Covers:
+- **Frontend Configuration Override**: `stripeConfig` option for overriding backend configurations from the frontend
+- **Payment Mode Handling**: Improved handling of setup intents and subscription flows
+- **POST /payments Endpoint**: New endpoint with dynamic payment method options support
+- **Payment Method Options Merging**: Logic for merging backend defaults, `stripeConfig`, and request body options
+- **Enhanced Debugging**: Comprehensive logging and error tracking capabilities
+- **Shipping Address Integration**: Conditional shipping address handling
+- Technical implementation details, configuration, testing, and troubleshooting
 
 ## Workflow Diagrams
 

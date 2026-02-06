@@ -27,6 +27,7 @@ This repository provides a commercetools [connect](https://docs.commercetools.co
 - **Enhanced Subscription Management**: Comprehensive subscription update capabilities including product variant switching, price updates, and configuration changes. The new `updateSubscription` method provides seamless subscription management while maintaining data consistency. [Learn more](./docs/subscription-price-synchronization.md).
 - **Enhanced Payment Intent Error Handling**: Improved error management for payment intent statuses including `requires_action` and `payment_failed` with structured error objects for better debugging.
 - **Multiple Refunds and Multicapture Support (Opt-in)**: Advanced payment processing capabilities including multiple partial captures and accurate refund tracking using Stripe API integration. This feature is **disabled by default** and must be explicitly enabled via `STRIPE_ENABLE_MULTI_OPERATIONS=true`. Requires multicapture enabled in your Stripe account and manual capture mode. [Learn more](./docs/multiple-refunds-multicapture.md).
+- **Frontend Configuration Override**: The Enabler supports `stripeConfig` option that allows frontend to override backend configuration for Stripe Elements (appearance, layout, billing address) and PaymentIntent (payment method options). This enables per-implementation customization without backend changes. [See Details](./README.md#creating-components-for-payment-elements-or-express-checkout)
 - Provides a subscription management API via the commercetools connector, enabling Stripe subscription operations directly through commercetools API endpoints.
 - Customers can update their shipping and billing addresses directly within the Stripe Express Checkout. When an address is changed, the connector automatically fetches the latest shipping rates from commercetools and updates the cart to reflect the new information. [See Details](README.md#sequence-diagrams-for-the-payment-connector)
 
@@ -71,7 +72,7 @@ In addition, please make sure the API client has enough scope to manage Payment.
 #### 2. Various URLs from commercetools composable commerce
 
 Configure various URLs from the commercetools platform, so that the connect application can handle the session and authentication process for endpoints.
-Their values are input for environment variables/configurations for connecting, with variable names `CTP_API_URL`, `CTP_AUTH_URL`, and `CTP_SESSION_URL`.
+Their values are input for environment variables/configurations for connecting, with variable names `CTP_API_URL`, `CTP_AUTH_URL`, `CTP_SESSION_URL`, and `CTP_CHECKOUT_URL`.
 
 #### 3. Stripe account and keys
 
@@ -292,10 +293,12 @@ Before installing the connector, you must create a Stripe account and obtain the
 14. **CTP_AUTH_URL**: Authentication URL for commercetools
 15. **CTP_API_URL**: API URL for commercetools
 16. **CTP_SESSION_URL**: Session API URL for commercetools
-17. **CTP_JWKS_URL**: JWKs URL for JWT validation
-18. **CTP_JWT_ISSUER**: JWT issuer for validation
-19. **CTP_CLIENT_SECRET**: Client secret for commercetools (in secured configuration)
-20. **CTP_CLIENT_ID**: Client ID for commercetools with specific required scopes (in secured configuration)
+17. **CTP_CHECKOUT_URL**: Checkout API URL for commercetools (required for checkout operations)
+18. **CTP_JWKS_URL**: JWKs URL for JWT validation
+19. **CTP_JWT_ISSUER**: JWT issuer for validation
+20. **CTP_CLIENT_SECRET**: Client secret for commercetools (in secured configuration)
+21. **CTP_CLIENT_ID**: Client ID for commercetools with specific required scopes (in secured configuration)
+22. **STRIPE_API_VERSION**: Optional Stripe API version to use (default: `2025-12-15.clover`). Allows merchants to pin to specific Stripe API versions.
 
 These commercetools-specific variables are essential for the connector to properly authenticate and communicate with the commercetools platform.
 
@@ -303,22 +306,119 @@ These commercetools-specific variables are essential for the connector to proper
 
 We must create the connector on the commercetools connect marketplace, enable the checkout feature in the merchant center, and select the payment connector as the drop-in payment method on the checkout configuration page. Users create an API client responsible for payment management in a composable commerce project. The API client's details are input as environment variables/ configuration for connecting, such as `CTP_PROJECT_KEY,` `CTP_CLIENT_ID,` and `CTP_CLIENT_SECRET`.
 
-1. **API client**: Various URLs from the commercetools platform must be configured so that the connect application can handle the session and authentication process for endpoints. Their values are taken as input as environment variables/ configuration for connect, with variable names `CTP_API_URL`, `CTP_AUTH_URL`, and `CTP_SESSION_URL`.
+1. **API client**: Various URLs from the commercetools platform must be configured so that the connect application can handle the session and authentication process for endpoints. Their values are taken as input as environment variables/ configuration for connect, with variable names `CTP_API_URL`, `CTP_AUTH_URL`, `CTP_SESSION_URL`, and `CTP_CHECKOUT_URL`.
 2. **payment connector**: Install the payment connector from the commercetools connector marketplace.
 
 Note: To use the Stripe Composable Connector installed, you must call the enabler module from the installed connector URL. To find more information about how to use the enabler module, please refer to the [Enabler documentation](./enabler/README.md#creating-components-for-payment-elements-or-express-checkout).
 
 ## Creating Components for Payment Elements or Express Checkout
 
-This section explains how to integrate the Stripe Composable connector with commercetools. First, load the Stripe Enabler using the URL provided by the connector information page. Then initialize a payment component by creating a new Enabler instance with parameters for processor URL, session ID, currency, callbacks, and payment component type (either 'paymentElement' or 'expressCheckout').
+This section explains how to integrate the Stripe Composable connector with commercetools. First, load the Stripe Enabler using the URL provided by the connector information page. Then initialize a payment component by creating a new Enabler instance.
 
-The integration requires a few steps: create the enabler instance with required configuration (including processor URL and callbacks), build a component using createDropinBuilder, and mount it to a DOM element. The component handles payment processing while maintaining security standards. You'll need to replace placeholder variables with your actual application configuration values to complete the integration.
+### Enabler Options
 
-For detailed implementation instructions and code examples, please refer to the [Enabler documentation](./enabler/README.md#creating-components-for-payment-elements-or-express-checkout).
+The Enabler constructor accepts the following options:
+
+```javascript
+const enabler = new Enabler({
+  processorUrl: string,                    // Backend processor URL (required)
+  sessionId: string,                       // Commercetools session ID (required)
+  locale?: string,                          // Optional locale for the payment
+  onActionRequired?: () => Promise<void>,   // Optional callback when action is required
+  onComplete?: (result) => void,           // Callback when payment is completed
+  onError?: (error) => void,                // Callback for error handling
+  paymentElementType?: string,              // Component type: 'paymentElement' or 'expressCheckout'
+  stripeCustomerId?: string,                // Optional Stripe customer ID
+  stripeConfig?: {                          // Optional frontend configuration override
+    elements?: {
+      appearance?: Appearance,              // Overrides STRIPE_APPEARANCE_PAYMENT_ELEMENT or STRIPE_APPEARANCE_EXPRESS_CHECKOUT
+      layout?: LayoutObject,                // Overrides STRIPE_LAYOUT
+      collectBillingAddress?: 'auto' | 'never' | 'if_required'  // Overrides STRIPE_COLLECT_BILLING_ADDRESS
+    },
+    paymentIntent?: {
+      paymentMethodOptions?: Record<string, Record<string, unknown>>  // Payment method-specific options (e.g., PIX expiration)
+    }
+  }
+});
+```
+
+### stripeConfig Option
+
+The `stripeConfig` option allows you to override backend configuration from the frontend, providing per-implementation customization without requiring backend changes. This is particularly useful for:
+
+- **Customizing Appearance**: Override the backend appearance configuration for specific implementations
+- **Layout Customization**: Adjust the payment element layout (accordion, tabs) per use case
+- **Payment Method Options**: Configure payment method-specific options such as PIX expiration times or Boleto settings
+- **Billing Address Collection**: Control how billing addresses are collected per implementation
+
+**Note**: Payment method options can also be specified via the `POST /payments` endpoint by including `paymentMethodOptions` in the request body. The `stripeConfig.paymentIntent.paymentMethodOptions` takes precedence when both are provided. For detailed API documentation, see [Processor Documentation](./processor/README.md#create-payment-intent-from-stripe).
+
+**Example with stripeConfig:**
+
+```javascript
+const enabler = new Enabler({
+  processorUrl: COMMERCETOOLS_PROCESSOR_URL,
+  sessionId: SESSION_ID,
+  paymentElementType: 'paymentElement',
+  onComplete: ({ isSuccess, paymentReference, paymentIntent }) => {
+    console.log('Payment completed', { isSuccess, paymentReference, paymentIntent });
+  },
+  onError: (err) => {
+    console.error('Payment error', err);
+  },
+  stripeConfig: {
+    elements: {
+      appearance: {
+        theme: 'night',
+        variables: {
+          colorPrimary: '#7c3aed',
+        },
+      },
+      layout: {
+        type: 'accordion',
+        defaultCollapsed: false,
+      },
+      collectBillingAddress: 'never',
+    },
+    paymentIntent: {
+      paymentMethodOptions: {
+        pix: {
+          expires_after_seconds: 3600,
+        },
+      },
+    },
+  },
+});
+
+const builder = await enabler.createDropinBuilder('embedded');
+const component = await builder.build({
+  showPayButton: !builder.componentHasSubmit,
+});
+
+component.mount('#payment');
+```
+
+### Integration Steps
+
+The integration requires a few steps: create the enabler instance with required configuration (including processor URL and callbacks), build a component using `createDropinBuilder`, and mount it to a DOM element. The component handles payment processing while maintaining security standards. You'll need to replace placeholder variables with your actual application configuration values to complete the integration.
+
+For detailed implementation instructions and additional code examples, please refer to the [Enabler documentation](./enabler/README.md#creating-components-for-payment-elements-or-express-checkout).
 
 ## Considerations for Express Checkout
 
 By default all Express Checkout components are created with 'shippingAddressRequired' and 'billingAddressRequired' set to true. This means that the Express Checkout component can update the shipping methods and the address information in the cart. You can find the information of the methods responsible for updating the shipping methods in the [Processor Documentation](./processor/README.md#express-checkout-methods).
+
+### Cart State Management
+
+The connector implements cart freezing to protect cart integrity during payment flows. Carts are automatically frozen after PaymentIntent or Subscription creation to prevent modifications during payment processing. During Express Checkout operations, frozen carts are temporarily unfrozen to allow shipping information updates, then automatically re-frozen to maintain protection.
+
+**Key Behaviors:**
+- **After Payment/Subscription Creation**: Carts are frozen to prevent modifications (products, quantities, discounts, addresses, shipping)
+- **During Express Checkout**: Frozen carts are temporarily unfrozen to allow Express Checkout to update shipping addresses and methods
+- **After Shipping Updates**: Carts are automatically re-frozen after Express Checkout shipping updates complete
+- **On Cancellation**: If Express Checkout is cancelled, the cart remains unfrozen to allow users to modify the cart
+
+This ensures that Express Checkout can update shipping information even when the cart is protected during the payment flow, while maintaining cart integrity throughout the checkout process.
 
 ## Considerations for Apple Pay and Google Pay
 
@@ -386,6 +486,9 @@ deployAs:
           description: Session API URL (example - https://session.europe-west1.gcp.commercetools.com).
           required: true
           default: https://session.europe-west1.gcp.commercetools.com
+        - key: CTP_CHECKOUT_URL
+          description: Checkout API URL (example - https://checkout.europe-west1.gcp.commercetools.com).
+          required: true
         - key: CTP_JWKS_URL
           description: JWKs url (example - https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json)
           required: true
@@ -431,6 +534,25 @@ deployAs:
         - key: STRIPE_ENABLE_MULTI_OPERATIONS
           description: Enable multicapture and multirefund support (true|false). When enabled, allows multiple partial captures and multiple refunds on payments. IMPORTANT - Requires multicapture to be enabled in your Stripe account.
           default: 'false'
+        - key: STRIPE_API_VERSION
+          description: Stripe API version to use (example - 2025-12-15.clover).
+          default: '2025-12-15.clover'
+        - key: CT_CUSTOM_TYPE_LAUNCHPAD_PURCHASE_ORDER_KEY
+          description: Custom type key for launchpad purchase order number.
+          required: true
+          default: 'payment-launchpad-purchase-order'
+        - key: CT_CUSTOM_TYPE_STRIPE_CUSTOMER_KEY
+          description: Custom type key for Stripe customer ID.
+          required: true
+          default: 'payment-connector-stripe-customer-id'
+        - key: CT_CUSTOM_TYPE_SUBSCRIPTION_LINE_ITEM_KEY
+          description: Custom type key for subscription line item.
+          required: true
+          default: 'payment-connector-subscription-line-item-type'
+        - key: CT_PRODUCT_TYPE_SUBSCRIPTION_KEY
+          description: Product type key for subscription information.
+          required: true
+          default: 'payment-connector-subscription-information'
       securedConfiguration:
         - key: CTP_CLIENT_SECRET
           description: commercetools client secret.
@@ -453,6 +575,7 @@ Here, you can see the details about various variables in the configuration
 - `CTP_AUTH_URL`: The URL for authentication in the commercetools platform. Generate the OAuth 2.0 token required in every API call to commercetools composable commerce. The default value is `https://auth.europe-west1.gcp.commercetools.com`. For details, please refer to the documentation [here](https://docs.commercetools.com/tutorials/api-tutorial#authentication).
 - `CTP_API_URL`: The URL for commercetools composable commerce API. The default value is `https://api.europe-west1.gcp.commercetools.com`.
 - `CTP_SESSION_URL`: The URL for session creation in the commercetools platform. Connectors rely on the session created to share information between the enabler and processor. The default value is `https://session.europe-west1.gcp.commercetools.com`.
+- `CTP_CHECKOUT_URL`: The URL for commercetools Checkout API. Required for checkout-related operations. Example: `https://checkout.europe-west1.gcp.commercetools.com`.
 - `CTP_JWKS_URL`: The JSON Web Key Set URL. Default value is `https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json`
 - `CTP_JWT_ISSUER`: The issuer inside JSON Web Token, required in the JWT validation process. The default value is `https://mc-api.europe-west1.gcp.commercetools.com`
 - `STRIPE_CAPTURE_METHOD`: Stripe capture method (manual or automatic), default value: automatic.
@@ -480,6 +603,11 @@ Here, you can see the details about various variables in the configuration
   - `false` (default): Standard single-capture payment processing. Webhook events are gracefully skipped with informative logging.
   - **Prerequisites**: Requires multicapture enabled in your Stripe account AND `STRIPE_CAPTURE_METHOD=manual`
   - **See**: [Multiple Refunds and Multicapture Documentation](./docs/multiple-refunds-multicapture.md) for detailed configuration
+- `STRIPE_API_VERSION`: Stripe API version to use. Default value is `2025-12-15.clover`. Allows merchants to pin to specific Stripe API versions for stability.
+- `CT_CUSTOM_TYPE_LAUNCHPAD_PURCHASE_ORDER_KEY`: Custom type key for launchpad purchase order number. Default: `payment-launchpad-purchase-order`.
+- `CT_CUSTOM_TYPE_STRIPE_CUSTOMER_KEY`: Custom type key for Stripe customer ID. Default: `payment-connector-stripe-customer-id`.
+- `CT_CUSTOM_TYPE_SUBSCRIPTION_LINE_ITEM_KEY`: Custom type key for subscription line item. Default: `payment-connector-subscription-line-item-type`.
+- `CT_PRODUCT_TYPE_SUBSCRIPTION_KEY`: Product type key for subscription information. Default: `payment-connector-subscription-information`.
 
 ## Development
 

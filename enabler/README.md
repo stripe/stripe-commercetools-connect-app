@@ -16,17 +16,23 @@ const Enabler = await import(process.env.REACT_APP_ENABLER_BUILD_URL);
 Create a new Enabler instance and specify the `paymentElementType` parameter to configure the component type, either **Payment Element:'paymentElement'** or **Express Checkout:'expressCheckout**.
 ```javascript
 
+#### Basic Example
+```javascript
 const enabler = new Enabler({
-    processorUrl: COMMERCETOOLS_PROCESSOR_URL, // Backend processor URL
-    sessionId: SESSION_ID,                    // Commercetools session ID
-    currency: "US",                           // Desired currency for the payment
+    processorUrl: COMMERCETOOLS_PROCESSOR_URL, // Backend processor URL (required)
+    sessionId: SESSION_ID,                    // Commercetools session ID (required)
     onComplete: ({ isSuccess, paymentReference, paymentIntent }) => {
-        onComplete(paymentIntent);            // Callback for completion
+        // Callback for completion
+        // isSuccess: boolean indicating payment success
+        // paymentReference: string with payment reference (when successful)
+        // paymentIntent: string with payment intent ID (when successful)
+        console.log('Payment completed', { isSuccess, paymentReference, paymentIntent });
     },
     onError: (err) => {
-        onError(err);                          // Callback for error handling
+        // Callback for error handling
+        console.error('Payment error', err);
     },
-    paymentElementType: type,                 // Component type:(paymentElement|expressCheckout) Payment Element or Express Checkout
+    paymentElementType: type,                 // Component type: 'paymentElement' or 'expressCheckout'
 });
 
 const builder = await enabler.createDropinBuilder('embedded');
@@ -34,10 +40,162 @@ const component = await builder.build({
    showPayButton: !builder.componentHasSubmit,
 });
 
-component.mount("#payment"); //Selector where the component will be mounted
+component.mount("#payment"); // Selector where the component will be mounted
 ```
 
+#### Enabler Options
 
+The Enabler constructor accepts the following options:
+
+- **`processorUrl`** (required): The URL of the backend payment processor
+- **`sessionId`** (required): The commercetools session ID for the payment
+- **`locale`** (optional): The locale for the payment (e.g., 'en-US', 'es-ES')
+- **`onActionRequired`** (optional): Callback function called when additional action is required during payment (e.g., 3D Secure authentication)
+- **`onComplete`** (optional): Callback function called when payment is completed. Receives a `PaymentResult` object:
+  - `isSuccess: true` - Payment succeeded: includes `paymentReference` and `paymentIntent`
+  - `isSuccess: false` - Payment failed: no additional properties
+- **`onError`** (optional): Callback function called when an error occurs during payment processing
+- **`paymentElementType`** (optional): Type of payment component to create: `'paymentElement'` or `'expressCheckout'`
+- **`stripeCustomerId`** (optional): The Stripe customer ID if you want to associate the payment with an existing Stripe customer
+- **`stripeConfig`** (optional): Frontend configuration override for Stripe Elements and PaymentIntent (see [stripeConfig section](#stripeconfig-option) below)
+
+#### Example with All Options
+```javascript
+const enabler = new Enabler({
+    processorUrl: COMMERCETOOLS_PROCESSOR_URL,
+    sessionId: SESSION_ID,
+    locale: 'en-US',                          // Optional locale
+    onActionRequired: async () => {
+        // Optional callback when action is required (e.g., 3D Secure)
+        console.log('Action required for payment');
+    },
+    onComplete: ({ isSuccess, paymentReference, paymentIntent }) => {
+        if (isSuccess) {
+            console.log('Payment succeeded', { paymentReference, paymentIntent });
+        } else {
+            console.log('Payment failed');
+        }
+    },
+    onError: (err) => {
+        console.error('Payment error', err);
+    },
+    paymentElementType: 'paymentElement',      // or 'expressCheckout'
+    stripeCustomerId: 'cus_Example',          // Optional Stripe customer ID
+    stripeConfig: {                            // Optional frontend configuration override
+        elements: {
+            appearance: {
+                theme: 'night',
+                variables: { colorPrimary: '#7c3aed' },
+            },
+            layout: {
+                type: 'accordion',
+                defaultCollapsed: false,
+            },
+            collectBillingAddress: 'never',
+        },
+        paymentIntent: {
+            paymentMethodOptions: {
+                pix: {
+                    expires_after_seconds: 3600,
+                },
+            },
+        },
+    },
+});
+```
+
+### 3. **Create and Mount the Component**
+
+After creating the Enabler instance, you can create either a drop-in builder or a component builder:
+
+#### Using createDropinBuilder (Recommended)
+```javascript
+const builder = await enabler.createDropinBuilder('embedded');
+const component = await builder.build({
+    showPayButton: !builder.componentHasSubmit,
+});
+component.mount("#payment");
+```
+
+The `createDropinBuilder` method accepts the following types:
+- **`'embedded'`**: Renders the payment component within your page (recommended)
+- **`'hpp'`**: Redirects to a hosted payment page
+
+#### Using createComponentBuilder
+```javascript
+const builder = await enabler.createComponentBuilder('card');
+const component = builder.build({
+    showPayButton: false,
+});
+component.mount("#card-component");
+```
+
+### stripeConfig Option
+
+The `stripeConfig` option allows you to override backend configuration from the frontend, providing per-implementation customization without requiring backend changes. This is particularly useful for:
+
+- **Customizing Appearance**: Override the backend appearance configuration (`STRIPE_APPEARANCE_PAYMENT_ELEMENT` or `STRIPE_APPEARANCE_EXPRESS_CHECKOUT`) for specific implementations
+- **Layout Customization**: Adjust the payment element layout (`STRIPE_LAYOUT`) per use case (accordion, tabs)
+- **Payment Method Options**: Configure payment method-specific options such as PIX expiration times, Boleto settings, or multicapture configurations
+- **Billing Address Collection**: Control how billing addresses are collected (`STRIPE_COLLECT_BILLING_ADDRESS`) per implementation
+
+#### stripeConfig Structure
+
+```javascript
+stripeConfig: {
+    elements?: {
+        appearance?: Appearance,              // Overrides backend appearance config
+        layout?: LayoutObject,                // Overrides STRIPE_LAYOUT
+        collectBillingAddress?: 'auto' | 'never' | 'if_required'  // Overrides STRIPE_COLLECT_BILLING_ADDRESS
+    },
+    paymentIntent?: {
+        paymentMethodOptions?: Record<string, Record<string, unknown>>  // Payment method-specific options
+    }
+}
+```
+
+#### Example: Payment Method Options
+```javascript
+const enabler = new Enabler({
+    processorUrl: COMMERCETOOLS_PROCESSOR_URL,
+    sessionId: SESSION_ID,
+    paymentElementType: 'paymentElement',
+    stripeConfig: {
+        paymentIntent: {
+            paymentMethodOptions: {
+                pix: {
+                    expires_after_seconds: 3600,  // PIX expiration in seconds
+                },
+                boleto: {
+                    expires_after_days: 15,       // Boleto expiration in days
+                },
+            },
+        },
+    },
+});
+```
+
+**Note**: When `stripeConfig` is provided, frontend configuration takes precedence over backend environment variables. If a property is not specified in `stripeConfig`, the backend configuration is used as fallback.
+
+### PaymentResult Structure
+
+The `onComplete` callback receives a `PaymentResult` object with the following structure:
+
+**Success Case:**
+```typescript
+{
+    isSuccess: true,
+    paymentReference: string,    // Payment reference from commercetools
+    paymentIntent: string       // Stripe payment intent ID
+}
+```
+
+**Failure Case:**
+```typescript
+{
+    isSuccess: false
+}
+```
 
 Replace the placeholder variables (`COMMERCETOOLS_PROCESSOR_URL`, `SESSION_ID`, `onComplete`, `onError`, and `type`) with appropriate values based on your application configuration.
 

@@ -13,6 +13,20 @@ export interface ExtendedPaymentAmount extends PaymentAmount {
   totalCentAmount: number;
 }
 
+/**
+ * Extended Invoice type that includes expanded properties.
+ * When using expand: ['payment_intent', 'subscription', 'charge'] in Stripe API calls,
+ * these properties are returned as full objects instead of string IDs.
+ */
+export interface StripeInvoiceExpanded extends Omit<Stripe.Invoice, 'payment_intent' | 'subscription' | 'charge'> {
+  payment_intent?: Stripe.PaymentIntent | string | null;
+  subscription?: Stripe.Subscription | string | null;
+  charge?: Stripe.Charge | string | null;
+  subscription_details?: {
+    metadata?: Stripe.Metadata | null;
+  } | null;
+}
+
 export interface StripeSubscriptionServiceOptions {
   ctCartService: CommercetoolsCartService;
   ctPaymentService: CommercetoolsPaymentService;

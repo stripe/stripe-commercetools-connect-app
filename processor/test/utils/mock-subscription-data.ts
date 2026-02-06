@@ -2005,3 +2005,69 @@ export const mockEvent__invoice_upcoming__simple: Stripe.Event = {
     },
   },
 } as Stripe.Event;
+
+/**
+ * Mock event for charge.succeeded - used by processSubscriptionEventCharged
+ * The event.data.object should be a Stripe.Charge with an invoice property
+ */
+export const mockEvent__charge_succeeded__with_invoice: Stripe.Event = {
+  id: 'evt_charge_succeeded_123',
+  object: 'event',
+  api_version: '2024-12-18.acacia',
+  created: 1747089143,
+  data: {
+    object: {
+      id: 'ch_3RO4tUI1uSMp8YbX1hsb9D13',
+      object: 'charge',
+      amount: 1000,
+      amount_captured: 1000,
+      amount_refunded: 0,
+      captured: true,
+      created: 1747089142,
+      currency: 'usd',
+      customer: 'cus_SHX0WSoPAeiLqd',
+      description: 'Monthly Subscription',
+      invoice: 'in_1RO4tTI1uSMp8YbX5hnju5zf',
+      metadata: {
+        cart_id: 'd5f3ab84-5440-47ea-85a7-9a5a9fd63b32',
+        ct_customer_id: 'dbde17fe-726c-4271-befb-b3194e3726b8',
+        ct_payment_id: 'cc97efd7-c447-408d-9d42-21b1bcd2914b',
+        ct_project_key: 'stripe-subscription',
+        subscription_id: 'sub_1RO4tTI1uSMp8YbXzQXAbemN',
+      },
+      paid: true,
+      payment_intent: 'pi_3RO4tUI1uSMp8YbX1c0AuScG',
+      payment_method: 'pm_1RO4tWI1uSMp8YbXzFj7Eju2',
+      status: 'succeeded',
+      billing_details: {
+        address: {
+          city: 'San francisco',
+          country: 'US',
+          line1: '99 100 Palomar street',
+          line2: '',
+          postal_code: '99999',
+          state: 'CA',
+        },
+        email: 'aaron.meza@orium.com',
+        name: 'Gildardo Diaz',
+        phone: '+123456789',
+      },
+      payment_method_details: {
+        card: {
+          brand: 'visa',
+          last4: '1111',
+          exp_month: 11,
+          exp_year: 2036,
+        },
+        type: 'card',
+      },
+    } as Stripe.Charge,
+  },
+  livemode: false,
+  pending_webhooks: 1,
+  request: {
+    id: 'req_charge_123',
+    idempotency_key: 'charge-idempotency-key',
+  },
+  type: 'charge.succeeded',
+};

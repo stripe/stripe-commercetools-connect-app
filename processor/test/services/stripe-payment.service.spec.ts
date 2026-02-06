@@ -23,6 +23,7 @@ import {
   mockEvent__invoice_paid__Expanded_Paymnet_intent__amount_paid,
   mockFindPaymentsByInterfaceId__Charge_Failure,
   mockStripeInvoicesRetrievedExpanded,
+  mockEvent__charge_succeeded__with_invoice,
 } from '../utils/mock-subscription-data';
 import {
   mockEvent__charge_succeeded_notCaptured,
@@ -1765,8 +1766,9 @@ describe('stripe-payment.service', () => {
   });
 
   describe('method processSubscriptionEventChargedRefund', () => {
-    test('should process subscription invoice.charged_refund successfully creating an update in the refunded payment', async () => {
-      const mockEvent: Stripe.Event = mockEvent__invoice_paid__Expanded_Paymnet_intent__amount_paid;
+    test('should process subscription charge.succeeded successfully creating an update in the payment', async () => {
+      // Use the correct mock event type for processSubscriptionEventCharged (charge.succeeded)
+      const mockEvent: Stripe.Event = mockEvent__charge_succeeded__with_invoice;
       const mockedCart = mockGetCartResult();
       const spiedStripeInvoiceExpandedMock = jest
         .spyOn(CtPaymentCreationService.prototype, 'getStripeInvoiceExpanded')
@@ -1793,10 +1795,12 @@ describe('stripe-payment.service', () => {
 
       await subscriptionService.processSubscriptionEventCharged(mockEvent);
 
-      const mockedInvoice = mockEvent.data.object as Stripe.Invoice;
-      const mockedSubscription = mockedInvoice.subscription as Stripe.Subscription;
-      expect(spiedStripeInvoiceExpandedMock).toHaveBeenCalled();
+      // The charge event contains invoice ID as string, which is used to retrieve the expanded invoice
+      const mockedCharge = mockEvent.data.object as Stripe.Charge;
+      expect(spiedStripeInvoiceExpandedMock).toHaveBeenCalledWith(mockedCharge.invoice);
 
+      // The expanded invoice contains the subscription with metadata
+      const mockedSubscription = mockStripeInvoicesRetrievedExpanded.subscription as Stripe.Subscription;
       expect(spiedPaymentMock).toHaveBeenCalled();
       expect(spiedPaymentMock).toHaveBeenCalledWith({
         id: mockedSubscription.metadata.ct_payment_id,
@@ -1823,7 +1827,7 @@ describe('stripe-payment.service', () => {
           expect(updateData.transaction).toHaveProperty('type');
           expect(updateData.transaction).toHaveProperty('state');
           expect(updateData.transaction).toHaveProperty('amount');
-          expect(updateData.transaction.amount.centAmount).toBe(mockedInvoice.amount_paid);
+          expect(updateData.transaction.amount.centAmount).toBe(mockStripeInvoicesRetrievedExpanded.amount_paid);
           expect(updateData.transaction).toHaveProperty('interactionId');
           expect(updateData.transaction.interactionId).toMatch(/^(pi_)/);
           expect(
@@ -1941,6 +1945,33 @@ describe('stripe-payment.service', () => {
 
       // Verify returned cart
       expect(result).toEqual({ ...mockCart, shippingAddress: expectedActions[0].address });
+    });
+
+    test('should return cart unchanged when address details are missing', async () => {
+      const mockCart = mockGetCartResult();
+
+      // Mock charge with minimal details (incomplete address)
+      const mockCharge = {
+        billing_details: {
+          // No name
+          address: {
+            // No details - missing required fields: country, state, city, postal_code, line1
+          },
+        },
+        // No shipping property
+      } as Stripe.Charge;
+
+      // Mock updateCartById function
+      const updateCartByIdMock = jest.spyOn(CartClient, 'updateCartById');
+
+      // Call the method
+      const result = await stripePaymentService.updateCartAddress(mockCharge, mockCart);
+
+      // Verify updateCartById was NOT called (incomplete address should not trigger an update)
+      expect(updateCartByIdMock).not.toHaveBeenCalled();
+
+      // Verify returned cart is the original cart unchanged
+      expect(result).toEqual(mockCart);
     });
   });
 });

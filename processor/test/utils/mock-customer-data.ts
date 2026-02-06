@@ -1,5 +1,6 @@
 import Stripe from 'stripe';
 import { Customer, Type } from '@commercetools/platform-sdk';
+import { stripeCustomerIdCustomType } from '../../src/custom-types/custom-types';
 
 export const mockCtCustomerId = '437906f7-1aaa-41dd-8775-3a03d8aa1258';
 
@@ -185,7 +186,7 @@ export const mockCtCustomTypeData: Type = {
   version: 1,
   createdAt: '2025-04-02T19:52:26.752Z',
   lastModifiedAt: '2025-04-02T19:53:07.296Z',
-  key: 'payment-connector-stripe-customer-id',
+  key: stripeCustomerIdCustomType.key,
   name: {
     en: 'Stripe Customer ID',
   },

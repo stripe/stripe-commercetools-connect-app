@@ -148,7 +148,7 @@ export class DropinComponents implements DropinComponent {
   }
 
   private async createPayment(): Promise<void> {
-    const paymentRes = await this.api.getPayment();
+    const paymentRes = await this.api.getPayment(this.baseOptions.stripeConfig?.paymentIntent?.paymentMethodOptions);
     const paymentIntent = await this.stripe.confirmStripePayment(paymentRes);
     await this.api.confirmPaymentIntent({
       paymentIntentId: paymentIntent.id,

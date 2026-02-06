@@ -22,6 +22,7 @@ import {
   UpdatePaymentMetadataProps,
   UpdateSubscriptionPaymentTransactionsProps,
 } from './types/ct-payment-creation.type';
+import { StripeInvoiceExpanded } from './types/stripe-subscription.type';
 
 const stripe = stripeApi();
 
@@ -186,11 +187,12 @@ export class CtPaymentCreationService {
     });
   }
 
-  public async getStripeInvoiceExpanded(invoiceId: string): Promise<Stripe.Invoice> {
+  public async getStripeInvoiceExpanded(invoiceId: string): Promise<StripeInvoiceExpanded> {
     try {
-      return await stripe.invoices.retrieve(invoiceId, {
+      const invoice = await stripe.invoices.retrieve(invoiceId, {
         expand: ['payment_intent', 'subscription', 'charge'],
       });
+      return invoice as StripeInvoiceExpanded;
     } catch (err) {
       log.error(`Failed to retrieve invoice: ${err}`);
       throw new Error(`Failed to retrieve invoice id: ${invoiceId}.`);

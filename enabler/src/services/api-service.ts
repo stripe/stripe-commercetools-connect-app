@@ -28,7 +28,7 @@ export interface ApiService {
   getConfigData: (
     paymentMethodType: string
   ) => Promise<[ConfigElementResponseSchemaDTO, ConfigResponseSchemaDTO]>;
-  getPayment: (stripeCustomerId?: string) => Promise<PaymentResponseSchemaDTO>;
+  getPayment: (paymentMethodOptions?: Record<string, Record<string, unknown>>) => Promise<PaymentResponseSchemaDTO>;
   confirmPaymentIntent: (data: ConfirmPaymentRequestSchemaDTO) => Promise<void>;
   createSetupIntent: () => Promise<SetupIntentResponseSchemaDTO>;
   createSubscription: () => Promise<SubscriptionResponseSchemaDTO>;
@@ -99,11 +99,18 @@ export const apiService = ({
     ]);
   };
 
-  const getPayment = async (): Promise<PaymentResponseSchemaDTO> => {
+  const getPayment = async (
+    paymentMethodOptions?: Record<string, Record<string, unknown>>
+  ): Promise<PaymentResponseSchemaDTO> => {
     const apiUrl = new URL(`${baseApi}/payments`);
+    
+    // If paymentMethodOptions are provided, use POST; otherwise use GET for backward compatibility
+    const hasOptions = paymentMethodOptions && Object.keys(paymentMethodOptions).length > 0;
+    
     const response = await fetch(apiUrl.toString(), {
-      method: "GET",
+      method: hasOptions ? "POST" : "GET",
       headers: getHeadersConfig(),
+      ...(hasOptions && { body: JSON.stringify({ paymentMethodOptions }) }),
     });
 
     if (!response.ok) {

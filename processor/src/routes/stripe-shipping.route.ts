@@ -7,6 +7,7 @@ import {
   ShippingUpdateRequestSchema,
   ShippingUpdateRequestSchemaDTO,
 } from '../dtos/operations/shipping.dto';
+import { Type } from '@sinclair/typebox';
 import { log } from '../libs/logger';
 import { StripeShippingService } from '../services/stripe-shipping.service';
 import { SessionHeaderAuthenticationHook } from '@commercetools/connect-payments-sdk';
@@ -31,6 +32,7 @@ export const stripeShippingRoute = async (
         body: ShippingMethodsRequestSchema,
         response: {
           200: ShippingMethodsResponseSchema,
+          400: Type.Object({}),
         },
       },
     },
@@ -40,7 +42,7 @@ export const stripeShippingRoute = async (
         return reply.status(200).send(response);
       } catch (error) {
         log.error(`Error fetching shipping methods: ${error}`);
-        return reply.status(400).send();
+        return reply.status(400).send({} as any);
       }
     },
   );
@@ -55,6 +57,7 @@ export const stripeShippingRoute = async (
         body: ShippingUpdateRequestSchema,
         response: {
           200: ShippingMethodsResponseSchema,
+          400: Type.Object({}),
         },
       },
     },
@@ -64,7 +67,7 @@ export const stripeShippingRoute = async (
         return reply.status(200).send(response);
       } catch (error) {
         log.error(`Error updating shipping rate: ${error}`);
-        return reply.status(400).send();
+        return reply.status(400).send({} as any);
       }
     },
   );
@@ -77,6 +80,7 @@ export const stripeShippingRoute = async (
       schema: {
         response: {
           200: ShippingMethodsResponseSchema,
+          400: Type.Object({}),
         },
       },
     },
@@ -86,7 +90,7 @@ export const stripeShippingRoute = async (
         return reply.status(200).send(response);
       } catch (error) {
         log.error(`Error removing shipping rate: ${error}`);
-        return reply.status(400).send();
+        return reply.status(400).send({} as any);
       }
     },
   );

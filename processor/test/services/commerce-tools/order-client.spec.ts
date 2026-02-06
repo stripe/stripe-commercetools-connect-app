@@ -18,6 +18,10 @@ describe('CartClient testing', () => {
       const mockCart = mockGetCartResult();
       jest.spyOn(paymentSDK.ctCartService, 'getCart').mockResolvedValue(mockCart);
       const executeMock = jest.fn().mockReturnValue(Promise.resolve({ body: orderMock }));
+
+      // Mock ctCartService.getCart to return the latest cart version
+      jest.spyOn(paymentSDK.ctCartService, 'getCart').mockResolvedValue(mockCart);
+
       const client = paymentSDK.ctAPI.client;
       client.orders = jest.fn(() => ({
         post: jest.fn(() => ({

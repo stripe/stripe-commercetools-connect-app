@@ -2,7 +2,7 @@ import { TypeDraft } from '@commercetools/platform-sdk/dist/declarations/src/gen
 import { ProductTypeDraft } from '@commercetools/platform-sdk/dist/declarations/src/generated/models/product-type';
 
 export const launchpadPurchaseOrderCustomType = {
-  key: 'payment-launchpad-purchase-order',
+  key: process.env.CT_CUSTOM_TYPE_LAUNCHPAD_PURCHASE_ORDER_KEY || 'payment-launchpad-purchase-order',
   purchaseOrderNumber: 'launchpadPurchaseOrderNumber',
   invoiceMemo: 'launchpadPurchaseOrderInvoiceMemo',
 };
@@ -10,7 +10,7 @@ export const launchpadPurchaseOrderCustomType = {
 export const stripeCustomerIdFieldName = 'stripeConnector_stripeCustomerId';
 
 export const stripeCustomerIdCustomType: TypeDraft = {
-  key: 'payment-connector-stripe-customer-id',
+  key: process.env.CT_CUSTOM_TYPE_STRIPE_CUSTOMER_KEY || 'payment-connector-stripe-customer-id',
   name: {
     en: 'Stripe Customer ID',
   },
@@ -38,7 +38,7 @@ export const lineItemStripeSubscriptionIdField = 'stripeConnector_stripeSubscrip
 export const lineItemStripeSubscriptionErrorField = 'stripeConnector_stripeSubscriptionError';
 
 export const typeLineItem: TypeDraft = {
-  key: 'payment-connector-subscription-line-item-type',
+  key: process.env.CT_CUSTOM_TYPE_SUBSCRIPTION_LINE_ITEM_KEY || 'payment-connector-subscription-line-item-type',
   name: {
     'en-US': 'Subscription Line Item Type',
   },
@@ -82,7 +82,7 @@ export const typeLineItem: TypeDraft = {
 
 export const productTypeSubscription: ProductTypeDraft = {
   name: 'payment-connector-subscription-information',
-  key: 'payment-connector-subscription-information',
+  key: process.env.CT_PRODUCT_TYPE_SUBSCRIPTION_KEY || 'payment-connector-subscription-information',
   description: 'The subscription-information product type.',
   attributes: [
     {

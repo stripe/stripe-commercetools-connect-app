@@ -12,25 +12,25 @@
     "serve": "npm run build && serve public -l 3000 --cors"
   },
   "dependencies": {
-    "@babel/preset-typescript": "^7.27.1",
-    "@stripe/stripe-js": "^5.5.0",
-    "serve": "14.2.4",
+    "@babel/preset-typescript": "^7.28.5",
+    "@stripe/stripe-js": "^8.0.0",
+    "serve": "14.2.5",
     "ts-node": "^10.9.2"
   },
   "devDependencies": {
       "@types/node": "^24.3.0",
-      "dotenv": "^16.4.7",
-      "jest": "30.1.1",
-      "jest-environment-jsdom": "^30.1.1",
+      "dotenv": "^17.2.1",
+      "jest": "30.2.0",
+      "jest-environment-jsdom": "^30.2.0",
       "jest-fetch-mock": "^3.0.3",
-      "sass": "1.91.0",
-      "ts-jest": "^29.4.1",
-      "typescript": "5.9.2",
-      "vite": "7.1.3",
+      "sass": "1.96.0",
+      "ts-jest": "^29.4.6",
+      "typescript": "5.9.3",
+      "vite": "7.2.7",
       "vite-plugin-css-injected-by-js": "3.5.2"
   },
   "overrides": {
     "path-to-regexp": "3.3.0",
-    "esbuild": "^0.24.0"
+    "esbuild": "^0.25.0"
   }
 }
