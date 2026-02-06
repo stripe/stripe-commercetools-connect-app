@@ -1168,29 +1168,16 @@ export class StripeSubscriptionService {
         isPaymentChargePending,
         payment,
       );
-      if (!isPaymentChargePending && !isPaymentFailed) {
-        const config = getConfig();
-        const shouldCreateNewOrder = config.subscriptionPaymentHandling === 'createOrder';
-        if (shouldCreateNewOrder) {
-          log.info(
-            `Creating new order for subscription payment ${updateData.id} (config: ${config.subscriptionPaymentHandling})`,
-          );
-          updateData.id = await this.handleSubscriptionPaymentCreateNewOrder(subscription, invoiceExpanded, updateData);
-          log.info(`New order created successfully for subscription payment ${updateData.id}`);
-        } else {
-          log.info(
-            `Adding payment to existing order for subscription payment ${updateData.id} (config: ${config.subscriptionPaymentHandling})`,
-          );
-          const success = await this.handlePaidSubscriptionPaymentWithCart(
-            invoiceExpanded,
-            subscription,
-            payment,
-            updateData,
-          );
-          if (!success) {
-            return;
-          }
-        }
+      const shouldContinue = await this.handleOrderProcessingForPaidEvent(
+        subscription,
+        invoiceExpanded,
+        payment,
+        updateData,
+        isPaymentChargePending,
+        isPaymentFailed,
+      );
+      if (!shouldContinue) {
+        return;
       }
       for (const tx of updateData.transactions) {
         const updatedPayment = await this.ctPaymentService.updatePayment({
@@ -1250,6 +1237,52 @@ export class StripeSubscriptionService {
     }
 
     return undefined;
+  }
+
+  /**
+   * Handles order processing for paid subscription events.
+   * Determines whether to create a new order or add payment to existing order based on configuration.
+   * @param subscription - The Stripe subscription
+   * @param invoiceExpanded - The expanded Stripe invoice
+   * @param payment - The commercetools payment
+   * @param updateData - The payment update data (mutated if new order is created)
+   * @param isPaymentChargePending - Whether payment charge is pending
+   * @param isPaymentFailed - Whether payment has failed
+   * @returns True if processing should continue, false if early return is needed
+   */
+  private async handleOrderProcessingForPaidEvent(
+    subscription: Stripe.Subscription,
+    invoiceExpanded: StripeInvoiceExpanded,
+    payment: Payment,
+    updateData: StripeEventUpdatePayment,
+    isPaymentChargePending: boolean,
+    isPaymentFailed: boolean,
+  ): Promise<boolean> {
+    if (!isPaymentChargePending && !isPaymentFailed) {
+      const config = getConfig();
+      const shouldCreateNewOrder = config.subscriptionPaymentHandling === 'createOrder';
+      if (shouldCreateNewOrder) {
+        log.info(
+          `Creating new order for subscription payment ${updateData.id} (config: ${config.subscriptionPaymentHandling})`,
+        );
+        updateData.id = await this.handleSubscriptionPaymentCreateNewOrder(subscription, invoiceExpanded, updateData);
+        log.info(`New order created successfully for subscription payment ${updateData.id}`);
+      } else {
+        log.info(
+          `Adding payment to existing order for subscription payment ${updateData.id} (config: ${config.subscriptionPaymentHandling})`,
+        );
+        const success = await this.handlePaidSubscriptionPaymentWithCart(
+          invoiceExpanded,
+          subscription,
+          payment,
+          updateData,
+        );
+        if (!success) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
 
   /**

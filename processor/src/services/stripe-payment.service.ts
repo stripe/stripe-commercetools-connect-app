@@ -923,50 +923,15 @@ export class StripePaymentService extends AbstractPaymentService {
       return ctCart;
     }
 
-    const { billing_details, shipping } = charge;
-
-    // Prioritize shipping over billing_details
-    const addressSource = shipping || billing_details;
-    const address = addressSource?.address;
-
-    // Verify if Stripe has a complete and valid address
-    const hasCompleteStripeAddress = !!(
-      address?.country &&
-      address?.state &&
-      address?.city &&
-      address?.postal_code &&
-      address?.line1
-    );
-
-    // If Stripe does not have a complete address, keep the cart's address
-    if (!hasCompleteStripeAddress) {
-      // If the cart already has an address, do not overwrite it with incomplete data
-      if (ctCart.shippingAddress?.country) {
-        return ctCart;
-      }
-      // If the cart also does not have an address, do nothing (avoid using mocks)
+    const addressData = this.validateAndGetStripeAddress(charge, ctCart);
+    if (!addressData) {
       return ctCart;
     }
 
-    // Unfreeze cart temporarily if frozen (for successful payment address update)
-    let cartToUpdate = ctCart;
+    const { address, addressSource } = addressData;
     const wasFrozen = isCartFrozen(ctCart);
 
-    if (wasFrozen) {
-      try {
-        cartToUpdate = await unfreezeCart(ctCart);
-        log.info(`Cart temporarily unfrozen for address update from successful payment.`, {
-          ctCartId: cartToUpdate.id,
-        });
-      } catch (error) {
-        log.error(`Error unfreezing cart for address update.`, {
-          error,
-          ctCartId: ctCart.id,
-        });
-        // If unfreeze fails, try to update anyway (might work if cart was already unfrozen)
-        cartToUpdate = ctCart;
-      }
-    }
+    const cartToUpdate = await this.unfreezeCartIfNeeded(ctCart, wasFrozen);
 
     // Stripe has complete address → update the cart
     const actions: CartUpdateAction[] = [
@@ -986,24 +951,99 @@ export class StripePaymentService extends AbstractPaymentService {
 
     const updatedCart = await updateCartById(cartToUpdate, actions);
 
-    // Re-freeze cart if it was frozen before
-    if (wasFrozen) {
-      try {
-        const reFrozenCart = await freezeCart(updatedCart);
-        log.info(`Cart re-frozen after address update from successful payment.`, {
-          ctCartId: reFrozenCart.id,
-        });
-        return reFrozenCart;
-      } catch (error) {
-        log.error(`Error re-freezing cart after address update.`, {
-          error,
-          ctCartId: updatedCart.id,
-        });
-        // Return updated cart even if re-freeze fails
-        return updatedCart;
+    return await this.refreezeCartIfNeeded(updatedCart, wasFrozen);
+  }
+
+  /**
+   * Validates and extracts a complete Stripe address from charge data.
+   * Returns null if no valid address is found or if cart already has an address.
+   * @param charge - The Stripe charge containing address information
+   * @param ctCart - The commercetools cart to check for existing address
+   * @returns Address data if valid, null otherwise
+   */
+  private validateAndGetStripeAddress(
+    charge: Stripe.Charge,
+    ctCart: Cart,
+  ): { address: Stripe.Address; addressSource: Stripe.Shipping | Stripe.Charge.BillingDetails | null } | null {
+    const { billing_details, shipping } = charge;
+
+    // Prioritize shipping over billing_details
+    const addressSource = shipping || billing_details;
+    const address = addressSource?.address;
+
+    // Verify if Stripe has a complete and valid address
+    const hasCompleteStripeAddress = !!(
+      address?.country &&
+      address?.state &&
+      address?.city &&
+      address?.postal_code &&
+      address?.line1
+    );
+
+    // If Stripe does not have a complete address, keep the cart's address
+    if (!hasCompleteStripeAddress) {
+      // If the cart already has an address, do not overwrite it with incomplete data
+      if (ctCart.shippingAddress?.country) {
+        return null;
       }
+      // If the cart also does not have an address, do nothing (avoid using mocks)
+      return null;
     }
 
-    return updatedCart;
+    return { address, addressSource };
+  }
+
+  /**
+   * Unfreezes a cart if it was frozen, allowing address updates.
+   * @param ctCart - The cart to unfreeze if needed
+   * @param wasFrozen - Whether the cart was frozen
+   * @returns The unfrozen cart or original cart if unfreeze fails
+   */
+  private async unfreezeCartIfNeeded(ctCart: Cart, wasFrozen: boolean): Promise<Cart> {
+    if (!wasFrozen) {
+      return ctCart;
+    }
+
+    try {
+      const unfrozenCart = await unfreezeCart(ctCart);
+      log.info(`Cart temporarily unfrozen for address update from successful payment.`, {
+        ctCartId: unfrozenCart.id,
+      });
+      return unfrozenCart;
+    } catch (error) {
+      log.error(`Error unfreezing cart for address update.`, {
+        error,
+        ctCartId: ctCart.id,
+      });
+      // If unfreeze fails, try to update anyway (might work if cart was already unfrozen)
+      return ctCart;
+    }
+  }
+
+  /**
+   * Re-freezes a cart if it was frozen before, restoring its frozen state.
+   * @param updatedCart - The cart that was updated
+   * @param wasFrozen - Whether the cart was frozen before the update
+   * @returns The re-frozen cart or updated cart if refreeze fails
+   */
+  private async refreezeCartIfNeeded(updatedCart: Cart, wasFrozen: boolean): Promise<Cart> {
+    if (!wasFrozen) {
+      return updatedCart;
+    }
+
+    try {
+      const reFrozenCart = await freezeCart(updatedCart);
+      log.info(`Cart re-frozen after address update from successful payment.`, {
+        ctCartId: reFrozenCart.id,
+      });
+      return reFrozenCart;
+    } catch (error) {
+      log.error(`Error re-freezing cart after address update.`, {
+        error,
+        ctCartId: updatedCart.id,
+      });
+      // Return updated cart even if re-freeze fails
+      return updatedCart;
+    }
   }
 }
