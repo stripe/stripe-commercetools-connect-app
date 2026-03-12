@@ -1212,43 +1212,16 @@ export class StripeSubscriptionService {
   }
 
   /**
-   * Resolves the payment ID from subscription metadata or by searching for payments by invoice ID.
-   * For setup intent subscriptions, waits briefly for payment creation before searching.
-   * @param subscription - The Stripe subscription to get payment ID from
-   * @param invoiceId - The invoice ID to search payments by if not in metadata
-   * @returns The payment ID if found, undefined otherwise
-   */
-  private async resolvePaymentIdFromSubscription(
-    subscription: Stripe.Subscription,
-    invoiceId: string,
-  ): Promise<string | undefined> {
-    if (subscription.metadata?.[METADATA_PAYMENT_ID_FIELD]) {
-      return subscription.metadata[METADATA_PAYMENT_ID_FIELD];
-    }
-
-    // When the event comes from a setup intent subscription, we need to wait for the payment to be created
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    const payments = await this.ctPaymentService.findPaymentsByInterfaceId({
-      interfaceId: invoiceId,
-    });
-
-    if (payments.length > 0) {
-      return payments[0].id;
-    }
-
-    return undefined;
-  }
-
-  /**
    * Handles order processing for paid subscription events.
-   * Determines whether to create a new order or add payment to existing order based on configuration.
+   * Runs only when the payment is not pending and not failed; then determines whether to create
+   * a new order or add payment to existing order based on configuration.
    * @param subscription - The Stripe subscription
    * @param invoiceExpanded - The expanded Stripe invoice
    * @param payment - The commercetools payment
    * @param updateData - The payment update data (mutated if new order is created)
    * @param isPaymentChargePending - Whether payment charge is pending
    * @param isPaymentFailed - Whether payment has failed
-   * @returns True if processing should continue, false if early return is needed
+   * @returns True if processing should continue, false if caller should return early
    */
   private async handleOrderProcessingForPaidEvent(
     subscription: Stripe.Subscription,
@@ -1283,6 +1256,34 @@ export class StripeSubscriptionService {
       }
     }
     return true;
+  }
+
+  /**
+   * Resolves the payment ID from subscription metadata or by searching for payments by invoice ID.
+   * For setup intent subscriptions, waits briefly for payment creation before searching.
+   * @param subscription - The Stripe subscription to get payment ID from
+   * @param invoiceId - The invoice ID to search payments by if not in metadata
+   * @returns The payment ID if found, undefined otherwise
+   */
+  private async resolvePaymentIdFromSubscription(
+    subscription: Stripe.Subscription,
+    invoiceId: string,
+  ): Promise<string | undefined> {
+    if (subscription.metadata?.[METADATA_PAYMENT_ID_FIELD]) {
+      return subscription.metadata[METADATA_PAYMENT_ID_FIELD];
+    }
+
+    // When the event comes from a setup intent subscription, we need to wait for the payment to be created
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const payments = await this.ctPaymentService.findPaymentsByInterfaceId({
+      interfaceId: invoiceId,
+    });
+
+    if (payments.length > 0) {
+      return payments[0].id;
+    }
+
+    return undefined;
   }
 
   /**

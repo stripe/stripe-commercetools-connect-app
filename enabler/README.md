@@ -14,7 +14,6 @@ const Enabler = await import(process.env.REACT_APP_ENABLER_BUILD_URL);
 ```
 ### 2. **Initialize the Payment Component**
 Create a new Enabler instance and specify the `paymentElementType` parameter to configure the component type, either **Payment Element:'paymentElement'** or **Express Checkout:'expressCheckout**.
-```javascript
 
 #### Basic Example
 ```javascript
