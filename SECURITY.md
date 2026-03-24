@@ -202,21 +202,29 @@ If you discover a security vulnerability in this connector, please report it res
 
 The following are **by design** and will be triaged as informational:
 
+**Infrastructure and runtime:**
 - **`origin: '*'` CORS configuration**: Intentional for composable commerce. See [CORS Policy](#cors-policy).
 - **`StripeHeaderAuthHook` being a presence-only check**: Intentional. `constructEvent()` is the cryptographic guard. See [Webhook endpoint](#webhook-endpoint-stripe-hmac-signature).
 - **The connector accepting connections from any IP**: The Connect runtime handles network-level controls. The connector authenticates at the application layer.
 - **Missing WAF or DDoS protection at the application level**: This is the responsibility of the Connect runtime infrastructure (GCP baseline).
 - **Commercetools SDK or Stripe SDK vulnerabilities**: Report these to their respective maintainers.
+
+**Payment flow design:**
 - **Express Checkout cancellation unfreezing the cart**: This is the intended behavior. No PI exists at cancellation time in the deferred intent pattern. See [Payment Flow Integrity](#payment-flow-integrity).
 - **No hard amount validation in the webhook handler**: Intentional. Cart freeze guarantees consistency for automatic capture. Manual/multi-capture flows require amount flexibility. See [Payment Flow Integrity](#payment-flow-integrity).
-- **Exploits that chain routes from different checkout components** (e.g., Payment Element PI creation + Express Checkout cancellation): These routes serve different components with different lifecycles. The connector is a composable building block -- the merchant's storefront controls which routes are called and in what sequence. PoCs that call APIs directly or mix component flows do not reflect real-world usage.
+- **Exploits that chain routes from different checkout components** (e.g., Payment Element PI creation + Express Checkout cancellation): These routes serve different components with different lifecycles. The connector is a composable building block -- the merchant's storefront controls which routes are called and in what sequence.
+
+**PoC methodology:**
+- **PoCs that require Stripe secret key (`sk_*`) or Commercetools admin credentials**: These are server-side secrets that customers do not possess. Exploits requiring them demonstrate Stripe/CT API access, not a connector vulnerability.
+- **PoCs that bypass the connector by calling Stripe or Commercetools APIs directly** rather than through the connector's routes: The connector's security model applies to its own endpoints. Direct API calls to Stripe or Commercetools are outside the connector's control and are governed by those platforms' own access controls.
+- **State manipulation that requires direct Commercetools cart/order API access** (e.g., modifying a frozen cart, creating orders, updating payments) outside the connector's routes: The connector does not own or secure the Commercetools API surface.
 
 ### In scope for vulnerability reports
 
-- Input validation bypasses that lead to unauthorized actions
-- Authentication or authorization bypasses
+- Authentication or authorization bypasses on the connector's own routes
+- Business logic flaws **within the connector's own payment flows** (e.g., incorrect amount calculation from cart data, refund exceeding charged amount, transaction state corruption during webhook processing)
+- Input validation bypasses on the connector's routes that lead to unauthorized actions
 - Information disclosure (error messages, logs, or responses leaking sensitive data)
-- Business logic flaws (e.g., payment amount manipulation, unauthorized refunds)
 - Injection vulnerabilities in any form
 - Cryptographic weaknesses in the connector's own code (not Stripe's SDK)
 
