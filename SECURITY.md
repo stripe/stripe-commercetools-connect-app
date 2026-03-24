@@ -110,6 +110,16 @@ This endpoint uses **Stripe's prescribed webhook verification pattern**:
 
 > **Note for security reviewers:** The `StripeHeaderAuthHook` is intentionally a presence check only. It is NOT the security control -- `constructEvent()` is. This is by design per Stripe's webhook verification documentation.
 
+## Payment Flow Integrity
+
+The connector uses [Stripe's deferred intent pattern](https://docs.stripe.com/payments/payment-element/deferred-intent) -- no PaymentIntent exists until the customer submits payment. Key integrity properties:
+
+- **Cart freeze guarantees amount consistency.** When a PI is created, the cart is frozen immediately after. A frozen Commercetools cart rejects all modification actions. This ensures `PI amount === cart total` for the lifetime of the payment flow.
+- **Express Checkout shipping routes are component-specific lifecycle handlers**, not general-purpose cart management APIs. `GET /shipping-methods/remove` handles Express Checkout cancellation (user dismisses Apple Pay / Google Pay sheet). In the deferred intent pattern, no PI exists at cancellation time -- PI creation only happens on the `confirm` event, which is mutually exclusive with `cancel`.
+- **Amount validation is intentionally not hardcoded** in the webhook handler. In automatic capture, cart freeze guarantees the match. In manual capture, multi-capture, and incremental auth, amounts legitimately differ. The webhook handler warns on anomalies (unfrozen cart at `payment_intent.succeeded` time) rather than blocking.
+
+For implementation details, see [CLAUDE.md](./CLAUDE.md#payment-flow-integrity).
+
 ## CORS Policy
 
 The connector sets `origin: '*'` for CORS. This is intentional for the following reasons:
@@ -197,6 +207,9 @@ The following are **by design** and will be triaged as informational:
 - **The connector accepting connections from any IP**: The Connect runtime handles network-level controls. The connector authenticates at the application layer.
 - **Missing WAF or DDoS protection at the application level**: This is the responsibility of the Connect runtime infrastructure (GCP baseline).
 - **Commercetools SDK or Stripe SDK vulnerabilities**: Report these to their respective maintainers.
+- **Express Checkout cancellation unfreezing the cart**: This is the intended behavior. No PI exists at cancellation time in the deferred intent pattern. See [Payment Flow Integrity](#payment-flow-integrity).
+- **No hard amount validation in the webhook handler**: Intentional. Cart freeze guarantees consistency for automatic capture. Manual/multi-capture flows require amount flexibility. See [Payment Flow Integrity](#payment-flow-integrity).
+- **Exploits that chain routes from different checkout components** (e.g., Payment Element PI creation + Express Checkout cancellation): These routes serve different components with different lifecycles. The connector is a composable building block -- the merchant's storefront controls which routes are called and in what sequence. PoCs that call APIs directly or mix component flows do not reflect real-world usage.
 
 ### In scope for vulnerability reports
 
