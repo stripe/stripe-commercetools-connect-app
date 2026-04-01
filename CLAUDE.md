@@ -39,6 +39,13 @@ These are non-negotiable design rules. Do not violate them.
 - **Amount validation is intentionally not hardcoded in the webhook handler.** In automatic capture, PI amount always equals the cart total (guaranteed by cart freeze). In manual capture, multi-capture, incremental auth, and extended auth, the captured amount legitimately differs from the original authorization. A hard amount check would break these flows. The existing warn on unfrozen cart at `payment_intent.succeeded` is the correct signal for anomalies.
 - **Do not add amount validation that blocks order creation** unless it is scoped to `capture_method === 'automatic'` only.
 
+### Subscription Billing Cycle Design
+
+- **Every subscription billing cycle produces a CT order, including failed payments.** This is intentional. Each billing attempt — whether successful or declined — is recorded as a CT order for auditability and billing history. Do not treat order creation in `processSubscriptionEventFailed()` as a bug.
+- **`charge.succeeded` → `Authorization:Success` is the canonical fulfillment signal**, consistent across both one-time payments and subscriptions. A merchant's fulfillment system must gate on this CT payment transaction state, not on `order.paymentState`. `charge.succeeded` never fires for a declined charge — Stripe fires `charge.failed` instead — so failed billing cycles never produce a success transaction on the CT payment.
+- **`order.paymentState` must reflect actual payment outcome.** `createOrderFromCart()` accepts a `paymentState` parameter. Success handlers pass `'Paid'`; failure handlers must pass `'Failed'`. An order with `paymentState: 'Paid'` and only `Failure` transactions on the CT payment is a data quality bug, not an exploitable vulnerability — but it must be avoided to prevent merchant confusion.
+- **The CT payment object is the authoritative record of payment state.** `order.paymentState` is a derived convenience field. When evaluating whether a payment succeeded, always check CT payment transactions (`Authorization:Success`, `Charge:Success`) rather than `order.paymentState`.
+
 ### Route Flow Separation
 
 - **Shipping routes (`/shipping-methods/*`) are Express Checkout infrastructure only.** They exist to support the Apple Pay / Google Pay sheet's shipping address and rate selection lifecycle. The enabler wires them exclusively to `StripeExpressCheckoutElement` events (`shippingaddresschange`, `shippingratechange`, `cancel`). Payment Element flows never call these routes.
