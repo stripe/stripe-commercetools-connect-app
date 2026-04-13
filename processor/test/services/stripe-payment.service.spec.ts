@@ -1567,6 +1567,7 @@ describe('stripe-payment.service', () => {
           pspReference: expect.any(String),
           transactions: expect.any(Array),
         }),
+        'Paid',
       );
 
       expect(spiedUpdatePaymentMock).toHaveBeenCalled();
