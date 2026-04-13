@@ -69,6 +69,7 @@
     "jws": "3.2.3",
     "qs": "6.14.1",
     "lodash": "^4.17.22",
-    "minimatch": "8.0.6"
+    "minimatch": "8.0.6",
+    "brace-expansion": "2.0.3"
   }
 }

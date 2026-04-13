@@ -57,8 +57,14 @@ export enum PaymentStatus {
   INITIAL = 'Initial',
 }
 
+export enum OrderPaymentState {
+  PAID = 'Paid',
+  FAILED = 'Failed',
+}
+
 export interface CreateOrderProps {
   cart: Cart;
   subscriptionId?: string;
   paymentIntentId?: string;
+  paymentState?: OrderPaymentState;
 }

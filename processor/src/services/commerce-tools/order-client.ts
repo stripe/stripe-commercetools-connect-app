@@ -1,9 +1,10 @@
 import { Cart, Order } from '@commercetools/platform-sdk';
 import { paymentSDK } from '../../payment-sdk';
+import { OrderPaymentState } from '../types/stripe-payment.type';
 
 const apiClient = paymentSDK.ctAPI.client;
 
-export const createOrderFromCart = async (cart: Cart) => {
+export const createOrderFromCart = async (cart: Cart, paymentState: OrderPaymentState = OrderPaymentState.PAID) => {
   const latestCart = await paymentSDK.ctCartService.getCart({ id: cart.id });
 
   const res = await apiClient
@@ -17,7 +18,7 @@ export const createOrderFromCart = async (cart: Cart) => {
         shipmentState: 'Pending',
         orderState: 'Open',
         version: latestCart.version,
-        paymentState: 'Paid',
+        paymentState,
       },
     })
     .execute();

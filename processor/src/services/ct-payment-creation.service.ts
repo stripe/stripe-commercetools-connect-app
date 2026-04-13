@@ -14,7 +14,6 @@ import {
   METADATA_PROJECT_KEY_FIELD,
   METADATA_SUBSCRIPTION_ID_FIELD,
 } from '../constants';
-import Stripe from 'stripe';
 import {
   HandleCtPaymentCreationProps,
   HandlePaymentSubscriptionProps,

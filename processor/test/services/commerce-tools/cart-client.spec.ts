@@ -33,7 +33,7 @@ describe('CartClient testing', () => {
 
   describe('createCartFromDraft', () => {
     it('should create the cart from a draft successfully', async () => {
-      const mockCart = mockGetCartResult()
+      const mockCart = mockGetCartResult();
       const executeMock = jest.fn().mockReturnValue(Promise.resolve({ body: mockCart }));
       const client = paymentSDK.ctAPI.client;
       client.carts = jest.fn(() => ({

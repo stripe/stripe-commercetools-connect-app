@@ -5,12 +5,23 @@
 # MCP (Model Context Protocol) configuration and data
 .mcp/
 .DS_Store
+.mcp.json
+
+# Playwright MCP
+.playwright-profile/
+.playwright-mcp/
 
 #Context documentation
 docs/context7-libraries
 context
-CLAUDE.md
 context7-config.json
 
 # Connect CLI generated files
 .connect
+
+#Calude and Ralph pipelines
+.claude
+CLAUDE.md
+ralph.sh
+*_prd.json
+*_progress.txt

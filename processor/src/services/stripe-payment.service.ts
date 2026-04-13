@@ -433,7 +433,7 @@ export class StripePaymentService extends AbstractPaymentService {
         // Tax calculation integration
         ...(hasTaxCalculations && {
           hasTaxCalculations,
-          taxCalculationCount
+          taxCalculationCount,
         }),
         // Log if frontend options were applied
         ...(options?.paymentMethodOptions && {
@@ -482,7 +482,7 @@ export class StripePaymentService extends AbstractPaymentService {
   /**
    * Merges backend default payment method options with frontend provided options.
    * Frontend options take priority over backend defaults for the same payment method.
-   * 
+   *
    * @param frontendOptions - Payment method options provided from the frontend
    * @returns Merged payment method options
    */
@@ -524,12 +524,15 @@ export class StripePaymentService extends AbstractPaymentService {
       const ctPayment = await this.ctPaymentService.getPayment({ id: paymentReference });
 
       if (ctPayment.interfaceId !== paymentIntentId) {
-        log.error('PaymentIntent ID does not match CT Payment interfaceId — rejecting update to avoid wrong PI to wrong CT payment.', {
-          paymentReference,
-          requestPaymentIntentId: paymentIntentId,
-          ctPaymentInterfaceId: ctPayment.interfaceId,
-          ctCartId: ctCart.id,
-        });
+        log.error(
+          'PaymentIntent ID does not match CT Payment interfaceId — rejecting update to avoid wrong PI to wrong CT payment.',
+          {
+            paymentReference,
+            requestPaymentIntentId: paymentIntentId,
+            ctPaymentInterfaceId: ctPayment.interfaceId,
+            ctCartId: ctCart.id,
+          },
+        );
         throw new Error(
           `PaymentIntent mismatch: request paymentIntentId (${paymentIntentId}) does not match CT payment interfaceId (${ctPayment.interfaceId})`,
         );
@@ -748,8 +751,7 @@ export class StripePaymentService extends AbstractPaymentService {
           cartCurrency: ctCart.totalPrice?.currencyCode,
           stripeAmountReceived: paymentIntent.amount_received,
           stripeCurrency: paymentIntent.currency,
-          amountMismatch:
-            paymentIntent.amount_received !== ctCart.totalPrice?.centAmount,
+          amountMismatch: paymentIntent.amount_received !== ctCart.totalPrice?.centAmount,
         },
       );
     }
@@ -928,8 +930,8 @@ export class StripePaymentService extends AbstractPaymentService {
     }
   }
 
-  public async createOrder({ cart, subscriptionId, paymentIntentId }: CreateOrderProps) {
-    const order = await createOrderFromCart(cart);
+  public async createOrder({ cart, subscriptionId, paymentIntentId, paymentState }: CreateOrderProps) {
+    const order = await createOrderFromCart(cart, paymentState);
     log.info('Order created successfully', {
       ctOrderId: order.id,
       ctCartId: cart.id,
@@ -982,44 +984,12 @@ export class StripePaymentService extends AbstractPaymentService {
     const addressSource = shipping || billing_details;
     const address = addressSource?.address;
 
-    // Verify if Stripe has a complete and valid address
-    const hasCompleteStripeAddress = !!(
-      address?.country &&
-      address?.state &&
-      address?.city &&
-      address?.postal_code &&
-      address?.line1
-    );
-
-    // If Stripe does not have a complete address, keep the cart's address
-    if (!hasCompleteStripeAddress) {
-      // If the cart already has an address, do not overwrite it with incomplete data
-      if (ctCart.shippingAddress?.country) {
-        return ctCart;
-      }
-      // If the cart also does not have an address, do nothing (avoid using mocks)
+    if (!this.hasCompleteAddress(address)) {
       return ctCart;
     }
 
-    // Unfreeze cart temporarily if frozen (for successful payment address update)
-    let cartToUpdate = ctCart;
+    const cartToUpdate = await this.unfreezeCartIfNeeded(ctCart);
     const wasFrozen = isCartFrozen(ctCart);
-
-    if (wasFrozen) {
-      try {
-        cartToUpdate = await unfreezeCart(ctCart);
-        log.info(`Cart temporarily unfrozen for address update from successful payment.`, {
-          ctCartId: cartToUpdate.id,
-        });
-      } catch (error) {
-        log.error(`Error unfreezing cart for address update.`, {
-          error,
-          ctCartId: ctCart.id,
-        });
-        // If unfreeze fails, try to update anyway (might work if cart was already unfrozen)
-        cartToUpdate = ctCart;
-      }
-    }
 
     // Stripe has complete address → update the cart
     const actions: CartUpdateAction[] = [
@@ -1027,36 +997,53 @@ export class StripePaymentService extends AbstractPaymentService {
         action: 'setShippingAddress',
         address: {
           key: addressSource?.name ?? undefined,
-          country: address.country!,
-          city: address.city ?? undefined,
-          postalCode: address.postal_code ?? undefined,
-          state: address.state ?? undefined,
-          streetName: address.line1 ?? undefined,
-          streetNumber: address.line2 ?? undefined,
+          country: address!.country!,
+          city: address!.city ?? undefined,
+          postalCode: address!.postal_code ?? undefined,
+          state: address!.state ?? undefined,
+          streetName: address!.line1 ?? undefined,
+          streetNumber: address!.line2 ?? undefined,
         },
       },
     ];
 
     const updatedCart = await updateCartById(cartToUpdate, actions);
 
-    // Re-freeze cart if it was frozen before
-    if (wasFrozen) {
-      try {
-        const reFrozenCart = await freezeCart(updatedCart);
-        log.info(`Cart re-frozen after address update from successful payment.`, {
-          ctCartId: reFrozenCart.id,
-        });
-        return reFrozenCart;
-      } catch (error) {
-        log.error(`Error re-freezing cart after address update.`, {
-          error,
-          ctCartId: updatedCart.id,
-        });
-        // Return updated cart even if re-freeze fails
-        return updatedCart;
-      }
-    }
+    return wasFrozen ? this.refreezeCart(updatedCart) : updatedCart;
+  }
 
-    return updatedCart;
+  private hasCompleteAddress(
+    address: Stripe.Address | Stripe.PaymentIntent.Shipping['address'] | null | undefined,
+  ): boolean {
+    return !!(address?.country && address?.state && address?.city && address?.postal_code && address?.line1);
+  }
+
+  private async unfreezeCartIfNeeded(cart: Cart): Promise<Cart> {
+    if (!isCartFrozen(cart)) {
+      return cart;
+    }
+    try {
+      const unfrozenCart = await unfreezeCart(cart);
+      log.info(`Cart temporarily unfrozen for address update from successful payment.`, {
+        ctCartId: unfrozenCart.id,
+      });
+      return unfrozenCart;
+    } catch (error) {
+      log.error(`Error unfreezing cart for address update.`, { error, ctCartId: cart.id });
+      return cart;
+    }
+  }
+
+  private async refreezeCart(cart: Cart): Promise<Cart> {
+    try {
+      const reFrozenCart = await freezeCart(cart);
+      log.info(`Cart re-frozen after address update from successful payment.`, {
+        ctCartId: reFrozenCart.id,
+      });
+      return reFrozenCart;
+    } catch (error) {
+      log.error(`Error re-freezing cart after address update.`, { error, ctCartId: cart.id });
+      return cart;
+    }
   }
 }

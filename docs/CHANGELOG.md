@@ -2,6 +2,35 @@
 
 ## Latest
 
+### Subscription Order Creation Improvements
+
+**Added:**
+- **`OrderPaymentState` enum**: Introduced `Paid` and `Failed` states to represent the CT order payment outcome per event type. Failed subscription events now create orders with `paymentState: Failed` instead of `Paid`.
+- **Shared `createSubscriptionOrderFromCart` helper**: Consolidates the address-update + order-creation tail block that was duplicated across `processSubscriptionEventPaid`, `processSubscriptionEventCharged`, and `processSubscriptionEventFailed`.
+- **Race condition handling**: `createSubscriptionOrderFromCart` catches `ConcurrentModification` / `409` version-conflict errors and skips gracefully, preventing duplicate order creation when `invoice.paid` and `charge.succeeded` fire in quick succession.
+- **Unfrozen cart warning**: Logs a warning when a subscription order is processed for a cart that was not frozen, indicating the payment may not have originated from this connector.
+
+**Changed:**
+- **Config-based branching in `processSubscriptionEventCharged`**: Recurring `charge.succeeded` events now respect the `subscriptionPaymentHandling` config (`createOrder` vs. `addToExisting`) through a new `handleRecurringChargeOrder` private method, consistent with how `invoice.paid` already worked.
+- **`handleSubscriptionPaymentCreateNewOrder`**: Now accepts an optional `paymentState` parameter (defaults to `Paid`) passed through to order creation.
+- **`createOrderFromCart`**: Now accepts an optional `paymentState` parameter (defaults to `Paid`) instead of hardcoding `'Paid'`.
+- **`StripePaymentService.createOrder`**: Forwards `paymentState` to `createOrderFromCart`.
+
+**Refactored:**
+- Extracted `handleRecurringChargeOrder`, `handleFailedEventOrder`, and `resolveFailedPayment` private methods to reduce cognitive complexity in `processSubscriptionEventCharged` and `processSubscriptionEventFailed`.
+- Extracted `hasCompleteAddress`, `unfreezeCartIfNeeded`, and `refreezeCart` private methods from `updateCartAddress` to reduce cognitive complexity and improve readability.
+- Fixed a log template string bug in `processSubscriptionEventCharged` where `updatedPayment.version` was not interpolated.
+- Removed unused `Stripe` import from `ct-payment-creation.service.ts`.
+
+**Tests:**
+- Added `stripe-subscription.service.payment.spec.ts` with coverage for: race conditions, cart state validation (`Ordered` guard), payment state propagation (`Paid` / `Failed`), config-based branching, and unfrozen cart warning.
+
+**Security:**
+- Processor: resolved `brace-expansion` vulnerability (CVE: GHSA-f886-m6hf-6m8v) by adding an `overrides` entry pinning `brace-expansion` to `2.0.3`.
+- Enabler: updated `vite` to `^7.3.2` to address known vulnerabilities.
+
+---
+
 ### Cart Freezing and Unfreezing for Express Checkout
 
 **Added:**

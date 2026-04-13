@@ -57,7 +57,13 @@ import {
 } from '../custom-types/custom-types';
 import { getSubscriptionAttributes, getSubscriptionUpdateAttributes } from '../mappers/subscription-mapper';
 import { CtPaymentCreationService } from './ct-payment-creation.service';
-import { createCartFromDraft, getCartExpanded, updateCartById, freezeCart } from './commerce-tools/cart-client';
+import {
+  createCartFromDraft,
+  getCartExpanded,
+  updateCartById,
+  freezeCart,
+  isCartFrozen,
+} from './commerce-tools/cart-client';
 import { getCustomFieldUpdateActions } from './commerce-tools/custom-type-helper';
 import {
   METADATA_CART_ID_FIELD,
@@ -76,7 +82,7 @@ import { getProductById, getProductMasterPrice, getPriceFromProduct } from './co
 import { createCartWithProduct } from './commerce-tools/cart-client';
 import { SubscriptionEventConverter } from './converters/subscriptionEventConverter';
 import { PaymentTransactions } from '../dtos/operations/payment-intents.dto';
-import { PaymentStatus, StripeEventUpdatePayment } from './types/stripe-payment.type';
+import { OrderPaymentState, PaymentStatus, StripeEventUpdatePayment } from './types/stripe-payment.type';
 
 const stripe = stripeApi();
 
@@ -334,13 +340,13 @@ export class StripeSubscriptionService {
 
   public validateSubscription(subscription: Stripe.Subscription) {
     const latestInvoice = subscription.latest_invoice as StripeInvoiceExpanded | string | null;
-    
+
     if (typeof latestInvoice === 'string' || !latestInvoice) {
       throw new Error('Failed to create Subscription, missing Payment Intent.');
     }
 
     const paymentIntent = latestInvoice.payment_intent as Stripe.PaymentIntent | string | null;
-    
+
     if (typeof paymentIntent === 'string' || !paymentIntent?.client_secret) {
       throw new Error('Failed to create Subscription, missing Payment Intent.');
     }
@@ -996,11 +1002,7 @@ export class StripeSubscriptionService {
    * @returns The product variant at the specified position
    * @throws Error if no variant is found at the specified position
    */
-  private getVariantByPosition(
-    product: Product,
-    variantPosition: number,
-    productId: string,
-  ): ProductVariant {
+  private getVariantByPosition(product: Product, variantPosition: number, productId: string): ProductVariant {
     let variant;
     if (variantPosition === 1) {
       variant = product.masterData?.current?.masterVariant;
@@ -1194,19 +1196,18 @@ export class StripeSubscriptionService {
         });
       }
 
-      const cart = await this.ctCartService.getCartByPaymentId({ paymentId: payment.id });
-      if (cart.cartState !== 'Ordered') {
-        log.info('Updating cart address after processing the notification', {
-          ctCartId: cart.id,
+      if (isPaymentChargePending || isPaymentFailed) {
+        await this.createSubscriptionOrderFromCart({
+          paymentId: payment.id,
+          charge: invoiceExpanded.charge as Stripe.Charge,
+          paymentIntentId: updateData.pspReference,
           invoiceId: invoiceExpanded.id,
+          paymentState: OrderPaymentState.PAID,
         });
-        const updatedCart = await this.paymentService.updateCartAddress(invoiceExpanded.charge as Stripe.Charge, cart);
-        await this.paymentService.createOrder({ cart: updatedCart, paymentIntentId: updateData.pspReference });
       }
     } catch (e) {
-      log.error(
-        `Error processing Subscription processSubscriptionEventPaid notification: ${JSON.stringify(e, null, 2)}`,
-      );
+      const errorMessage = e instanceof Error ? e.message : JSON.stringify(e);
+      log.error(`Error processing Subscription processSubscriptionEventPaid notification: ${errorMessage}`);
       return;
     }
   }
@@ -1238,7 +1239,12 @@ export class StripeSubscriptionService {
         log.info(
           `Creating new order for subscription payment ${updateData.id} (config: ${config.subscriptionPaymentHandling})`,
         );
-        updateData.id = await this.handleSubscriptionPaymentCreateNewOrder(subscription, invoiceExpanded, updateData);
+        updateData.id = await this.handleSubscriptionPaymentCreateNewOrder(
+          subscription,
+          invoiceExpanded,
+          updateData,
+          OrderPaymentState.PAID,
+        );
         log.info(`New order created successfully for subscription payment ${updateData.id}`);
       } else {
         log.info(
@@ -1256,6 +1262,81 @@ export class StripeSubscriptionService {
       }
     }
     return true;
+  }
+
+  /**
+   * Shared method for subscription order creation that replaces duplicated tail blocks.
+   * Checks cart state, warns on unfrozen carts, updates address, and creates order with
+   * a defensive try/catch for version-conflict race conditions (e.g., invoice.paid vs charge.succeeded).
+   * @param params.paymentId - The commercetools payment ID to look up the cart
+   * @param params.charge - The Stripe charge for address update
+   * @param params.paymentIntentId - The PSP reference for the order
+   * @param params.invoiceId - The Stripe invoice ID (for logging)
+   * @param params.paymentState - The payment state for the order
+   * @returns True if order was created, false if skipped or failed gracefully
+   */
+  private async createSubscriptionOrderFromCart(params: {
+    paymentId: string;
+    charge: Stripe.Charge;
+    paymentIntentId: string;
+    invoiceId: string;
+    paymentState?: OrderPaymentState;
+  }): Promise<boolean> {
+    const { paymentId, charge, paymentIntentId, invoiceId, paymentState = OrderPaymentState.PAID } = params;
+
+    const cart = await this.ctCartService.getCartByPaymentId({ paymentId });
+    if (cart.cartState === 'Ordered') {
+      log.info('Cart already ordered, skipping subscription order creation', {
+        ctCartId: cart.id,
+        invoiceId,
+      });
+      return false;
+    }
+
+    if (!isCartFrozen(cart)) {
+      log.warn(
+        'Processing subscription order for unfrozen cart — payment may not have originated from this connector.',
+        {
+          ctCartId: cart.id,
+          paymentId,
+          invoiceId,
+        },
+      );
+    }
+
+    log.info('Updating cart address after processing the notification', {
+      ctCartId: cart.id,
+      invoiceId,
+    });
+
+    const updatedCart = await this.paymentService.updateCartAddress(charge, cart);
+
+    try {
+      await this.paymentService.createOrder({
+        cart: updatedCart,
+        paymentIntentId,
+        paymentState,
+      });
+      return true;
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : JSON.stringify(e);
+      const isVersionConflict =
+        errorMessage.includes('ConcurrentModification') ||
+        errorMessage.includes('version') ||
+        errorMessage.includes('409');
+      if (isVersionConflict) {
+        log.info(
+          'Subscription order creation skipped due to version conflict (likely race condition with another handler)',
+          {
+            ctCartId: updatedCart.id,
+            invoiceId,
+            error: errorMessage,
+          },
+        );
+        return false;
+      }
+      throw e;
+    }
   }
 
   /**
@@ -1338,7 +1419,7 @@ export class StripeSubscriptionService {
       const invoiceExpanded = await this.paymentCreationService.getStripeInvoiceExpanded(dataInvoiceId);
 
       const subscription = invoiceExpanded.subscription as Stripe.Subscription;
-      const paymentId = subscription.metadata?.[METADATA_PAYMENT_ID_FIELD];
+      const paymentId = await this.resolvePaymentIdFromSubscription(subscription, dataInvoiceId);
       if (!paymentId) {
         log.error(
           `Cannot process invoice with ID: ${invoiceExpanded.id}. Missing payment ID in subscription metadata.`,
@@ -1364,6 +1445,19 @@ export class StripeSubscriptionService {
         isPaymentChargePending,
         payment,
       );
+
+      if (!isPaymentChargePending) {
+        const shouldContinue = await this.handleRecurringChargeOrder(
+          subscription,
+          invoiceExpanded,
+          payment,
+          updateData,
+        );
+        if (!shouldContinue) {
+          return;
+        }
+      }
+
       for (const tx of updateData.transactions) {
         const updatedPayment = await this.ctPaymentService.updatePayment({
           ...updateData,
@@ -1371,29 +1465,68 @@ export class StripeSubscriptionService {
         });
 
         log.info(`Subscription payment updated after processing the notification ${updatedPayment.id}
-          paymentId:  ${updatedPayment.id}
-          version: updatedPayment.version}
+          paymentId: ${updatedPayment.id}
+          version: ${updatedPayment.version}
           pspReference: ${updateData.pspReference}
           paymentMethod: ${updateData.paymentMethod}
           transaction: ${JSON.stringify(tx)}
         `);
       }
 
-      const cart = await this.ctCartService.getCartByPaymentId({ paymentId: payment.id });
-      if (cart.cartState !== 'Ordered') {
-        log.info('Updating cart address after processing the notification', {
-          ctCartId: cart.id,
+      if (isPaymentChargePending) {
+        await this.createSubscriptionOrderFromCart({
+          paymentId: payment.id,
+          charge: invoiceExpanded.charge as Stripe.Charge,
+          paymentIntentId: updateData.pspReference,
           invoiceId: invoiceExpanded.id,
+          paymentState: OrderPaymentState.PAID,
         });
-        const updatedCart = await this.paymentService.updateCartAddress(invoiceExpanded.charge as Stripe.Charge, cart);
-        await this.paymentService.createOrder({ cart: updatedCart, paymentIntentId: updateData.pspReference });
       }
     } catch (e) {
-      log.error(
-        `Error processing Subscription processSubscriptionEventCharged notification: ${JSON.stringify(e, null, 2)}`,
-      );
+      const errorMessage = e instanceof Error ? e.message : JSON.stringify(e);
+      log.error(`Error processing Subscription processSubscriptionEventCharged notification: ${errorMessage}`);
       return;
     }
+  }
+
+  /**
+   * Handles order processing for recurring charge.succeeded events based on config.
+   * @returns True if processing should continue, false if caller should return early
+   */
+  private async handleRecurringChargeOrder(
+    subscription: Stripe.Subscription,
+    invoiceExpanded: StripeInvoiceExpanded,
+    payment: Payment,
+    updateData: StripeEventUpdatePayment,
+  ): Promise<boolean> {
+    const config = getConfig();
+    const shouldCreateNewOrder = config.subscriptionPaymentHandling === 'createOrder';
+    if (shouldCreateNewOrder) {
+      log.info(
+        `Creating new order for subscription charge ${updateData.id} (config: ${config.subscriptionPaymentHandling})`,
+      );
+      updateData.id = await this.handleSubscriptionPaymentCreateNewOrder(
+        subscription,
+        invoiceExpanded,
+        updateData,
+        OrderPaymentState.PAID,
+      );
+      log.info(`New order created successfully for subscription charge ${updateData.id}`);
+    } else {
+      log.info(
+        `Adding payment to existing order for subscription charge ${updateData.id} (config: ${config.subscriptionPaymentHandling})`,
+      );
+      const success = await this.handlePaidSubscriptionPaymentWithCart(
+        invoiceExpanded,
+        subscription,
+        payment,
+        updateData,
+      );
+      if (!success) {
+        return false;
+      }
+    }
+    return true;
   }
 
   public async processSubscriptionEventFailed(event: Stripe.Event): Promise<void> {
@@ -1410,7 +1543,6 @@ export class StripeSubscriptionService {
       const invoiceExpanded = await this.paymentCreationService.getStripeInvoiceExpanded(dataInvoiceId);
 
       const subscription = invoiceExpanded.subscription as Stripe.Subscription;
-      const invoicePaymentIntent = invoiceExpanded.payment_intent as Stripe.PaymentIntent;
       const paymentId = subscription.metadata?.[METADATA_PAYMENT_ID_FIELD];
       if (!paymentId) {
         log.error(
@@ -1426,15 +1558,13 @@ export class StripeSubscriptionService {
         log.error(`Cannot process invoice with ID: ${invoiceExpanded.id}. Missing Payment can be trial days.`);
         return;
       }
-      const failedPaymentIntent = !invoicePaymentIntent
-        ? []
-        : await this.ctPaymentService.findPaymentsByInterfaceId({
-            interfaceId: invoicePaymentIntent.id,
-          });
-      const isPaymentFailed = failedPaymentIntent.length > 0;
-      if (failedPaymentIntent.length > 0) {
-        payment = failedPaymentIntent[0];
-      }
+
+      const { payment: resolvedPayment, isPaymentFailed } = await this.resolveFailedPayment(
+        invoiceExpanded,
+        payment,
+      );
+      payment = resolvedPayment;
+
       const isPaymentChargePending = this.ctPaymentService.hasTransactionInState({
         payment,
         transactionType: PaymentTransactions.CHARGE,
@@ -1446,23 +1576,14 @@ export class StripeSubscriptionService {
         isPaymentChargePending,
         payment,
       );
+
       if (!isPaymentFailed) {
-        const config = getConfig();
-        const shouldCreateNewOrder = config.subscriptionPaymentHandling === 'createOrder';
-        if (shouldCreateNewOrder) {
-          await this.handleSubscriptionPaymentCreateNewOrder(subscription, invoiceExpanded, updateData);
-        } else {
-          const success = await this.handleSubscriptionPaymentWithCart(
-            invoiceExpanded,
-            subscription,
-            payment,
-            updateData,
-          );
-          if (!success) {
-            return;
-          }
+        const shouldContinue = await this.handleFailedEventOrder(subscription, invoiceExpanded, payment, updateData);
+        if (!shouldContinue) {
+          return;
         }
       }
+
       for (const tx of updateData.transactions) {
         const updatedPayment = await this.ctPaymentService.updatePayment({
           ...updateData,
@@ -1478,21 +1599,68 @@ export class StripeSubscriptionService {
         });
       }
 
-      const cart = await this.ctCartService.getCartByPaymentId({ paymentId: payment.id });
-      if (cart.cartState !== 'Ordered') {
-        log.info('Updating cart address after processing the notification', {
-          ctCartId: cart.id,
+      if (isPaymentChargePending || isPaymentFailed) {
+        await this.createSubscriptionOrderFromCart({
+          paymentId: payment.id,
+          charge: invoiceExpanded.charge as Stripe.Charge,
+          paymentIntentId: updateData.pspReference,
           invoiceId: invoiceExpanded.id,
+          paymentState: OrderPaymentState.FAILED,
         });
-        const updatedCart = await this.paymentService.updateCartAddress(invoiceExpanded.charge as Stripe.Charge, cart);
-        await this.paymentService.createOrder({ cart: updatedCart, paymentIntentId: updateData.pspReference });
       }
     } catch (e) {
-      log.error(
-        `Error processing Subscription processSubscriptionEventFailed notification: ${JSON.stringify(e, null, 2)}`,
-      );
+      const errorMessage = e instanceof Error ? e.message : JSON.stringify(e);
+      log.error(`Error processing Subscription processSubscriptionEventFailed notification: ${errorMessage}`);
       return;
     }
+  }
+
+  /**
+   * Resolves the payment from a failed invoice's payment intent, if one exists.
+   */
+  private async resolveFailedPayment(
+    invoiceExpanded: StripeInvoiceExpanded,
+    payment: Payment,
+  ): Promise<{ payment: Payment; isPaymentFailed: boolean }> {
+    const invoicePaymentIntent = invoiceExpanded.payment_intent as Stripe.PaymentIntent;
+    if (!invoicePaymentIntent) {
+      return { payment, isPaymentFailed: false };
+    }
+    const failedPayments = await this.ctPaymentService.findPaymentsByInterfaceId({
+      interfaceId: invoicePaymentIntent.id,
+    });
+    if (failedPayments.length > 0) {
+      return { payment: failedPayments[0], isPaymentFailed: true };
+    }
+    return { payment, isPaymentFailed: false };
+  }
+
+  /**
+   * Handles order processing for failed subscription events based on config.
+   * @returns True if processing should continue, false if caller should return early
+   */
+  private async handleFailedEventOrder(
+    subscription: Stripe.Subscription,
+    invoiceExpanded: StripeInvoiceExpanded,
+    payment: Payment,
+    updateData: StripeEventUpdatePayment,
+  ): Promise<boolean> {
+    const config = getConfig();
+    const shouldCreateNewOrder = config.subscriptionPaymentHandling === 'createOrder';
+    if (shouldCreateNewOrder) {
+      await this.handleSubscriptionPaymentCreateNewOrder(
+        subscription,
+        invoiceExpanded,
+        updateData,
+        OrderPaymentState.FAILED,
+      );
+    } else {
+      const success = await this.handleSubscriptionPaymentWithCart(invoiceExpanded, subscription, payment, updateData);
+      if (!success) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -1544,9 +1712,8 @@ export class StripeSubscriptionService {
 
     try {
       const invoiceData = event.data.object as StripeInvoiceExpanded;
-      const subscriptionId = typeof invoiceData.subscription === 'string' 
-        ? invoiceData.subscription 
-        : invoiceData.subscription?.id;
+      const subscriptionId =
+        typeof invoiceData.subscription === 'string' ? invoiceData.subscription : invoiceData.subscription?.id;
 
       if (!subscriptionId) {
         log.warn('Skipping upcoming subscription price synchronization: no subscription ID found in event');
@@ -1828,11 +1995,16 @@ export class StripeSubscriptionService {
 
   /**
    * Handles subscription payment by creating a new order
+   * @param subscription - The Stripe subscription
+   * @param invoiceExpanded - The expanded Stripe invoice
+   * @param updateData - The payment update data
+   * @param paymentState - The payment state for the order
    */
   private async handleSubscriptionPaymentCreateNewOrder(
     subscription: Stripe.Subscription,
     invoiceExpanded: StripeInvoiceExpanded,
     updateData: StripeEventUpdatePayment,
+    paymentState: OrderPaymentState = OrderPaymentState.PAID,
   ): Promise<string> {
     log.info('Creating new order for subscription payment', {
       paymentId: updateData.id,
@@ -1874,6 +2046,7 @@ export class StripeSubscriptionService {
       cart: latestCart,
       paymentIntentId: updateData.pspReference,
       subscriptionId: subscription.id,
+      paymentState,
     });
 
     await this.updateSubscriptionMetadata({

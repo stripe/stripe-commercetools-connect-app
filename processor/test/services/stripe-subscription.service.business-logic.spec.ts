@@ -504,7 +504,6 @@ describe('stripe-subscription.service.business-logic', () => {
           : jest.fn<() => Promise<Stripe.Response<Stripe.Product>>>(),
       } as unknown as Stripe.ProductsResource;
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result = await (stripeSubscriptionService as any).getStripeProduct(input);
 
       expect(result).toBe(expectedResult);
@@ -541,7 +540,6 @@ describe('stripe-subscription.service.business-logic', () => {
           .mockResolvedValue(result as Stripe.Response<Stripe.Product>),
       } as unknown as Stripe.ProductsResource;
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const actualResult = await (stripeSubscriptionService as any).createStripeProduct(input);
 
       expect(actualResult).toBe(result.id);
@@ -654,7 +652,6 @@ describe('stripe-subscription.service.business-logic', () => {
           .mockResolvedValue(mockPrice);
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result = await (stripeSubscriptionService as any).getCommercetoolsProductPrice('ct_product_123');
 
       expect(result).toEqual(mockPrice);
@@ -707,7 +704,6 @@ describe('stripe-subscription.service.business-logic', () => {
         }),
       } as unknown as Stripe.PricesResource;
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result = await (stripeSubscriptionService as any).findStripePriceByProductAndPrice(
         'ct_product_123',
         mockPrice,
