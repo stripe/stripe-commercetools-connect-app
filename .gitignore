@@ -16,6 +16,9 @@ docs/context7-libraries
 context
 context7-config.json
 
+# Internal security documents (not for public repo)
+docs/security-findings.md
+
 # Connect CLI generated files
 .connect
 
