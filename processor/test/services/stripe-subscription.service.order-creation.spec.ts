@@ -5,7 +5,7 @@ jest.mock('stripe', () => ({
   default: jest.fn().mockImplementation(() => {}),
 }));
 
-import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, test } from '@jest/globals';
 import { StripeSubscriptionService } from '../../src/services/stripe-subscription.service';
 import { CtPaymentCreationService } from '../../src/services/ct-payment-creation.service';
 import { StripePaymentService } from '../../src/services/stripe-payment.service';
