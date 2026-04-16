@@ -59,6 +59,24 @@ export enum CollectBillingAddressOptions {
   IF_REQUIRED = 'if_required',
 }
 
+export const DefaultBillingDetailsSchema = Type.Optional(
+  Type.Object({
+    email: Type.Optional(Type.String()),
+    name: Type.Optional(Type.String()),
+    phone: Type.Optional(Type.String()),
+    address: Type.Optional(
+      Type.Object({
+        line1: Type.Optional(Type.String()),
+        line2: Type.Optional(Type.String()),
+        city: Type.Optional(Type.String()),
+        postal_code: Type.Optional(Type.String()),
+        state: Type.Optional(Type.String()),
+        country: Type.Optional(Type.String()),
+      }),
+    ),
+  }),
+);
+
 export const ConfigElementResponseSchema = Type.Object({
   cartInfo: Type.Object({
     amount: Type.Number(),
@@ -71,6 +89,7 @@ export const ConfigElementResponseSchema = Type.Object({
   layout: Type.String(),
   collectBillingAddress: Type.Enum(CollectBillingAddressOptions),
   paymentMode: Type.Union([Type.Literal('subscription'), Type.Literal('setup'), Type.Literal('payment')]),
+  defaultBillingDetails: DefaultBillingDetailsSchema,
 });
 
 export const CtPaymentSchema = Type.Object({

@@ -501,6 +501,69 @@ describe('stripe-customer.service', () => {
     });
   });
 
+  describe('method getDefaultBillingDetails', () => {
+    test('should return email, name, phone and address from cart with full data', () => {
+      const result = stripeCustomerService.getDefaultBillingDetails(mockGetCartResult());
+      expect(result).toBeDefined();
+      expect(result?.email).toBe('test@example.com');
+      expect(result?.name).toBe('John Smith');
+      expect(result?.phone).toBe('+312345678');
+      expect(result?.address).toBeDefined();
+      expect(result?.address?.line1).toBe('123 Test street');
+      expect(result?.address?.city).toBe('Los Angeles');
+      expect(result?.address?.postal_code).toBe('12345');
+      expect(result?.address?.state).toBe('CA');
+      expect(result?.address?.country).toBe('US');
+    });
+
+    test('should return email only when no address exists', () => {
+      const cart: Cart = {
+        ...mockGetCartResult(),
+        customerEmail: 'guest@example.com',
+        shippingAddress: undefined,
+        billingAddress: undefined,
+      };
+      const result = stripeCustomerService.getDefaultBillingDetails(cart);
+      expect(result).toBeDefined();
+      expect(result?.email).toBe('guest@example.com');
+      expect(result?.name).toBeUndefined();
+      expect(result?.address).toBeUndefined();
+    });
+
+    test('should return undefined when cart has no email and no address', () => {
+      const cart: Cart = {
+        ...mockGetCartResult(),
+        customerEmail: undefined,
+        shippingAddress: undefined,
+        billingAddress: undefined,
+      };
+      const result = stripeCustomerService.getDefaultBillingDetails(cart);
+      expect(result).toBeUndefined();
+    });
+
+    test('should prioritize billingAddress over shippingAddress', () => {
+      const cart: Cart = {
+        ...mockGetCartResult(),
+        billingAddress: {
+          firstName: 'Jane',
+          lastName: 'Doe',
+          streetName: 'Billing Ave',
+          streetNumber: '456',
+          postalCode: '99999',
+          city: 'New York',
+          state: 'NY',
+          country: 'US',
+        },
+      };
+      const result = stripeCustomerService.getDefaultBillingDetails(cart);
+      expect(result).toBeDefined();
+      expect(result?.name).toBe('Jane Doe');
+      expect(result?.address?.line1).toBe('456 Billing Ave');
+      expect(result?.address?.city).toBe('New York');
+      expect(result?.address?.country).toBe('US');
+    });
+  });
+
   describe('method getBillingAddress', () => {
     test('should return billing address successfully', async () => {
       const result = await stripeCustomerService.getBillingAddress(mockGetCartResult());

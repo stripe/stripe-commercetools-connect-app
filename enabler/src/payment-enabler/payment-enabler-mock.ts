@@ -59,6 +59,21 @@ interface ElementsOptions {
   layout: LayoutObject;
   appearance: Appearance;
   fields?: StripePaymentElementOptions['fields'];
+  defaultValues?: {
+    billingDetails?: {
+      email?: string;
+      name?: string;
+      phone?: string;
+      address?: {
+        line1?: string;
+        line2?: string;
+        city?: string;
+        postal_code?: string;
+        state?: string;
+        country?: string;
+      };
+    };
+  };
   billingAddressRequired: boolean;
   shippingAddressRequired: boolean;
 }
@@ -195,7 +210,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
     options: EnablerOptions,
     config: ConfigElementResponseSchemaDTO
   ): ElementsOptions {
-    const { appearance, layout, collectBillingAddress } = config;
+    const { appearance, layout, collectBillingAddress, defaultBillingDetails } = config;
     return {
       type: 'payment',
       options: {},
@@ -209,6 +224,11 @@ export class MockPaymentEnabler implements PaymentEnabler {
             address: collectBillingAddress,
           }
         }
+      }),
+      ...(defaultBillingDetails && {
+        defaultValues: {
+          billingDetails: defaultBillingDetails,
+        },
       }),
       billingAddressRequired: true, // Used for express checkout, this will be updated in the future to be more dynamic
       shippingAddressRequired: true, // Used for express checkout, this will be updated in the future to be more dynamic
