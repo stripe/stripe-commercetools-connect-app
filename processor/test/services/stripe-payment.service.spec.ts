@@ -745,6 +745,9 @@ describe('stripe-payment.service', () => {
       expect(result.cartInfo.currency).toStrictEqual(mockGetPaymentAmount.currencyCode);
       expect(result.cartInfo.amount).toStrictEqual(mockGetPaymentAmount.centAmount);
       expect(result).toBeDefined();
+      expect(result.defaultBillingDetails).toBeDefined();
+      expect(result.defaultBillingDetails?.email).toBe('test@example.com');
+      expect(result.defaultBillingDetails?.name).toBe('John Smith');
 
       // Or check that the relevant mocks have been called
       expect(getCartMock).toHaveBeenCalled();

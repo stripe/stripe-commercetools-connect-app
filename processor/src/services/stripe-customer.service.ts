@@ -224,6 +224,39 @@ export class StripeCustomerService {
     };
   }
 
+  public getDefaultBillingDetails(cart: Cart) {
+    const address = cart.billingAddress ?? cart.shippingAddress;
+    const email = cart.customerEmail ?? address?.email ?? '';
+    const name = address ? `${address.firstName ?? ''} ${address.lastName ?? ''}`.trim() : '';
+
+    if (!email && !name && !address) {
+      return undefined;
+    }
+
+    const getField = (field: keyof Address): string => {
+      const value = address?.[field];
+      return typeof value === 'string' ? value : '';
+    };
+
+    return {
+      ...(email && { email }),
+      ...(name && { name }),
+      ...(address?.phone && { phone: address.phone as string }),
+      ...(address && {
+        address: {
+          ...(getField('streetNumber') || getField('streetName')
+            ? { line1: `${getField('streetNumber')} ${getField('streetName')}`.trim() }
+            : {}),
+          ...(getField('additionalStreetInfo') && { line2: getField('additionalStreetInfo') }),
+          ...(getField('city') && { city: getField('city') }),
+          ...(getField('postalCode') && { postal_code: getField('postalCode') }),
+          ...(getField('state') && { state: getField('state') }),
+          ...(getField('country') && { country: getField('country') }),
+        },
+      }),
+    };
+  }
+
   public getBillingAddress(cart: Cart) {
     const prioritizedAddress = cart.billingAddress ?? cart.shippingAddress;
     if (!prioritizedAddress) {

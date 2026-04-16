@@ -588,6 +588,7 @@ export class StripePaymentService extends AbstractPaymentService {
       ctOrderService: this.ctOrderService,
     });
     const paymentMode = await subscriptionService.getPaymentMode(cart);
+    const defaultBillingDetails = this.customerService.getDefaultBillingDetails(cart);
 
     log.info(`Cart and ${webElement} config retrieved.`, {
       cartId: cart.id,
@@ -616,6 +617,7 @@ export class StripePaymentService extends AbstractPaymentService {
       layout: stripeLayout,
       collectBillingAddress: stripeCollectBillingAddress as CollectBillingAddressOptions,
       paymentMode,
+      defaultBillingDetails,
     };
   }
 

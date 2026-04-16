@@ -39,6 +39,24 @@ export const SubscriptionResponseSchema = Type.Object({
   billingAddress: Type.Optional(Type.String()),
 });
 
+export const DefaultBillingDetailsSchema = Type.Optional(
+  Type.Object({
+    email: Type.Optional(Type.String()),
+    name: Type.Optional(Type.String()),
+    phone: Type.Optional(Type.String()),
+    address: Type.Optional(
+      Type.Object({
+        line1: Type.Optional(Type.String()),
+        line2: Type.Optional(Type.String()),
+        city: Type.Optional(Type.String()),
+        postal_code: Type.Optional(Type.String()),
+        state: Type.Optional(Type.String()),
+        country: Type.Optional(Type.String()),
+      }),
+    ),
+  }),
+);
+
 export const ConfigElementResponseSchema = Type.Object({
   cartInfo: Type.Object({
     amount: Type.Number(),
@@ -51,6 +69,7 @@ export const ConfigElementResponseSchema = Type.Object({
   layout: Type.String(),
   collectBillingAddress: Type.Union([Type.Literal('auto'), Type.Literal('never'), Type.Literal('if_required')]),
   paymentMode: Type.Union([Type.Literal('payment'), Type.Literal('subscription'), Type.Literal('setup')]),
+  defaultBillingDetails: DefaultBillingDetailsSchema,
 });
 
 export const ConfigResponseSchema = Type.Object({

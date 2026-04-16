@@ -599,6 +599,19 @@ export const mockRoute__get_config_element_succeed: ConfigElementResponseSchemaD
   layout: '{"type":"accordion","defaultCollapsed":false,"radios":true,"spacedAccordionItems":true}',
   collectBillingAddress: CollectBillingAddressOptions.AUTO,
   paymentMode: 'payment',
+  defaultBillingDetails: {
+    email: 'test@example.com',
+    name: 'John Smith',
+    phone: '+312345678',
+    address: {
+      line1: '123 Test street',
+      line2: 'department 1',
+      city: 'Los Angeles',
+      postal_code: '12345',
+      state: 'CA',
+      country: 'US',
+    },
+  },
 };
 
 export const mockEvent__charge_capture_succeeded_notCaptured: Stripe.Event = {
