@@ -39,6 +39,13 @@ These are non-negotiable design rules. Do not violate them.
 - **Amount validation is intentionally not hardcoded in the webhook handler.** In automatic capture, PI amount always equals the cart total (guaranteed by cart freeze). In manual capture, multi-capture, incremental auth, and extended auth, the captured amount legitimately differs from the original authorization. A hard amount check would break these flows. The existing warn on unfrozen cart at `payment_intent.succeeded` is the correct signal for anomalies.
 - **Do not add amount validation that blocks order creation** unless it is scoped to `capture_method === 'automatic'` only.
 
+### Subscription Billing Cycle Design
+
+- **Every subscription billing cycle produces a CT order, including failed payments.** This is intentional. Each billing attempt — whether successful or declined — is recorded as a CT order for auditability and billing history. Do not treat order creation in `processSubscriptionEventFailed()` as a bug.
+- **`charge.succeeded` → `Authorization:Success` is the canonical fulfillment signal**, consistent across both one-time payments and subscriptions. A merchant's fulfillment system must gate on this CT payment transaction state, not on `order.paymentState`. `charge.succeeded` never fires for a declined charge — Stripe fires `charge.failed` instead — so failed billing cycles never produce a success transaction on the CT payment.
+- **`order.paymentState` must reflect actual payment outcome.** `createOrderFromCart()` accepts a `paymentState` parameter. Success handlers pass `'Paid'`; failure handlers must pass `'Failed'`. An order with `paymentState: 'Paid'` and only `Failure` transactions on the CT payment is a data quality bug, not an exploitable vulnerability — but it must be avoided to prevent merchant confusion.
+- **The CT payment object is the authoritative record of payment state.** `order.paymentState` is a derived convenience field. When evaluating whether a payment succeeded, always check CT payment transactions (`Authorization:Success`, `Charge:Success`) rather than `order.paymentState`.
+
 ### Route Flow Separation
 
 - **Shipping routes (`/shipping-methods/*`) are Express Checkout infrastructure only.** They exist to support the Apple Pay / Google Pay sheet's shipping address and rate selection lifecycle. The enabler wires them exclusively to `StripeExpressCheckoutElement` events (`shippingaddresschange`, `shippingratechange`, `cancel`). Payment Element flows never call these routes.
@@ -161,6 +168,118 @@ When adding or modifying routes, follow this pattern:
 - Stripe SDK internals (trust `constructEvent()`, `paymentIntents.create()`, etc.)
 - Commercetools SDK internals
 - The Connect runtime itself
+
+## Payment Flows
+
+### Drop-in (Payment Element) — One-Time Payment
+
+**Initialization (page load):**
+1. Merchant creates `Enabler` instance → constructor calls `_Setup(options)`
+2. Enabler calls `GET /config-element/{paymentElementType}` (session auth) → processor fetches cart via context, returns `{ cartInfo: {amount, currency}, appearance, captureMethod, layout, collectBillingAddress, paymentMode }`
+3. Enabler calls `GET /operations/config` (session auth) → processor returns `{ publishableKey, environment }`
+4. Enabler calls `GET /customer/session` (session auth) → processor finds/creates Stripe customer, creates ephemeral key + customer session → returns `{ stripeCustomerId, ephemeralKey, sessionId }` (or 204 if no customer on cart)
+5. Enabler calls `loadStripe(publishableKey)` to load Stripe SDK
+6. Enabler merges backend config with frontend `stripeConfig` overrides (appearance, layout, collectBillingAddress)
+7. Enabler calls `stripe.elements({ mode, amount, currency, appearance, captureMethod, customerOptions })` — **NO `clientSecret`** (deferred intent)
+8. Enabler calls `elements.create('payment', elementsOptions)` to create the Payment Element
+9. Merchant calls `dropin.mount('#selector')` → Payment Element renders in DOM, payment methods visible
+
+**Submit (user clicks pay):**
+1. `elements.submit()` — validates payment form client-side
+2. Enabler calls `POST /payments` (or `GET /payments` if no paymentMethodOptions) (session auth) → processor:
+   - a. Fetches cart from context
+   - b. Gets payment amount from cart
+   - c. Finds Stripe customer ID from CT customer custom fields
+   - d. Merges payment method options (backend defaults + frontend overrides; card multicapture if enabled)
+   - e. Calls `stripe.paymentIntents.create({ amount, currency, automatic_payment_methods: {enabled: true}, capture_method, metadata, payment_method_options })` with idempotency key
+   - f. Creates CT Payment object with PI as `interfaceId`
+   - g. Adds payment to cart
+   - h. **Freezes cart** — guarantees `PI amount === cart total`
+   - i. Returns `{ clientSecret, paymentReference, merchantReturnUrl, cartId, billingAddress? }`
+3. Enabler calls `stripe.confirmPayment({ clientSecret, elements, confirmParams: {return_url}, redirect: 'if_required' })` — collects payment method from Element and confirms with Stripe
+4. Enabler calls `POST /confirmPayments/{paymentReference}` with `{ paymentIntent: pi_xxx }` (session auth) → processor:
+   - a. Validates PI ID matches CT Payment `interfaceId` (anti-corruption check)
+   - b. Adds `Authorization:Success` transaction to CT Payment
+5. Enabler calls `onComplete({ isSuccess: true, paymentReference, paymentIntent })`
+
+**Webhook settlement (async, seconds to days later):**
+1. Stripe sends `payment_intent.succeeded` → `POST /stripe/webhooks` (signature verified via `constructEvent`)
+2. Processor checks `isFromSubscriptionInvoice()` — false for one-time payments
+3. `StripeEventConverter.convert()` maps event → `Charge:Success` CT transaction
+4. Processor updates CT Payment with `Charge:Success` transaction
+5. Processor fetches cart by payment ID, updates cart address from charge billing/shipping details
+6. Processor calls `createOrderFromCart()` → CT order created
+
+**Failure/cancellation (async):**
+1. Stripe sends `payment_intent.payment_failed` or `payment_intent.canceled`
+2. Processor adds `Authorization:Failure` (+ `CancelAuthorization:Success` for canceled) transactions
+3. Processor **unfreezes cart** — allows customer to retry or modify cart
+
+### Express Checkout (Apple Pay / Google Pay)
+
+**Initialization:** Steps 1–8 same as Drop-in, except step 8 creates `elements.create('expressCheckout', ...)` instead.
+
+**Mount:**
+1. Express Checkout Element mounted to DOM
+2. Four event listeners registered: `shippingaddresschange`, `shippingratechange`, `cancel`, `confirm`
+
+**Shipping address selection:**
+1. `shippingaddresschange` fires → Enabler calls `POST /shipping-methods` with partial address
+2. Processor: temporarily unfreezes cart → updates shipping address → gets shipping methods → re-freezes cart
+3. Enabler calls `elements.update({ amount: newTotal })` and `event.resolve(shippingRates)`
+
+**Shipping rate selection:**
+1. `shippingratechange` fires → Enabler calls `POST /shipping-methods/update` with selected rate
+2. Processor: temporarily unfreezes → updates shipping method → re-freezes
+3. Enabler updates element amount and resolves event
+
+**Cancellation:**
+1. `cancel` fires → Enabler calls `GET /shipping-methods/remove`
+2. Processor: **permanently unfreezes cart** (no re-freeze), removes shipping method
+3. Enabler resets element amount to original total
+
+**Confirm:** `confirm` fires → calls `submit()` → same submit flow as Drop-in steps 1–5 above
+
+### Subscription Payment
+
+**Submit (after `elements.submit()` validates):**
+1. Enabler calls `POST /subscription` (session auth) → processor creates Stripe Subscription with PaymentIntent, returns `{ subscriptionId, clientSecret, paymentReference, merchantReturnUrl, cartId }`
+2. Enabler calls `stripe.confirmPayment({ clientSecret, elements })` — same as one-time
+3. Enabler calls `POST /subscription/confirm` with `{ subscriptionId, paymentReference, paymentIntentId }` → processor confirms CT payment
+4. Enabler calls `onComplete()`
+
+**Subscription billing webhooks (recurring):**
+- `invoice.paid` → `Authorization:Success` + `Charge:Success` on CT Payment → order created with `paymentState: 'Paid'`
+- `invoice.payment_failed` → `Authorization:Failure` + `Charge:Failure` → order still created with `paymentState: 'Failed'` (intentional — every billing cycle produces a CT order for auditability)
+- `charge.succeeded` from subscription invoice (detected via `isFromSubscriptionInvoice()`) → routed to subscription handler, not one-time handler
+
+### Setup Intent (Save Payment Method for Future Use)
+
+**Submit (after `elements.submit()` validates):**
+1. Enabler calls `POST /setupIntent` (session auth) → processor creates Stripe SetupIntent, returns `{ clientSecret, merchantReturnUrl }`
+2. Enabler calls `stripe.confirmSetup({ clientSecret, elements })` — saves payment method without charging
+3. Enabler calls `POST /subscription/withSetupIntent` with `setupIntentId` → processor creates subscription using saved payment method
+4. Enabler calls `POST /subscription/confirm` → processor confirms CT payment
+5. Enabler calls `onComplete()`
+
+### Webhook Event → CT Transaction Mapping
+
+| Stripe Event | CT Transaction Type | CT State | Amount Source |
+|---|---|---|---|
+| `payment_intent.canceled` | Authorization + CancelAuthorization | Failure + Success | PI `amount` |
+| `payment_intent.succeeded` | Charge | Success | PI `amount_received` |
+| `payment_intent.payment_failed` | Authorization | Failure | PI `amount` |
+| `charge.succeeded` (not captured) | Authorization | Success | Charge `amount` |
+| `charge.updated` (multicapture) | Charge | Success | Incremental `amount_captured` delta |
+| `charge.refunded` | Refund + Chargeback | Success | Charge `amount_refunded` |
+| `invoice.paid` | Authorization + Charge | Success | Invoice `amount_paid` |
+| `invoice.payment_failed` | Authorization + Charge | Failure | Invoice `amount_due` |
+
+Events route through `StripeEventConverter.convert()` (one-time) or `SubscriptionEventConverter.convert()` (subscription), which extract `ct_payment_id` from metadata.
+
+### BNPL / Redirect-Based Payment Methods
+
+For redirect-based methods (BNPL, iDEAL, etc.), `stripe.confirmPayment()` uses `redirect: 'if_required'`. If Stripe requires a redirect, the customer is sent to the provider's page. Stripe appends `payment_intent` and `payment_intent_client_secret` to `merchantReturnUrl`. The merchant storefront must handle the return and call `POST /confirmPayments/:id` to complete the CT payment update.
 
 ## File Structure Quick Reference
 
