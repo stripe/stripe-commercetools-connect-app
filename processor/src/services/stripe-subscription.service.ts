@@ -158,7 +158,7 @@ export class StripeSubscriptionService {
           add_invoice_items: oneTimeItems,
           payment_behavior: 'default_incomplete',
           payment_settings: { save_default_payment_method: 'on_subscription' },
-          expand: ['latest_invoice.payment_intent'],
+          expand: ['latest_invoice.confirmation_secret'],
           metadata: this.paymentCreationService.getPaymentMetadata(cart),
           discounts: await this.stripeCouponService.getStripeCoupons(cart),
         },
@@ -345,16 +345,16 @@ export class StripeSubscriptionService {
       throw new Error('Failed to create Subscription, missing Payment Intent.');
     }
 
-    const paymentIntent = latestInvoice.payment_intent as Stripe.PaymentIntent | string | null;
+    const confirmationSecret = latestInvoice.confirmation_secret;
 
-    if (typeof paymentIntent === 'string' || !paymentIntent?.client_secret) {
+    if (!confirmationSecret?.client_secret) {
       throw new Error('Failed to create Subscription, missing Payment Intent.');
     }
 
-    return {
-      paymentIntentId: paymentIntent.id,
-      clientSecret: paymentIntent.client_secret,
-    };
+    const clientSecret = confirmationSecret.client_secret;
+    const paymentIntentId = clientSecret.split('_secret_')[0];
+
+    return { paymentIntentId, clientSecret };
   }
 
   public async getCreateSubscriptionPriceId(cart: Cart, amount: PaymentAmount): Promise<string> {
@@ -1133,7 +1133,7 @@ export class StripeSubscriptionService {
 
       const invoiceExpanded = await this.paymentCreationService.getStripeInvoiceExpanded(dataInvoiceId);
 
-      const subscription = invoiceExpanded.subscription as Stripe.Subscription;
+      const subscription = invoiceExpanded.parent?.subscription_details?.subscription as Stripe.Subscription;
       const invoicePaymentIntent = invoiceExpanded.payment_intent as Stripe.PaymentIntent;
       const paymentId = await this.resolvePaymentIdFromSubscription(subscription, dataInvoiceId);
       if (!paymentId) {
@@ -1382,7 +1382,7 @@ export class StripeSubscriptionService {
     payment: Payment,
     updateData: StripeEventUpdatePayment,
   ): Promise<boolean> {
-    const eventCartId = invoiceExpanded.subscription_details?.metadata?.[METADATA_CART_ID_FIELD];
+    const eventCartId = invoiceExpanded.parent?.subscription_details?.metadata?.[METADATA_CART_ID_FIELD];
     if (!eventCartId) {
       log.error(`Cannot process invoice with ID: ${invoiceExpanded.id}. Missing cart.`);
       return false;
@@ -1418,7 +1418,7 @@ export class StripeSubscriptionService {
 
       const invoiceExpanded = await this.paymentCreationService.getStripeInvoiceExpanded(dataInvoiceId);
 
-      const subscription = invoiceExpanded.subscription as Stripe.Subscription;
+      const subscription = invoiceExpanded.parent?.subscription_details?.subscription as Stripe.Subscription;
       const paymentId = await this.resolvePaymentIdFromSubscription(subscription, dataInvoiceId);
       if (!paymentId) {
         log.error(
@@ -1542,8 +1542,8 @@ export class StripeSubscriptionService {
 
       const invoiceExpanded = await this.paymentCreationService.getStripeInvoiceExpanded(dataInvoiceId);
 
-      const subscription = invoiceExpanded.subscription as Stripe.Subscription;
-      const paymentId = subscription.metadata?.[METADATA_PAYMENT_ID_FIELD];
+      const subscription = invoiceExpanded.parent?.subscription_details?.subscription as Stripe.Subscription;
+      const paymentId = subscription?.metadata?.[METADATA_PAYMENT_ID_FIELD];
       if (!paymentId) {
         log.error(
           `Cannot process invoice with ID: ${invoiceExpanded.id}. Missing payment ID in subscription metadata.`,
@@ -1559,10 +1559,7 @@ export class StripeSubscriptionService {
         return;
       }
 
-      const { payment: resolvedPayment, isPaymentFailed } = await this.resolveFailedPayment(
-        invoiceExpanded,
-        payment,
-      );
+      const { payment: resolvedPayment, isPaymentFailed } = await this.resolveFailedPayment(invoiceExpanded, payment);
       payment = resolvedPayment;
 
       const isPaymentChargePending = this.ctPaymentService.hasTransactionInState({
@@ -1679,7 +1676,7 @@ export class StripeSubscriptionService {
     payment: Payment,
     updateData: StripeEventUpdatePayment,
   ): Promise<boolean> {
-    const eventCartId = invoiceExpanded.subscription_details?.metadata?.[METADATA_CART_ID_FIELD];
+    const eventCartId = invoiceExpanded.parent?.subscription_details?.metadata?.[METADATA_CART_ID_FIELD];
     if (!eventCartId) {
       log.error(`Cannot process invoice with ID: ${invoiceExpanded.id}. Missing cart.`);
       return false;
@@ -1712,8 +1709,9 @@ export class StripeSubscriptionService {
 
     try {
       const invoiceData = event.data.object as StripeInvoiceExpanded;
+      const invoiceSubscription = invoiceData.parent?.subscription_details?.subscription;
       const subscriptionId =
-        typeof invoiceData.subscription === 'string' ? invoiceData.subscription : invoiceData.subscription?.id;
+        typeof invoiceSubscription === 'string' ? invoiceSubscription : invoiceSubscription?.id;
 
       if (!subscriptionId) {
         log.warn('Skipping upcoming subscription price synchronization: no subscription ID found in event');
@@ -2014,7 +2012,7 @@ export class StripeSubscriptionService {
     });
     const originalOrder = await this.ctOrderService.getOrderByPaymentId({ paymentId: updateData.id });
 
-    const customerId = invoiceExpanded.subscription_details?.metadata?.[METADATA_CUSTOMER_ID_FIELD];
+    const customerId = invoiceExpanded.parent?.subscription_details?.metadata?.[METADATA_CUSTOMER_ID_FIELD];
     if (!customerId) {
       throw new Error('Customer ID not found in invoice metadata');
     }

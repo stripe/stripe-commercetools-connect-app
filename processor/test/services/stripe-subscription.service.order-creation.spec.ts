@@ -5,7 +5,7 @@ jest.mock('stripe', () => ({
   default: jest.fn().mockImplementation(() => {}),
 }));
 
-import { afterEach, beforeEach, describe, expect, test } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import { StripeSubscriptionService } from '../../src/services/stripe-subscription.service';
 import { CtPaymentCreationService } from '../../src/services/ct-payment-creation.service';
 import { StripePaymentService } from '../../src/services/stripe-payment.service';
@@ -123,10 +123,15 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
       const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
       const mockInvoiceWithCharge = {
         ...mockInvoiceExpanded__simple,
-        subscription: {
-          ...mockInvoiceExpanded__simple.subscription,
-          metadata: {
-            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {
+                [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+              },
+            },
+            metadata: mockInvoiceExpanded__simple.parent.subscription_details.metadata,
           },
         },
         charge: {
@@ -192,10 +197,15 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
       const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
       const mockInvoiceWithCharge = {
         ...mockInvoiceExpanded__simple,
-        subscription: {
-          ...mockInvoiceExpanded__simple.subscription,
-          metadata: {
-            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {
+                [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+              },
+            },
+            metadata: mockInvoiceExpanded__simple.parent.subscription_details.metadata,
           },
         },
         charge: {
@@ -248,10 +258,15 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
       const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
       const mockInvoiceWithCharge = {
         ...mockInvoiceExpanded__simple,
-        subscription: {
-          ...mockInvoiceExpanded__simple.subscription,
-          metadata: {
-            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {
+                [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+              },
+            },
+            metadata: mockInvoiceExpanded__simple.parent.subscription_details.metadata,
           },
         },
         charge: {
@@ -309,10 +324,15 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
       };
       const mockInvoiceWithCharge = {
         ...mockInvoiceExpanded__simple,
-        subscription: {
-          ...mockInvoiceExpanded__simple.subscription,
-          metadata: {
-            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {
+                [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+              },
+            },
+            metadata: mockInvoiceExpanded__simple.parent.subscription_details.metadata,
           },
         },
         payment_intent: {
@@ -375,15 +395,17 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
       const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
       const mockInvoiceWithCustomerId = {
         ...mockInvoiceExpanded__simple,
-        subscription: {
-          ...mockInvoiceExpanded__simple.subscription,
-          metadata: {
-            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
-          },
-        },
-        subscription_details: {
-          metadata: {
-            [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {
+                [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+              },
+            },
+            metadata: {
+              [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+            },
           },
         },
         payment_intent: null,
@@ -423,16 +445,18 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
   describe('processSubscriptionEventCharged respects subscriptionPaymentHandling config', () => {
     const mockInvoiceWithConfig = {
       ...mockInvoiceExpanded__simple,
-      subscription: {
-        ...mockInvoiceExpanded__simple.subscription,
-        metadata: {
-          [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
-        },
-      },
-      subscription_details: {
-        metadata: {
-          [METADATA_CART_ID_FIELD]: 'cart_123',
-          [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+      parent: {
+        subscription_details: {
+          subscription: {
+            ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+            metadata: {
+              [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+            },
+          },
+          metadata: {
+            [METADATA_CART_ID_FIELD]: 'cart_123',
+            [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+          },
         },
       },
       charge: {
@@ -583,10 +607,15 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
       const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
       const mockInvoiceWithCharge = {
         ...mockInvoiceExpanded__simple,
-        subscription: {
-          ...mockInvoiceExpanded__simple.subscription,
-          metadata: {
-            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {
+                [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+              },
+            },
+            metadata: mockInvoiceExpanded__simple.parent.subscription_details.metadata,
           },
         },
         charge: {
@@ -643,15 +672,17 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
       const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
       const mockInvoiceWithCartId = {
         ...mockInvoiceExpanded__simple,
-        subscription: {
-          ...mockInvoiceExpanded__simple.subscription,
-          metadata: {
-            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
-          },
-        },
-        subscription_details: {
-          metadata: {
-            [METADATA_CART_ID_FIELD]: 'cart_123',
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {
+                [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+              },
+            },
+            metadata: {
+              [METADATA_CART_ID_FIELD]: 'cart_123',
+            },
           },
         },
         amount_paid: 1000,

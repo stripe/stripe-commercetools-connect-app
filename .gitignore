@@ -13,7 +13,6 @@
 
 #Context documentation
 docs/context7-libraries
-context
 context7-config.json
 
 # Internal security documents (not for public repo)

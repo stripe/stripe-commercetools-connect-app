@@ -15,15 +15,19 @@ export interface ExtendedPaymentAmount extends PaymentAmount {
 
 /**
  * Extended Invoice type that includes expanded properties.
- * When using expand: ['payment_intent', 'subscription', 'charge'] in Stripe API calls,
+ * When using expand: ['payment_intent', 'parent.subscription_details.subscription', 'charge'] in Stripe API calls,
  * these properties are returned as full objects instead of string IDs.
+ * Stripe API 2025-12-15.clover moved subscription data under invoice.parent.subscription_details.
  */
-export interface StripeInvoiceExpanded extends Omit<Stripe.Invoice, 'payment_intent' | 'subscription' | 'charge'> {
+export interface StripeInvoiceExpanded extends Omit<Stripe.Invoice, 'payment_intent' | 'charge' | 'parent'> {
   payment_intent?: Stripe.PaymentIntent | string | null;
-  subscription?: Stripe.Subscription | string | null;
   charge?: Stripe.Charge | string | null;
-  subscription_details?: {
-    metadata?: Stripe.Metadata | null;
+  confirmation_secret?: { client_secret: string; type: string } | null;
+  parent?: {
+    subscription_details?: {
+      metadata?: Stripe.Metadata | null;
+      subscription?: Stripe.Subscription | string | null;
+    } | null;
   } | null;
 }
 

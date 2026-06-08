@@ -2,6 +2,48 @@
 
 ## Latest
 
+### Stripe API 2025-12-15.clover Migration — Invoice Structure Changes
+
+**Changed:**
+- **Invoice subscription access path**: `invoice.subscription` is deprecated in Stripe API `2025-12-15.clover`. All subscription references now use `invoice.parent.subscription_details.subscription`.
+- **Invoice metadata access path**: `invoice.subscription_details.metadata` → `invoice.parent.subscription_details.metadata` across all webhook event processors and the `SubscriptionEventConverter`.
+- **Invoice expand path**: Changed from `expand: ['payment_intent', 'subscription', 'charge']` to `expand: ['payment_intent', 'parent.subscription_details.subscription', 'charge']` in `getStripeInvoiceExpanded`.
+- **Subscription creation confirmation secret**: Subscription creation now expands `latest_invoice.confirmation_secret` instead of `latest_invoice.payment_intent`. The `paymentIntentId` is derived by splitting `confirmation_secret.client_secret` on `_secret_`.
+- **`StripeInvoiceExpanded` type**: Removed `subscription` and top-level `subscription_details` fields; added `parent.subscription_details.{ metadata, subscription }` and `confirmation_secret` to match the new API shape.
+- **Stripe client**: `stripeApiVersion` from config is now passed to the `Stripe` constructor as `apiVersion`, ensuring all API calls use the configured version.
+
+**Files modified:**
+- `processor/src/services/stripe-subscription.service.ts`
+- `processor/src/services/ct-payment-creation.service.ts`
+- `processor/src/services/converters/subscriptionEventConverter.ts`
+- `processor/src/services/types/stripe-subscription.type.ts`
+- `processor/src/clients/stripe.client.ts`
+
+---
+
+### Fix `isCartFrozen()` — Incorrect Frozen-State Detection
+
+**Fixed:**
+- `isCartFrozen()` was checking `'frozen' in cart && cart.frozen === true`, a field that commercetools does not expose on the `Cart` type. Frozen carts are represented as `cartState === 'Frozen'`. The function now checks `cart.cartState === 'Frozen'` correctly.
+
+**Impact:** Cart-freeze guards in `StripeSubscriptionService` and `StripeShippingService` now behave correctly. Previously, `isCartFrozen()` always returned `false`, meaning the unfrozen-cart warning in `createSubscriptionOrderFromCart` was never triggered and the Express Checkout unfreeze/refreeze logic always ran an unnecessary unfreeze.
+
+**Files modified:**
+- `processor/src/services/commerce-tools/cart-client.ts`
+
+---
+
+### Express Checkout Line Items — Stripe Tax Support and Shipping Label
+
+**Changed:**
+- **Stripe Tax support in line items**: When `cart.taxedPrice` is present (Stripe Tax is active), `getCartLineItems()` now returns a `Subtotal` line (net amount minus shipping), an optional `Tax` line, and the shipping line — instead of enumerating individual product line items. This avoids a double-tax display in the Express Checkout sheet.
+- **Shipping label**: The shipping line item now uses `ctCart.shippingInfo.shippingMethodName` as its label instead of the hardcoded string `'Shipping'`, showing the actual method name (e.g. "Standard", "Express") in the Express Checkout summary.
+
+**Files modified:**
+- `processor/src/services/stripe-shipping.service.ts`
+
+---
+
 ### Subscription Order Creation Improvements
 
 **Added:**

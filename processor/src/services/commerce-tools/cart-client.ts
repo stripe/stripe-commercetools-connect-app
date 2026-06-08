@@ -163,9 +163,10 @@ export const unfreezeCart = async (cart: Cart): Promise<Cart> => {
 
 /**
  * Checks if a cart is frozen.
+ * CT represents a frozen cart with cartState === 'Frozen', not a boolean 'frozen' field.
  * @param cart - The cart object to check.
  * @returns True if the cart is frozen, false otherwise.
  */
 export const isCartFrozen = (cart: Cart): boolean => {
-  return 'frozen' in cart && (cart as Cart & { frozen?: boolean }).frozen === true;
+  return cart.cartState === 'Frozen';
 };
