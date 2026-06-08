@@ -185,9 +185,9 @@ describe('stripe-subscription.service.core', () => {
         id: 'sub_mock_id',
         latest_invoice: {
           id: 'in_123',
-          payment_intent: {
-            id: 'pi_123',
+          confirmation_secret: {
             client_secret: 'pi_3MtwBwLkdIwHu7ix28a3tqPa_secret_YrKJUKribcBjcG8HVhfZluoGH',
+            type: 'payment_intent',
           },
         },
       } as Stripe.Response<Stripe.Subscription>);

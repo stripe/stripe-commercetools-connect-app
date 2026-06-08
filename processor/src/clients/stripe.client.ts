@@ -7,6 +7,7 @@ export const stripeApi = (): Stripe => {
   const properties = new Map(Object.entries(process.env));
   const appInfoUrl = properties.get('CONNECT_SERVICE_URL') ?? 'https://example.com';
   return new Stripe(getConfig().stripeSecretKey, {
+    apiVersion: getConfig().stripeApiVersion as Stripe.LatestApiVersion,
     appInfo: {
       name: 'Stripe app for Commercetools Connect',
       version: '1.0.00',

@@ -143,9 +143,11 @@ describe('StripeSubscriptionService - Private Methods', () => {
       };
       const mockInvoiceExpanded = {
         id: 'in_123',
-        subscription_details: {
-          metadata: {
-            [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+        parent: {
+          subscription_details: {
+            metadata: {
+              [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+            },
           },
         },
         charge: {
@@ -267,8 +269,10 @@ describe('StripeSubscriptionService - Private Methods', () => {
       };
       const mockInvoiceExpanded = {
         id: 'in_123',
-        subscription_details: {
-          metadata: {},
+        parent: {
+          subscription_details: {
+            metadata: {},
+          },
         },
       };
       const mockUpdateData = {
@@ -296,9 +300,11 @@ describe('StripeSubscriptionService - Private Methods', () => {
       };
       const mockInvoiceExpanded = {
         id: 'in_123',
-        subscription_details: {
-          metadata: {
-            [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+        parent: {
+          subscription_details: {
+            metadata: {
+              [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+            },
           },
         },
       };

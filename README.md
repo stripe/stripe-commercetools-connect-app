@@ -30,6 +30,7 @@ This repository provides a commercetools [connect](https://docs.commercetools.co
 - **Frontend Configuration Override**: The Enabler supports `stripeConfig` option that allows frontend to override backend configuration for Stripe Elements (appearance, layout, billing address) and PaymentIntent (payment method options). This enables per-implementation customization without backend changes. [See Details](./README.md#creating-components-for-payment-elements-or-express-checkout)
 - Provides a subscription management API via the commercetools connector, enabling Stripe subscription operations directly through commercetools API endpoints.
 - Customers can update their shipping and billing addresses directly within the Stripe Express Checkout. When an address is changed, the connector automatically fetches the latest shipping rates from commercetools and updates the cart to reflect the new information. [See Details](README.md#sequence-diagrams-for-the-payment-connector)
+- **Stripe Tax support in Express Checkout**: When Stripe Tax is active (`cart.taxedPrice` is present), the Express Checkout order summary displays a net subtotal, a tax line, and the shipping line — preventing duplicate tax display. The shipping line also shows the actual shipping method name instead of a generic label.
 
 ## Price Synchronization Architecture
 
@@ -135,6 +136,133 @@ Once the payment component is set up, the connector orchestrates various payment
 
 Each diagram details the interactions and steps involved in processing the respective payment type.
 
+## Recent Updates and Improvements
+
+### Stripe API 2025-12-15.clover Compatibility (Latest)
+
+The connector has been updated to align with breaking changes introduced in Stripe API version `2025-12-15.clover` (the version pinned by `STRIPE_API_VERSION`):
+
+- **Invoice subscription path**: `invoice.subscription` is deprecated; the connector now accesses subscription data via `invoice.parent.subscription_details.subscription`.
+- **Subscription confirmation secret**: Subscription creation now uses `latest_invoice.confirmation_secret` instead of `latest_invoice.payment_intent` to obtain the client secret, as required by the new API shape.
+- **Stripe client version pinning**: The configured `STRIPE_API_VERSION` is now passed directly to the Stripe SDK constructor, ensuring all API calls use the declared version.
+
+### Fix: Cart Frozen-State Detection
+
+`isCartFrozen()` was checking a `frozen` field that commercetools does not expose. It now correctly checks `cartState === 'Frozen'`, which means:
+- The unfrozen-cart warning in subscription order creation now fires when expected.
+- Express Checkout unfreeze/refreeze logic no longer runs unnecessarily on already-active carts.
+
+### Express Checkout Line Items — Stripe Tax and Shipping Label
+
+- **Stripe Tax support**: When the cart has `taxedPrice` (Stripe Tax is active), the Express Checkout order summary now shows a `Subtotal` line (net, excluding shipping), an optional `Tax` line, and the shipping line — preventing double-tax display.
+- **Shipping method label**: The shipping line now shows the actual shipping method name (e.g. "Standard Delivery") instead of the generic label "Shipping".
+
+### Subscription Order Creation Improvements
+
+- **`OrderPaymentState` enum**: Failed subscription events (`invoice.payment_failed`) now create CT orders with `paymentState: Failed` instead of `Paid`.
+- **Race condition handling**: Concurrent `invoice.paid` + `charge.succeeded` webhooks are handled gracefully — version-conflict errors (409) are caught and the duplicate order creation is skipped.
+- **Cart state guard**: Order creation is skipped if the cart is already in `Ordered` state, preventing duplicate orders.
+- **Unfrozen cart warning**: A warning is logged when a subscription order is processed for a cart that was not frozen, indicating the payment may not have originated from this connector.
+- **Config-based branching for `charge.succeeded`**: Recurring charge events now respect `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING` (`createOrder` vs `addPaymentToOrder`), consistent with how `invoice.paid` already worked.
+
+### Multiple Refunds and Multicapture Implementation - OPT-IN FEATURE
+
+The payment processing system has been significantly enhanced with advanced multicapture and refund capabilities. **These features are opt-in and disabled by default** to ensure backward compatibility.
+
+#### ⚙️ Configuration Required
+- **Environment Variable**: `STRIPE_ENABLE_MULTI_OPERATIONS=true` (default: `false`)
+- **Prerequisites**:
+  - Multicapture must be enabled in your Stripe account
+  - Set `STRIPE_CAPTURE_METHOD=manual`
+  - Webhook endpoint must include `charge.updated` and `charge.refunded` events
+- **Default Behavior**: When disabled, webhook events are gracefully skipped with logging
+- **Backward Compatible**: Existing merchants experience no disruption
+
+#### 🚀 New Features (When Enabled)
+- **Multicapture Support**: Enhanced payment capture functionality to support multiple partial captures on the same payment intent
+- **Advanced Refund Processing**: New refund handling that fetches accurate refund details directly from Stripe API
+- **Incremental Capture Tracking**: Sophisticated tracking of incremental captured amounts using Stripe's previous attributes
+- **Conditional Webhook Routing**: Dedicated event handlers for `charge.updated` and `charge.refunded` events that only process when feature is enabled
+- **Balance Transaction Tracking**: Improved PSP reference tracking using Stripe balance transaction IDs
+
+#### 🔧 Technical Improvements
+- **API-Based Refund Details**: Refund processing now fetches actual refund amounts and IDs from Stripe API for precise transaction records
+- **Partial Capture Detection**: Automatic detection of partial captures with proper `final_capture` handling
+- **Simplified Payment Updates**: Removed manual commercetools payment updates in favor of webhook-based processing
+- **Enhanced Error Handling**: Comprehensive validation and error management for multicapture scenarios
+- **Improved Event Converter**: Added support for `CHARGE__UPDATED` events and enhanced refund processing
+
+#### 🧪 Testing Infrastructure Enhancements
+- **Comprehensive Test Coverage**: Updated test suites to cover all new multicapture and refund functionality
+- **Enhanced Webhook Testing**: Improved webhook routing tests for new event types
+- **Converter Testing**: Added tests for new event converter functionality
+- **Edge Case Coverage**: Enhanced testing for various multicapture and refund scenarios
+
+#### 📚 Documentation and Architecture Updates
+- **Enhanced Webhook Documentation**: Updated webhook event descriptions to reflect new capabilities
+- **Improved Transaction Tracking**: Better PSP reference tracking for audit and debugging purposes
+- **Comprehensive Logging**: Enhanced logging throughout the payment processing pipeline
+- **Better Error Management**: Structured error handling with detailed transaction information
+
+### Enhanced Subscription Service Architecture and Testing Infrastructure
+
+The subscription service has undergone major architectural improvements with comprehensive testing enhancements:
+
+#### 🚀 New Features
+- **New Price Client Service**: Added dedicated `price-client.ts` service for enhanced product price management and retrieval
+- **Modular Test Architecture**: Restructured subscription service tests into focused, maintainable modules:
+  - Business logic and payment handling tests
+  - Core subscription functionality tests  
+  - Subscription lifecycle management tests
+  - Payment processing and confirmation tests
+  - Price management and calculation tests
+  - Utility functions and helper method tests
+- **Enhanced Configuration Management**: Added comprehensive configuration testing and validation
+- **Advanced Payment Intent Handling**: Enhanced error handling for payment intents with additional status checks
+- **Improved Subscription Metadata Management**: Enhanced metadata tracking with comprehensive field mapping
+
+#### 🔧 Technical Improvements
+- **Subscription Service Refactoring**: Major architectural improvements with better separation of concerns
+- **Enhanced Test Coverage**: Achieved comprehensive test coverage across all subscription service methods and edge cases
+- **Improved Mock Data Management**: Enhanced mock data structures for better test reliability and coverage
+- **Better Error Handling**: Comprehensive error management throughout the subscription service with detailed logging
+- **Payment Processing Enhancements**: Improved payment intent configuration with conditional shipping and advanced payment method options
+- **New Price Management Methods**: 
+  - `getProductById()`: Retrieves products with expanded price information
+  - `getProductMasterPrice()`: Gets current price from product master variant
+
+#### 🧪 Testing Infrastructure Enhancements
+- **Modular Test Structure**: Tests organized by functionality for better maintainability and faster execution
+- **Comprehensive Coverage**: All subscription service methods now have dedicated test coverage
+- **Enhanced Mock Data**: Improved mock data for realistic testing scenarios
+- **Better Test Organization**: Clear separation between unit tests and integration tests
+- **Configuration Testing**: Added dedicated tests for configuration validation
+
+#### 📚 Documentation and Architecture Updates
+- **Enhanced Code Organization**: Better separation of concerns in subscription service architecture
+- **Improved Type Safety**: Updated method signatures and type definitions for better development experience
+- **Better Logging**: Enhanced logging throughout the service for improved debugging capabilities
+- **Optimized Performance**: More efficient product price management and test execution
+
+### Previous Enhancements
+
+#### Subscription Service Core Features
+- **Recurring Shipping Fee Support**: Added comprehensive support for recurring shipping fees in subscriptions
+- **Automatic Shipping Price Management**: Automatic creation and management of Stripe shipping prices
+- **Enhanced Metadata Tracking**: Improved metadata handling for shipping methods and prices
+- **Shipping Price Integration**: New methods for managing shipping prices within subscriptions:
+  - `getSubscriptionShippingPriceId()`: Retrieves or creates shipping price IDs
+  - `getStripeShippingPriceByMetadata()`: Searches for existing shipping prices
+  - `createStripeShippingPrice()`: Creates new Stripe shipping prices
+- **Enhanced Type Definitions**: Added new TypeScript interfaces for shipping price management
+- **Enabler Enhancements**: Improved payment mode handling and comprehensive debugging
+
+For detailed information about these improvements, see the [Processor Documentation](./processor/README.md#subscription-shipping-fee-support).
+
+For technical implementation details, see the [Subscription Shipping Fee Integration Guide](./docs/subscription-shipping-fee.md).
+
+For enabler and payment service improvements, see the [Enabler Improvements Guide](./docs/enabler-improvements.md).
+
 # Webhooks
 
 The following webhooks are currently supported, and the payment transactions in commercetools are:
@@ -147,7 +275,7 @@ The following webhooks are currently supported, and the payment transactions in 
 - **charge.captured**: Logs the information in the connector app inside the Processor logs.
 - **charge.updated**: Handles multicapture scenarios by creating Charge: Success transactions with incremental captured amounts. **Note**: Only processed when `STRIPE_ENABLE_MULTI_OPERATIONS=true`; gracefully skipped when disabled.
 - **invoice.paid**: If payment charge is pending, we update the payment transaction to Charge:Success. If charge is not pending, we update the payment transaction to Authorization:Success and create a payment transaction Charge:Success.
-- **invoice.payment_failed**: If payment charge is pending, we update the payment transaction to Charge:Failure. If charge is not pending, we update the payment transaction to Authorization:Failure and create a payment transaction Charge:Failure.
+- **invoice.payment_failed**: If payment charge is pending, we update the payment transaction to Charge:Failure. If charge is not pending, we update the payment transaction to Authorization:Failure and create a payment transaction Charge:Failure. A CT order is also created with `paymentState: Failed`.
 - **invoice.upcoming**: Handles upcoming invoice events for subscription payments, supporting the new subscription payment handling strategy.
 
 
@@ -342,8 +470,8 @@ For complete implementation details, refer to the [Google Pay considerations in 
 
 ## Deployment Configuration
 
-It needs to be published to deploy your customized connector application on commercetools Connect. For details, please refer to [documentation about commercetools Connect](https://docs.commercetools.com/connect/concepts).
-The connector follows this folder structure:
+It needs to be published to deploy your customized connector application on commercetools Connect. For details, please refer to [documentation about commercetools Connect](https://docs.commercetools.com/connect/concepts)
+In addition, the tax integration connector template has a folder structure, as listed below, to support Connect.
 
 ```
 ├── enabler
@@ -357,73 +485,157 @@ The connector follows this folder structure:
 └── connect.yaml
 ```
 
+The connect deployment configuration specifie in `connect.yaml`, the information needed to publish the application. Following is the deployment configuration used by the Enabler and Processor modules
 
-The deployment configuration is defined in [`connect.yaml`](./connect.yaml). This file declares the enabler and processor applications, their deployment scripts, and all configuration variables. Refer to `connect.yaml` as the source of truth.
+```
+deployAs:
+  - name: enabler
+    applicationType: assets
+  - name: processor
+    applicationType: service
+    endpoint: /
+    scripts:
+      postDeploy: npm install && npm run connector:post-deploy
+      preUndeploy: npm install && npm run connector:pre-undeploy
+    configuration:
+      standardConfiguration:
+        - key: CTP_PROJECT_KEY
+          description: commercetools project key
+          required: true
+        - key: CTP_AUTH_URL
+          description: commercetools Auth URL (example - https://auth.europe-west1.gcp.commercetools.com).
+          required: true
+          default: https://auth.europe-west1.gcp.commercetools.com
+        - key: CTP_API_URL
+          description: commercetools API URL (example - https://api.europe-west1.gcp.commercetools.com).
+          required: true
+          default: https://api.europe-west1.gcp.commercetools.com
+        - key: CTP_SESSION_URL
+          description: Session API URL (example - https://session.europe-west1.gcp.commercetools.com).
+          required: true
+          default: https://session.europe-west1.gcp.commercetools.com
+        - key: CTP_CHECKOUT_URL
+          description: Checkout API URL (example - https://checkout.europe-west1.gcp.commercetools.com).
+          required: true
+        - key: CTP_JWKS_URL
+          description: JWKs url (example - https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json)
+          required: true
+          default: https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json
+        - key: CTP_JWT_ISSUER
+          description: JWT Issuer for jwt validation (example - https://mc-api.europe-west1.gcp.commercetools.com)
+          required: true
+          default: https://mc-api.europe-west1.gcp.commercetools.com
+        - key: STRIPE_CAPTURE_METHOD
+          description: Stripe capture method (example - manual|automatic).
+          default: automatic
+        - key: STRIPE_WEBHOOK_ID
+          description: Stripe unique identifier for the Webhook Endpoints (example - we_*****).
+          required: true
+        - key: STRIPE_APPEARANCE_PAYMENT_ELEMENT
+          description: Stripe Appearance for Payment Element (example - {"theme":"stripe","variables":{"colorPrimary":"\#0570DE","colorBackground":"\#FFFFFF","colorText":"\#30313D","colorDanger":"\#DF1B41","fontFamily":"Ideal Sans,system-ui,sansserif","spacingUnit":"2px","borderRadius":"4px"}}).
+        - key: STRIPE_APPEARANCE_EXPRESS_CHECKOUT
+          description: Stripe Appearance for Express Checkout (example - {"theme":"stripe","variables":{"colorPrimary":"\#0570DE","colorBackground":"\#FFFFFF","colorText":"\#30313D","colorDanger":"\#DF1B41","fontFamily":"Ideal Sans,system-ui,sansserif","spacingUnit":"2px","borderRadius":"4px"}}).
+        - key: STRIPE_LAYOUT
+          description: Stripe Layout for Payment Element (example - {"type":"accordion","defaultCollapsed":false,"radios":true,"spacedAccordionItems":false} ).
+          default: '{"type":"tabs","defaultCollapsed":false}'
+        - key: STRIPE_PUBLISHABLE_KEY
+          description: Stripe Publishable Key
+          required: true
+        - key: STRIPE_APPLE_PAY_WELL_KNOWN
+          description: Domain association file from Stripe. (example - https://stripe.com/files/apple-pay/apple-developer-merchantid-domain-association)
+        - key: STRIPE_SAVED_PAYMENT_METHODS_CONFIG
+          description: Stripe configuration for saved payment methods (example - {"payment_method_save":"enabled","payment_method_save_usage":"off_session","payment_method_redisplay":"enabled","payment_method_redisplay_limit":10}).
+          default: '{"payment_method_save":"disabled"}'
+        - key: MERCHANT_RETURN_URL
+          description: Merchant return URL
+          required: true
+        - key: STRIPE_COLLECT_BILLING_ADDRESS
+          description: Stripe collect billing address information in Payment Element (example - 'auto' | 'never' | 'if_required').
+          default: 'auto'
+          required: true
+        - key: STRIPE_SUBSCRIPTION_PAYMENT_HANDLING
+          description: Subscription payment handling strategy (createOrder|addPaymentToOrder).
+          default: createOrder
+        - key: STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED
+          description: Enable automatic price synchronization for subscriptions (true|false).
+          default: false
+        - key: STRIPE_ENABLE_MULTI_OPERATIONS
+          description: Enable multicapture and multirefund support (true|false). When enabled, allows multiple partial captures and multiple refunds on payments. IMPORTANT - Requires multicapture to be enabled in your Stripe account.
+          default: 'false'
+        - key: STRIPE_API_VERSION
+          description: Stripe API version to use (example - 2025-12-15.clover).
+          default: '2025-12-15.clover'
+        - key: CT_CUSTOM_TYPE_LAUNCHPAD_PURCHASE_ORDER_KEY
+          description: Custom type key for launchpad purchase order number.
+          required: true
+          default: 'payment-launchpad-purchase-order'
+        - key: CT_CUSTOM_TYPE_STRIPE_CUSTOMER_KEY
+          description: Custom type key for Stripe customer ID.
+          required: true
+          default: 'payment-connector-stripe-customer-id'
+        - key: CT_CUSTOM_TYPE_SUBSCRIPTION_LINE_ITEM_KEY
+          description: Custom type key for subscription line item.
+          required: true
+          default: 'payment-connector-subscription-line-item-type'
+        - key: CT_PRODUCT_TYPE_SUBSCRIPTION_KEY
+          description: Product type key for subscription information.
+          required: true
+          default: 'payment-connector-subscription-information'
+      securedConfiguration:
+        - key: CTP_CLIENT_SECRET
+          description: commercetools client secret.
+          required: true
+        - key: CTP_CLIENT_ID
+          description: commercetools client ID with manage_payments, manage_orders, view_sessions, view_api_clients, manage_checkout_payment_intents, introspect_oauth_tokens, manage_types and view_types scopes
+          required: true
+        - key: STRIPE_SECRET_KEY
+          description: Stripe secret key (example - sk_*****).
+          required: true
+        - key: STRIPE_WEBHOOK_SIGNING_SECRET
+          description: Stripe Webhook signing secret  (example - whsec_*****).
+          required: true
 
-### Configuration Reference
+```
 
-#### Commercetools Platform
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `CTP_PROJECT_KEY` | Yes | - | Commercetools project key |
-| `CTP_AUTH_URL` | Yes | `https://auth.europe-west1.gcp.commercetools.com` | OAuth 2.0 authentication URL. [Details](https://docs.commercetools.com/tutorials/api-tutorial#authentication) |
-| `CTP_API_URL` | Yes | `https://api.europe-west1.gcp.commercetools.com` | Commercetools API URL |
-| `CTP_SESSION_URL` | Yes | `https://session.europe-west1.gcp.commercetools.com` | Session API URL for enabler/processor communication |
-| `CTP_CHECKOUT_URL` | Yes | - | Checkout API URL |
-| `CTP_JWKS_URL` | Yes | `https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json` | JSON Web Key Set URL for JWT validation |
-| `CTP_JWT_ISSUER` | Yes | `https://mc-api.europe-west1.gcp.commercetools.com` | JWT issuer for token validation |
-| `CTP_CLIENT_ID` | Yes | - | Client ID with required scopes (secured) |
-| `CTP_CLIENT_SECRET` | Yes | - | Client secret (secured) |
-
-Required API client scopes: `manage_payments`, `manage_orders`, `view_sessions`, `view_api_clients`, `manage_checkout_payment_intents`, `introspect_oauth_tokens`, `manage_types`, `view_types`.
-
-#### Stripe
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `STRIPE_SECRET_KEY` | Yes | - | Server-side secret key (secured). [Restricted key permissions](#3-stripe-account-and-keys) |
-| `STRIPE_PUBLISHABLE_KEY` | Yes | - | Frontend publishable key |
-| `STRIPE_WEBHOOK_ID` | Yes | - | Webhook endpoint identifier (`we_*****`) |
-| `STRIPE_WEBHOOK_SIGNING_SECRET` | Yes | - | Webhook signing secret for HMAC verification (secured) |
-| `STRIPE_CAPTURE_METHOD` | No | `automatic` | `automatic`, `automatic_async`, or `manual`. Must be `manual` for multicapture. |
-| `STRIPE_API_VERSION` | No | `2025-12-15.clover` | Pin to a specific Stripe API version |
-| `MERCHANT_RETURN_URL` | Yes | - | Return URL for [confirmPayment](https://docs.stripe.com/js/payment_intents/confirm_payment). Required for BNPL methods. |
-
-#### Stripe Payment Element Appearance
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `STRIPE_APPEARANCE_PAYMENT_ELEMENT` | No | - | Stringified JSON for Payment Element theming. [Appearance API](https://docs.stripe.com/elements/appearance-api) |
-| `STRIPE_APPEARANCE_EXPRESS_CHECKOUT` | No | - | Stringified JSON for Express Checkout theming. [Appearance API](https://docs.stripe.com/elements/appearance-api) |
-| `STRIPE_LAYOUT` | No | `{"type":"tabs","defaultCollapsed":false}` | Payment Element layout. [Layout options](https://docs.stripe.com/payments/payment-element#layout) |
-| `STRIPE_COLLECT_BILLING_ADDRESS` | Yes | `auto` | Billing address collection: `auto`, `never`, or `if_required`. [Details](https://docs.stripe.com/payments/payment-element/control-billing-details-collection) |
-| `STRIPE_APPLE_PAY_WELL_KNOWN` | No | - | Domain association file URL for [Apple Pay](https://stripe.com/docs/apple-pay/web) |
-| `STRIPE_SAVED_PAYMENT_METHODS_CONFIG` | No | `{"payment_method_save":"disabled"}` | Stringified JSON for saved payment methods. [Customer session features](https://docs.stripe.com/api/customer_sessions/object#customer_session_object-components-payment_element-features) |
-
-#### Subscription Configuration
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING` | No | `createOrder` | `createOrder` (new order per payment) or `addPaymentToOrder` (add to existing order) |
-| `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED` | No | `false` | When `true`, prices sync before invoice creation via `invoice.upcoming` webhook. When `false`, prices update after payment for next billing cycle. |
-
-#### Advanced Features
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `STRIPE_ENABLE_MULTI_OPERATIONS` | No | `false` | Enables multicapture and multirefund. Requires multicapture in your Stripe account AND `STRIPE_CAPTURE_METHOD=manual`. [Details](./docs/multiple-refunds-multicapture.md) |
-
-#### Custom Type Keys
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `CT_CUSTOM_TYPE_LAUNCHPAD_PURCHASE_ORDER_KEY` | Yes | `payment-launchpad-purchase-order` | Custom type key for purchase order number |
-| `CT_CUSTOM_TYPE_STRIPE_CUSTOMER_KEY` | Yes | `payment-connector-stripe-customer-id` | Custom type key for Stripe customer ID |
-| `CT_CUSTOM_TYPE_SUBSCRIPTION_LINE_ITEM_KEY` | Yes | `payment-connector-subscription-line-item-type` | Custom type key for subscription line item |
-| `CT_PRODUCT_TYPE_SUBSCRIPTION_KEY` | Yes | `payment-connector-subscription-information` | Product type key for subscription information |
-
-> **Note**: Variables marked "(secured)" are stored as `securedConfiguration` in `connect.yaml` -- encrypted at rest and write-only after deployment.
+Here, you can see the details about various variables in the configuration
+- `CTP_PROJECT_KEY`: The key to the commercetools composable commerce project.
+- `CTP_SCOPE`: The scope constrains the endpoints to which the commercetools client has access and the read/write access right to an endpoint.
+- `CTP_AUTH_URL`: The URL for authentication in the commercetools platform. Generate the OAuth 2.0 token required in every API call to commercetools composable commerce. The default value is `https://auth.europe-west1.gcp.commercetools.com`. For details, please refer to the documentation [here](https://docs.commercetools.com/tutorials/api-tutorial#authentication).
+- `CTP_API_URL`: The URL for commercetools composable commerce API. The default value is `https://api.europe-west1.gcp.commercetools.com`.
+- `CTP_SESSION_URL`: The URL for session creation in the commercetools platform. Connectors rely on the session created to share information between the enabler and processor. The default value is `https://session.europe-west1.gcp.commercetools.com`.
+- `CTP_CHECKOUT_URL`: The URL for commercetools Checkout API. Required for checkout-related operations. Example: `https://checkout.europe-west1.gcp.commercetools.com`.
+- `CTP_JWKS_URL`: The JSON Web Key Set URL. Default value is `https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json`
+- `CTP_JWT_ISSUER`: The issuer inside JSON Web Token, required in the JWT validation process. The default value is `https://mc-api.europe-west1.gcp.commercetools.com`
+- `STRIPE_CAPTURE_METHOD`: Stripe capture method (manual or automatic), default value: automatic.
+- `STRIPE_APPEARANCE_PAYMENT_ELEMENT`: Stripe Elements supports visual customization, which allows you to match the design of your site with the `appearance` option. This value has the specific appearance of the Payment Element component. The value needs to be a valid stringified JSON. More information about the properties can be found [here](https://docs.stripe.com/elements/appearance-api).
+- `STRIPE_APPEARANCE_EXPRESS_CHECKOUT`: Stripe Elements supports visual customization, which allows you to match the design of your site with the `appearance` option. This value has the specific appearance of the Express Checkout component.
+- `STRIPE_LAYOUT`: Stripe allows you to customize the Payment Element's Layout to fit your checkout flow (accordions or tabs). Default value is `{"type":"tabs","defaultCollapsed":false}`
+- `STRIPE_APPLE_PAY_WELL_KNOWN`: Domain association file from Stripe. We can find more information in this [link](https://stripe.com/files/apple-pay/apple-developer-merchantid-domain-association).
+- `CTP_CLIENT_SECRET`: The client secret of commercetools composable commerce user account. It is used in commercetools for clients to communicate with commercetools composable commerce via SDK.
+- `CTP_CLIENT_ID`: The client ID of your commercetools composable commerce user account. It is used in commercetools for clients to communicate with commercetools composable commerce via SDK. Expected scopes are: `manage_payments` `manage_orders` `view_sessions` `view_api_clients` `manage_checkout_payment_intents` `introspect_oauth_tokens` `manage_types` `view_types`.
+- `STRIPE_SECRET_KEY`: Stripe authenticates your API requests using your account's API keys
+- `STRIPE_PUBLISHABLE_KEY`: Stripe authenticates your frontend requests using your account's Publishable keys
+- `STRIPE_WEBHOOK_ID`: Stripe unique identifier for the [Webhook Endpoints](https://docs.stripe.com/api/webhook_endpoints)
+- `STRIPE_WEBHOOK_SIGNING_SECRET`: Stripe Secret key to verify webhook signatures using the official libraries. This key is created in the [Stripe dashboard Webhook](https://docs.stripe.com/webhooks).
+- `MERCHANT_RETURN_URL`: Merchant return URL used on the [confirmPayment](https://docs.stripe.com/js/payment_intents/confirm_payment) return_url parameter. The Buy Now Pay Later payment methods will send the Stripe payment_intent in the URL; the Merchant will need to retrieve the payment intent and look for the metadata `ct_payment_id` to be added in the commercetools Checkout SDK `paymentReference`.
+- `STRIPE_SAVED_PAYMENT_METHODS_CONFIG`: Stripe allows you to configure the saved payment methods in the Payment Element, refer to [docs](https://docs.stripe.com/api/customer_sessions/object#customer_session_object-components-payment_element-features). This feature is disabled by default. To enable it, you need to add the expected customer session object. Default value is `{"payment_method_save":"disabled"}`
+- `STRIPE_COLLECT_BILLING_ADDRESS`: Stripe allows you to collect the shipping address in the Payment Element. If you want to collect the shipping address, you need to set this value to `never`. The default value is `auto`. More information can be found [here](https://docs.stripe.com/payments/payment-element/control-billing-details-collection).
+- `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING`: Defines the strategy for handling subscription payments. Options are:
+  - `createOrder` (creates a new order for each subscription payment - default)
+  - `addPaymentToOrder` (adds payment to existing order)
+- `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED`: Enables automatic price synchronization for subscriptions.
+  - `true`: Subscription prices are automatically synchronized with current commercetools product prices **before** each invoice is created via `invoice.upcoming` webhook events (price changes take effect in current billing cycle)
+  - `false` (default): Price updates happen **after** invoice payment via `createOrder` method (price changes take effect in next billing cycle)
+- `STRIPE_ENABLE_MULTI_OPERATIONS`: **Opt-in Feature** - Enables multicapture and multirefund support.
+  - `true`: Enables multiple partial captures and multiple refunds on payments. Sets `request_multicapture: 'if_available'` on payment intents. Processes `charge.updated` and `charge.refunded` webhook events.
+  - `false` (default): Standard single-capture payment processing. Webhook events are gracefully skipped with informative logging.
+  - **Prerequisites**: Requires multicapture enabled in your Stripe account AND `STRIPE_CAPTURE_METHOD=manual`
+  - **See**: [Multiple Refunds and Multicapture Documentation](./docs/multiple-refunds-multicapture.md) for detailed configuration
+- `STRIPE_API_VERSION`: Stripe API version to use. Default value is `2025-12-15.clover`. Allows merchants to pin to specific Stripe API versions for stability.
+- `CT_CUSTOM_TYPE_LAUNCHPAD_PURCHASE_ORDER_KEY`: Custom type key for launchpad purchase order number. Default: `payment-launchpad-purchase-order`.
+- `CT_CUSTOM_TYPE_STRIPE_CUSTOMER_KEY`: Custom type key for Stripe customer ID. Default: `payment-connector-stripe-customer-id`.
+- `CT_CUSTOM_TYPE_SUBSCRIPTION_LINE_ITEM_KEY`: Custom type key for subscription line item. Default: `payment-connector-subscription-line-item-type`.
+- `CT_PRODUCT_TYPE_SUBSCRIPTION_KEY`: Product type key for subscription information. Default: `payment-connector-subscription-information`.
 
 ## Development
 
@@ -453,15 +665,3 @@ This command would start three services that are required for development.
 1. JWT Server
 2. Enabler
 3. Processor
-
-## Related Documentation
-
-- [SECURITY.md](./SECURITY.md) -- Security policy, shared responsibility model, and vulnerability reporting
-- [CLAUDE.md](./CLAUDE.md) -- Development guidelines and architecture invariants
-- [Processor Documentation](./processor/README.md) -- Detailed processor docs, subscription config, API reference
-- [Enabler Documentation](./enabler/README.md) -- Frontend component integration guide
-- [Changelog](./docs/CHANGELOG.md) -- Release notes and recent updates
-- [Subscription Price Synchronization](./docs/subscription-price-synchronization.md)
-- [Mixed Cart Support](./docs/mixed-cart-support.md)
-- [Multiple Refunds and Multicapture](./docs/multiple-refunds-multicapture.md)
-- [Attribute Name Standardization](./docs/attribute-name-standardization.md)

@@ -91,7 +91,7 @@ describe('stripe-subscription.service.business-logic', () => {
       const mockEvent = {
         id: 'evt_123',
         type: 'invoice.upcoming',
-        data: { object: { id: 'in_123', subscription: 'sub_123' } },
+        data: { object: { id: 'in_123', parent: { subscription_details: { subscription: 'sub_123' } } } },
       } as Stripe.Event;
 
       const mockSubscription = {
@@ -210,7 +210,7 @@ describe('stripe-subscription.service.business-logic', () => {
       const mockEvent = {
         id: 'evt_123',
         type: 'invoice.upcoming',
-        data: { object: { id: 'in_123', subscription: 'sub_123' } },
+        data: { object: { id: 'in_123', parent: { subscription_details: { subscription: 'sub_123' } } } },
       } as Stripe.Event;
 
       await stripeSubscriptionService.processSubscriptionEventUpcoming(mockEvent);
@@ -228,7 +228,7 @@ describe('stripe-subscription.service.business-logic', () => {
       const mockEvent = {
         id: 'evt_123',
         type: 'invoice.upcoming',
-        data: { object: { id: 'in_123', subscription: 'sub_123' } },
+        data: { object: { id: 'in_123', parent: { subscription_details: { subscription: 'sub_123' } } } },
       } as Stripe.Event;
 
       Stripe.prototype.subscriptions = {
@@ -442,7 +442,7 @@ describe('stripe-subscription.service.business-logic', () => {
       const mockEvent = {
         id: 'evt_123',
         type: 'invoice.upcoming',
-        data: { object: { id: 'in_123', subscription: 'sub_123' } },
+        data: { object: { id: 'in_123', parent: { subscription_details: { subscription: 'sub_123' } } } },
       } as Stripe.Event;
 
       Stripe.prototype.subscriptions = {

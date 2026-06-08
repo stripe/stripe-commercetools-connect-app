@@ -190,6 +190,6 @@ export class SubscriptionEventConverter {
   }
 
   private getCtPaymentId(invoice: StripeInvoiceExpanded): string {
-    return invoice.subscription_details?.metadata?.ctPaymentId ?? '';
+    return invoice.parent?.subscription_details?.metadata?.ctPaymentId ?? '';
   }
 }

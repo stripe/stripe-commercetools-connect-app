@@ -252,7 +252,7 @@ describe('StripeShippingService', () => {
           amount: 150000,
         },
         {
-          name: 'Shipping',
+          name: 'shippingMethodName1',
           amount: 150000,
         },
       ]);
@@ -488,7 +488,7 @@ describe('StripeShippingService', () => {
           amount: 150000,
         },
         {
-          name: 'Shipping',
+          name: 'Standard Shipping',
           amount: 500,
         },
       ]);
@@ -566,6 +566,94 @@ describe('StripeShippingService', () => {
 
       await expect(stripeShippingService.removeShippingRate()).rejects.toThrow('Test error');
       expect(StripeClient.wrapStripeError).toHaveBeenCalledWith(mockError);
+    });
+  });
+
+  describe('getCartLineItems — tax-aware line items (Express Checkout with Stripe Tax)', () => {
+    const makeCartWithTax = (taxAmount: number, shippingAmount = 1000) => ({
+      ...mockGetCartResult(),
+      totalPrice: { type: 'centPrecision' as const, currencyCode: 'USD', centAmount: 3997, fractionDigits: 2 },
+      taxedPrice: {
+        totalNet: { type: 'centPrecision' as const, currencyCode: 'USD', centAmount: 3997, fractionDigits: 2 },
+        totalGross: { type: 'centPrecision' as const, currencyCode: 'USD', centAmount: 3997 + taxAmount, fractionDigits: 2 },
+        totalTax: { type: 'centPrecision' as const, currencyCode: 'USD', centAmount: taxAmount, fractionDigits: 2 },
+        taxPortions: [],
+      },
+      shippingInfo: {
+        shippingMethodName: 'US Delivery',
+        price: { type: 'centPrecision' as const, currencyCode: 'USD', centAmount: shippingAmount, fractionDigits: 2 },
+        shippingRate: { price: { type: 'centPrecision' as const, currencyCode: 'USD', centAmount: shippingAmount, fractionDigits: 2 }, tiers: [] },
+        shippingMethodState: 'MatchesCart' as const,
+        shippingMethod: { id: 'sm-1', typeId: 'shipping-method' as const },
+      },
+    }) as Cart;
+
+    test('should return Subtotal + Tax + Shipping when taxedPrice is present and tax > 0', async () => {
+      // cart: net=$39.97, tax=$2.58, shipping=$10.00 → gross=$42.55
+      const cartWithTax = makeCartWithTax(258, 1000);
+      jest.spyOn(mockCtCartService, 'getCart').mockResolvedValue(cartWithTax);
+      jest.spyOn(ShippingClient, 'updateShippingRate').mockResolvedValue(cartWithTax);
+
+      const result = await stripeShippingService.updateShippingRate({ id: 'sm-1' });
+
+      expect(result.lineItems).toEqual([
+        { name: 'Subtotal', amount: 2997 },  // net(3997) - shipping(1000)
+        { name: 'Tax',      amount: 258 },
+        { name: 'US Delivery', amount: 1000 },
+      ]);
+    });
+
+    test('should return Subtotal + Shipping (no Tax line) when taxedPrice is present but tax is 0', async () => {
+      const cartZeroTax = makeCartWithTax(0, 1000);
+      jest.spyOn(mockCtCartService, 'getCart').mockResolvedValue(cartZeroTax);
+      jest.spyOn(ShippingClient, 'updateShippingRate').mockResolvedValue(cartZeroTax);
+
+      const result = await stripeShippingService.updateShippingRate({ id: 'sm-1' });
+
+      expect(result.lineItems).toEqual([
+        { name: 'Subtotal', amount: 2997 },
+        { name: 'US Delivery', amount: 1000 },
+      ]);
+      expect(result.lineItems?.some((li) => li.name === 'Tax')).toBe(false);
+    });
+
+    test('should return only Subtotal when taxedPrice present and no shipping', async () => {
+      const cartNoShipping = {
+        ...makeCartWithTax(258, 0),
+        shippingInfo: undefined,
+      } as unknown as Cart;
+      jest.spyOn(mockCtCartService, 'getCart').mockResolvedValue(cartNoShipping);
+      jest.spyOn(ShippingClient, 'updateShippingRate').mockResolvedValue(cartNoShipping);
+
+      const result = await stripeShippingService.updateShippingRate({ id: 'sm-1' });
+
+      expect(result.lineItems).toEqual([
+        { name: 'Subtotal', amount: 3997 },  // net=3997, no shipping to subtract
+        { name: 'Tax', amount: 258 },
+      ]);
+    });
+
+    test('should fall back to individual line items when taxedPrice is absent (no tax connector)', async () => {
+      const cartNoTax = {
+        ...mockGetCartResult(),
+        shippingInfo: {
+          shippingMethodName: 'Standard',
+          price: { type: 'centPrecision' as const, currencyCode: 'USD', centAmount: 500, fractionDigits: 2 },
+          shippingRate: { price: { type: 'centPrecision' as const, currencyCode: 'USD', centAmount: 500, fractionDigits: 2 }, tiers: [] },
+          shippingMethodState: 'MatchesCart' as const,
+          shippingMethod: { id: 'sm-1', typeId: 'shipping-method' as const },
+        },
+      } as Cart;
+      jest.spyOn(mockCtCartService, 'getCart').mockResolvedValue(cartNoTax);
+      jest.spyOn(ShippingClient, 'updateShippingRate').mockResolvedValue(cartNoTax);
+
+      const result = await stripeShippingService.updateShippingRate({ id: 'sm-1' });
+
+      // taxedPrice absent → original behavior: individual items + shipping
+      expect(result.lineItems).toContainEqual({ name: 'lineitem-name-1', amount: 150000 });
+      expect(result.lineItems).toContainEqual({ name: 'Standard', amount: 500 });
+      expect(result.lineItems?.some((li) => li.name === 'Subtotal')).toBe(false);
+      expect(result.lineItems?.some((li) => li.name === 'Tax')).toBe(false);
     });
   });
 
@@ -647,7 +735,7 @@ describe('StripeShippingService', () => {
           amount: 150000,
         },
         {
-          name: 'Shipping',
+          name: 'Test Shipping',
           amount: 0,
         },
       ]);

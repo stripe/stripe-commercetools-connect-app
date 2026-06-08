@@ -85,7 +85,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
     // Merge frontend options with backend configuration (frontend overrides backend)
     const mergedConfig = MockPaymentEnabler.mergeConfiguration(cartInfoResponse, options);
     
-    const elements = MockPaymentEnabler.getElements(stripeSDK, mergedConfig, customer);
+    const elements = MockPaymentEnabler.getElements(stripeSDK, mergedConfig, customer, options.locale);
     const elementsOptions = MockPaymentEnabler.getElementsOptions(options, mergedConfig);
 
     return Promise.resolve({
@@ -159,7 +159,8 @@ export class MockPaymentEnabler implements PaymentEnabler {
   private static getElements(
     stripeSDK: Stripe | null,
     cartInfoResponse: ConfigElementResponseSchemaDTO,
-    customer?: CustomerResponseSchemaDTO
+    customer?: CustomerResponseSchemaDTO,
+    locale?: string
   ): StripeElements | null {
     if (!stripeSDK) return null;
     try {
@@ -176,6 +177,7 @@ export class MockPaymentEnabler implements PaymentEnabler {
         currency: cartInfo.currency.toLowerCase(),
         appearance: parseJSON(appearance),
         captureMethod,
+        ...(locale && { locale: locale as any }),
         ...(customer && {
           customerOptions: {
             customer: customer.stripeCustomerId,

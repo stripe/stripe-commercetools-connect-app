@@ -194,16 +194,31 @@ export class StripeShippingService {
 
   private async getCartLineItems(ctCart: Cart) {
     try {
-      const lineItems = ctCart.lineItems.map((item) => ({
-        name: getLocalizedString(item.name),
-        amount: item.totalPrice.centAmount,
-      }));
-      if (ctCart.shippingInfo && ctCart.shippingInfo.price) {
-        lineItems.push({
-          name: 'Shipping',
-          amount: ctCart.shippingInfo.price.centAmount,
+      const lineItems: Array<{ name: string; amount: number }> = [];
+      const shippingAmount = ctCart.shippingInfo?.price?.centAmount ?? 0;
+
+      if (ctCart.taxedPrice) {
+        // With Stripe Tax: show net subtotal (products only) + tax + shipping
+        const netTotal = ctCart.taxedPrice.totalNet?.centAmount ?? ctCart.totalPrice.centAmount;
+        lineItems.push({ name: 'Subtotal', amount: netTotal - shippingAmount });
+
+        const taxAmount = ctCart.taxedPrice.totalTax?.centAmount ?? 0;
+        if (taxAmount > 0) {
+          lineItems.push({ name: 'Tax', amount: taxAmount });
+        }
+      } else {
+        ctCart.lineItems.forEach((item) => {
+          lineItems.push({ name: getLocalizedString(item.name), amount: item.totalPrice.centAmount });
         });
       }
+
+      if (ctCart.shippingInfo?.price != null) {
+        lineItems.push({
+          name: ctCart.shippingInfo.shippingMethodName ?? 'Shipping',
+          amount: shippingAmount,
+        });
+      }
+
       return lineItems;
     } catch (error) {
       log.error(`Error getting cart line items: ${error}`);

@@ -189,7 +189,7 @@ export class CtPaymentCreationService {
   public async getStripeInvoiceExpanded(invoiceId: string): Promise<StripeInvoiceExpanded> {
     try {
       const invoice = await stripe.invoices.retrieve(invoiceId, {
-        expand: ['payment_intent', 'subscription', 'charge'],
+        expand: ['payment_intent', 'parent.subscription_details.subscription', 'charge'],
       });
       return invoice as StripeInvoiceExpanded;
     } catch (err) {

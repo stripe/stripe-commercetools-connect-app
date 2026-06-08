@@ -237,9 +237,14 @@ describe('stripe-subscription.service.payment', () => {
       const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
       const mockInvoiceWithoutPaymentId = {
         ...mockInvoiceExpanded__simple,
-        subscription: {
-          ...mockInvoiceExpanded__simple.subscription,
-          metadata: {},
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {},
+            },
+            metadata: mockInvoiceExpanded__simple.parent.subscription_details.metadata,
+          },
         },
       };
 
@@ -260,15 +265,17 @@ describe('stripe-subscription.service.payment', () => {
       const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
       const mockInvoiceWithCustomerId = {
         ...mockInvoiceExpanded__simple,
-        subscription: {
-          ...mockInvoiceExpanded__simple.subscription,
-          metadata: {
-            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
-          },
-        },
-        subscription_details: {
-          metadata: {
-            [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {
+                [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+              },
+            },
+            metadata: {
+              [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+            },
           },
         },
         payment_intent: null,
@@ -308,15 +315,17 @@ describe('stripe-subscription.service.payment', () => {
       const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
       const mockInvoiceWithCartId = {
         ...mockInvoiceExpanded__simple,
-        subscription: {
-          ...mockInvoiceExpanded__simple.subscription,
-          metadata: {
-            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
-          },
-        },
-        subscription_details: {
-          metadata: {
-            [METADATA_CART_ID_FIELD]: 'cart_123',
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {
+                [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+              },
+            },
+            metadata: {
+              [METADATA_CART_ID_FIELD]: 'cart_123',
+            },
           },
         },
         charge: {
@@ -380,14 +389,16 @@ describe('stripe-subscription.service.payment', () => {
       const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
       const mockInvoiceWithoutCustomerId = {
         ...mockInvoiceExpanded__simple,
-        subscription: {
-          ...mockInvoiceExpanded__simple.subscription,
-          metadata: {
-            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {
+                [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+              },
+            },
+            metadata: {},
           },
-        },
-        subscription_details: {
-          metadata: {},
         },
       };
 
@@ -411,15 +422,17 @@ describe('stripe-subscription.service.payment', () => {
       const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
       const mockInvoiceWithCustomerId = {
         ...mockInvoiceExpanded__simple,
-        subscription: {
-          ...mockInvoiceExpanded__simple.subscription,
-          metadata: {
-            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
-          },
-        },
-        subscription_details: {
-          metadata: {
-            [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {
+                [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+              },
+            },
+            metadata: {
+              [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+            },
           },
         },
       };
@@ -472,9 +485,14 @@ describe('stripe-subscription.service.payment', () => {
       const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
       const mockInvoiceWithoutPaymentId = {
         ...mockInvoiceExpanded__simple,
-        subscription: {
-          ...mockInvoiceExpanded__simple.subscription,
-          metadata: {},
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {},
+            },
+            metadata: mockInvoiceExpanded__simple.parent.subscription_details.metadata,
+          },
         },
       };
 
@@ -495,15 +513,17 @@ describe('stripe-subscription.service.payment', () => {
       const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
       const mockInvoiceWithCustomerId = {
         ...mockInvoiceExpanded__simple,
-        subscription: {
-          ...mockInvoiceExpanded__simple.subscription,
-          metadata: {
-            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
-          },
-        },
-        subscription_details: {
-          metadata: {
-            [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {
+                [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+              },
+            },
+            metadata: {
+              [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+            },
           },
         },
       };
@@ -612,10 +632,15 @@ describe('stripe-subscription.service.payment', () => {
 
       const mockInvoiceWithCharge = {
         ...mockInvoiceExpanded__simple,
-        subscription: {
-          ...mockInvoiceExpanded__simple.subscription,
-          metadata: {
-            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {
+                [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+              },
+            },
+            metadata: mockInvoiceExpanded__simple.parent.subscription_details.metadata,
           },
         },
         charge: {
@@ -692,10 +717,15 @@ describe('stripe-subscription.service.payment', () => {
 
       const mockInvoiceWithCharge = {
         ...mockInvoiceExpanded__simple,
-        subscription: {
-          ...mockInvoiceExpanded__simple.subscription,
-          metadata: {
-            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {
+                [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+              },
+            },
+            metadata: mockInvoiceExpanded__simple.parent.subscription_details.metadata,
           },
         },
         charge: {
@@ -758,15 +788,17 @@ describe('stripe-subscription.service.payment', () => {
 
       const mockInvoiceWithCustomer = {
         ...mockInvoiceExpanded__simple,
-        subscription: {
-          ...mockInvoiceExpanded__simple.subscription,
-          metadata: {
-            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
-          },
-        },
-        subscription_details: {
-          metadata: {
-            [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {
+                [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+              },
+            },
+            metadata: {
+              [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+            },
           },
         },
         charge: {
@@ -815,15 +847,17 @@ describe('stripe-subscription.service.payment', () => {
 
       const mockInvoiceWithCart = {
         ...mockInvoiceExpanded__simple,
-        subscription: {
-          ...mockInvoiceExpanded__simple.subscription,
-          metadata: {
-            [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
-          },
-        },
-        subscription_details: {
-          metadata: {
-            [METADATA_CART_ID_FIELD]: 'cart_original_123',
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {
+                [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+              },
+            },
+            metadata: {
+              [METADATA_CART_ID_FIELD]: 'cart_original_123',
+            },
           },
         },
         charge: {

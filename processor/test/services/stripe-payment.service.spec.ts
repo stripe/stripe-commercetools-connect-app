@@ -870,7 +870,7 @@ describe('stripe-payment.service', () => {
       const mockCart = {
         id: 'mock-cart-id',
         version: 1,
-        frozen: true,
+        cartState: 'Frozen',
       } as Cart;
 
       const mockStripeEventConverter = jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(test);
@@ -1472,7 +1472,7 @@ describe('stripe-payment.service', () => {
       await subscriptionService.processSubscriptionEventPaid(mockEvent);
 
       const mockedInvoice = mockEvent.data.object as Stripe.Invoice;
-      const mockedSubscription = mockedInvoice.subscription as Stripe.Subscription;
+      const mockedSubscription = (mockedInvoice as any).parent?.subscription_details?.subscription as Stripe.Subscription;
       const mockedPaymentIntent = mockedInvoice.payment_intent as Stripe.PaymentIntent;
       expect(spiedStripeInvoiceExpandedMock).toHaveBeenCalled();
 
@@ -1660,7 +1660,7 @@ describe('stripe-payment.service', () => {
       await subscriptionService.processSubscriptionEventPaid(mockEvent);
 
       const mockedInvoice = mockEvent.data.object as Stripe.Invoice;
-      const mockedSubscription = mockedInvoice.subscription as Stripe.Subscription;
+      const mockedSubscription = (mockedInvoice as any).parent?.subscription_details?.subscription as Stripe.Subscription;
       const mockedPaymentIntent = mockedInvoice.payment_intent as Stripe.PaymentIntent;
       expect(spiedStripeInvoiceExpandedMock).toHaveBeenCalled();
 
@@ -1749,7 +1749,7 @@ describe('stripe-payment.service', () => {
       await subscriptionService.processSubscriptionEventFailed(mockEvent);
 
       const mockedInvoice = mockEvent.data.object as Stripe.Invoice;
-      const mockedSubscription = mockedInvoice.subscription as Stripe.Subscription;
+      const mockedSubscription = (mockedInvoice as any).parent?.subscription_details?.subscription as Stripe.Subscription;
       const mockedPaymentIntent = mockedInvoice.payment_intent as Stripe.PaymentIntent;
       expect(spiedStripeInvoiceExpandedMock).toHaveBeenCalled();
 
@@ -1879,7 +1879,7 @@ describe('stripe-payment.service', () => {
       expect(spiedStripeInvoiceExpandedMock).toHaveBeenCalledWith(mockedCharge.invoice);
 
       // The expanded invoice contains the subscription with metadata
-      const mockedSubscription = mockStripeInvoicesRetrievedExpanded.subscription as Stripe.Subscription;
+      const mockedSubscription = (mockStripeInvoicesRetrievedExpanded as any).parent?.subscription_details?.subscription as Stripe.Subscription;
       expect(spiedPaymentMock).toHaveBeenCalled();
       expect(spiedPaymentMock).toHaveBeenCalledWith({
         id: mockedSubscription.metadata.ct_payment_id,

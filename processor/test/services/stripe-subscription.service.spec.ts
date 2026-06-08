@@ -150,9 +150,9 @@ describe('stripe-subscription.service', () => {
         id: 'sub_123',
         latest_invoice: {
           id: 'in_123',
-          payment_intent: {
-            id: 'pi_123',
-            client_secret: 'pi_secret_123',
+          confirmation_secret: {
+            client_secret: 'pi_123_secret_abc',
+            type: 'payment_intent',
           },
         },
       } as Stripe.Response<Stripe.Subscription>);
@@ -537,12 +537,11 @@ describe('stripe-subscription.service', () => {
       );
     });
 
-    test('should throw error when payment_intent is a string', async () => {
+    test('should throw error when confirmation_secret is missing', async () => {
       const mockSubscription = {
         id: 'sub_123',
         latest_invoice: {
           id: 'in_123',
-          payment_intent: 'pi_123',
         },
       } as Stripe.Subscription;
 
@@ -556,9 +555,7 @@ describe('stripe-subscription.service', () => {
         id: 'sub_123',
         latest_invoice: {
           id: 'in_123',
-          payment_intent: {
-            id: 'pi_123',
-          },
+          confirmation_secret: { type: 'payment_intent' },
         },
       } as Stripe.Subscription;
 
@@ -572,9 +569,9 @@ describe('stripe-subscription.service', () => {
         id: 'sub_123',
         latest_invoice: {
           id: 'in_123',
-          payment_intent: {
-            id: 'pi_123',
-            client_secret: 'pi_secret_123',
+          confirmation_secret: {
+            client_secret: 'pi_123_secret_abc',
+            type: 'payment_intent',
           },
         },
       } as Stripe.Subscription;
@@ -583,7 +580,7 @@ describe('stripe-subscription.service', () => {
 
       expect(result).toEqual({
         paymentIntentId: 'pi_123',
-        clientSecret: 'pi_secret_123',
+        clientSecret: 'pi_123_secret_abc',
       });
     });
   });
