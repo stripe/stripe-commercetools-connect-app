@@ -218,7 +218,7 @@ Fields are optional — B2C payments carry no Launchpad data. See `business-rule
 | `STRIPE_LAYOUT` | `{"type":"tabs","defaultCollapsed":false}` | Payment Element layout config (JSON string). |
 | `STRIPE_APPEARANCE_PAYMENT_ELEMENT` | _(empty)_ | Custom CSS appearance config for the Payment Element (JSON string). |
 | `STRIPE_APPEARANCE_EXPRESS_CHECKOUT` | _(empty)_ | Custom CSS appearance config for Express Checkout (JSON string). |
-| `STRIPE_COLLECT_BILLING_ADDRESS` | `auto` | `auto`, `never`, or `required`. |
+| `STRIPE_COLLECT_BILLING_ADDRESS` | `auto` | `auto`, `never`, or `if_required` (enum `CollectBillingAddressOptions` in `processor/src/dtos/stripe-payment.dto.ts`). |
 | `STRIPE_SAVED_PAYMENT_METHODS_CONFIG` | _(empty)_ | JSON config for saved payment method visibility. Parse errors are silently swallowed — see `known-issues.md` KI-017. |
 
 ---
