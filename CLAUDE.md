@@ -21,11 +21,6 @@ ct-connect-stripe-composable/
     workflows/        # Detailed process flows
     decisions/        # Key decisions and their rationale (ADRs)
     reference/        # External API/SDK reference docs
-  workspace/
-    journal/          # Session logs (auto-generated)
-    research/         # Research documents
-    tasks/            # Task plans, prd.json, progress
-    changes/          # Change traceability
 ```
 
 ## Commands
@@ -103,4 +98,3 @@ See @../.claude/SKILLS-REFERENCE.md
 - **Business rules:** `context/business-rules/`
 - **Workflows:** `context/workflows/`
 - **Decisions:** `context/decisions/`
-- **Workspace:** `workspace/` (journal, research, tasks, changes)
