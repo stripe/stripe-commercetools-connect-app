@@ -113,10 +113,10 @@ Every CT product variant sold as a subscription must have all required `stripeCo
 
 ### One-time payments
 
-Same as ct-connect-stripe-checkout:
+Same as ct-connect-stripe-checkout. There is no `enabler.createDropin()` method — the real API is `createDropinBuilder(type)`, which returns a builder whose `.build(config)` produces the mountable component:
 
 ```typescript
-import { Enabler } from '@your-scope/ct-connect-stripe-composable-enabler';
+import { Enabler, DropinType } from '@your-scope/ct-connect-stripe-composable-enabler';
 
 const enabler = new Enabler({
   processorUrl: 'https://your-processor.ct-connect.example.com',
@@ -124,27 +124,29 @@ const enabler = new Enabler({
   locale: 'en-US',
 });
 
-const dropin = await enabler.createDropin({ paymentElementType: 'paymentElement' });
-await dropin.mount('#payment-element');
+const dropinBuilder = await enabler.createDropinBuilder(DropinType.embedded);
+const dropin = dropinBuilder.build({});
+dropin.mount('#payment-element');
 ```
 
 ### Subscription checkout
 
-Pass `paymentMode: 'subscription'` when creating the drop-in. The enabler calls `POST /subscription` on the processor and freezes the CT cart automatically.
-
-```typescript
-const dropin = await enabler.createDropin({
-  paymentElementType: 'paymentElement',
-  paymentMode: 'subscription',
-});
-await dropin.mount('#payment-element');
-```
+There is no `paymentMode` option on `EnablerOptions` or on the drop-in's `build()` config — an adopter cannot select subscription mode directly. It is determined **server-side** from the cart: if the CT cart being checked out contains a subscription line item, the processor's `GET /config-element/:payment` response sets `paymentMode: 'subscription'` internally (`stripe-subscription.service.ts` → `getPaymentMode(cart)`), and the enabler renders the subscription-aware Payment Element automatically. Use the exact same snippet as basic checkout above — the only difference is what's in the cart.
 
 ### Express Checkout (Apple Pay / Google Pay)
 
+Pass `paymentElementType: 'expressCheckout'` to the `Enabler` constructor (not to the drop-in builder):
+
 ```typescript
-const dropin = await enabler.createDropin({ paymentElementType: 'expressCheckout' });
-await dropin.mount('#express-checkout-element');
+const enabler = new Enabler({
+  processorUrl: 'https://your-processor.ct-connect.example.com',
+  sessionId: ctSessionId,
+  paymentElementType: 'expressCheckout',
+});
+
+const dropinBuilder = await enabler.createDropinBuilder(DropinType.embedded);
+const dropin = dropinBuilder.build({});
+dropin.mount('#express-checkout-element');
 ```
 
 ### B2B Launchpad purchase orders

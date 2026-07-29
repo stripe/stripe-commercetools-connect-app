@@ -21,16 +21,21 @@ Stripe                    Processor                                        CT
   |                           | processSubscriptionEventPaid()               |
   |                           |                                              |
   |                           | extract subscriptionId from invoice          |
-  |                           | get original order from CT                   |
+  |                           | resolve CT payment ID from subscription      |
+  |                           | metadata (ct_payment_id), then look up the   |
+  |                           | order by that payment ID                    |
   |                           |--------------------------------------------->|
   |                           |                                              |
-  |                           | if amount_due > 0:                           |
-  |                           |   create AUTHORIZATION + CHARGE transaction  |
+  |                           | create AUTHORIZATION + CHARGE transaction    |
+  |                           | (always — no amount_due guard exists;        |
+  |                           |  a $0 trial invoice still writes a $0 CHARGE)|
   |                           |                                              |
   |                           | if STRIPE_SUBSCRIPTION_PAYMENT_HANDLING      |
   |                           |   == "createOrder":                          |
   |                           |   reconstruct cart from original order       |
-  |                           |   → re-add line items (by variant position)  |
+  |                           |   → re-add line items (variant ID replayed   |
+  |                           |     from the original order, not re-resolved |
+  |                           |     by position)                             |
   |                           |   → set shipping/billing addresses           |
   |                           |   → apply current prices (externalPrice)     |
   |                           |   create CT Payment                          |
@@ -64,19 +69,17 @@ Stripe                    Processor                                        CT
 
 ### invoice.paid processing
 1. Extract invoice from event, get `subscription_id` and `customer`
-2. Look up original CT order via subscription ID stored in line item custom field
-3. Evaluate `amount_due`:
-   - `> 0`: create AUTHORIZATION + CHARGE transactions
-   - `== 0` (free trial): skip financial transactions, still create order
+2. Look up the original CT order via `resolvePaymentIdFromSubscription()` (`stripe-subscription.service.ts:1425`), which reads the CT payment ID from the Stripe **subscription's own metadata** (`ct_payment_id`), falling back to `findPaymentsByInterfaceId()` — then `getOrderByPaymentId({ paymentId })`. The line-item custom field `stripeConnector_stripeSubscriptionId` is read elsewhere (to filter which cloned line items belong to the subscription when reconstructing the cart, `:2223`) but is **not** what locates the order.
+3. **No `amount_due` guard exists.** `populateTransactions()` (`subscriptionEventConverter.ts:57-90`) unconditionally creates AUTHORIZATION + CHARGE transactions with `amount = invoice.amount_paid`. For a free-trial first invoice (`amount_paid = 0`), a CHARGE transaction with `centAmount: 0` is still created today — see `business-rules/recurring-billing.md` Rule 3 for the gap between intended and actual behavior.
 4. Branch on `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING`:
    - **createOrder**: reconstruct cart → create payment → create order
    - **addPaymentToOrder**: find existing order → create payment → add to order
 
 ### Cart reconstruction (createOrder mode)
 1. Load original CT order
-2. Create new cart with same customer, locale, currency, store
-3. Re-add each line item:
-   - Resolve variant by position from product (not variant ID)
+2. Create new cart with the same customer, currency, country, and tax settings (`createNewCartFromOrder()`, `stripe-subscription.service.ts:2194-2213`) — **not** locale or store; neither is carried over
+3. Re-add each line item via `buildLineItemAction()` (`:2256-2287`):
+   - Replays `variantId: item.variant?.id` directly from the original order's line item — does **not** re-resolve the variant by position. (Position-based resolution, `getVariantByPosition()` at `:1069`, exists in this codebase but is only used by the separate merchant-initiated `updateSubscription()` endpoint, not by this recurring path — see `business-rules/recurring-billing.md` Rule 5.)
    - Apply `externalPrice` if subscription price was synced
 4. Set shipping and billing addresses from invoice charge data
 5. Create CT Payment with AUTHORIZATION + CHARGE transactions
@@ -110,8 +113,7 @@ Stripe                    Processor                                        CT
 
 | Point | Condition | Path |
 |---|---|---|
-| Amount | `amount_due > 0` | Create financial transactions |
-| Amount | `amount_due == 0` (trial) | Create order only, no transactions |
+| Amount | Always | Create AUTHORIZATION + CHARGE transactions — no `amount_due`/`amount_paid` guard exists; a $0 trial invoice still gets a $0 CHARGE (see `business-rules/recurring-billing.md` Rule 3) |
 | Payment handling | `createOrder` | New cart + new order per cycle |
 | Payment handling | `addPaymentToOrder` | Payment added to original order |
 | Price sync | Price changed since last cycle | `externalPrice` applied on cart reconstruction |

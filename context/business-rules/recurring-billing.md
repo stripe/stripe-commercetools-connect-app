@@ -34,17 +34,19 @@ After the initial subscription is created, Stripe generates invoices automatical
 
 ---
 
-## Rule 3: Free trial invoices (zero amount) are processed but do not create charges
+## Rule 3 (not implemented — describes intended behavior only): Free trial invoices (zero amount) still write a zero-amount CHARGE transaction today
 
-**What:** The first invoice of a trial subscription has `amount_due = 0`. The connector processes the `invoice.paid` event and creates the CT order, but no CT CHARGE transaction is created because there was no money movement.
+**What (intended):** The first invoice of a trial subscription has `amount_due = 0`. The CT order should be created, but no CT CHARGE transaction should be created since there was no money movement.
 
-**Why:** The CT order must be created even for free trials so fulfillment systems are notified. But recording a zero-amount charge would pollute financial reporting.
+**What actually happens:** `populateTransactions()` (`subscriptionEventConverter.ts:57-90`) has no `amount_due`/`amount_paid` guard at all — on `invoice.paid` it unconditionally returns an AUTHORIZATION + CHARGE pair (or just CHARGE, if a charge was already pending), both with `amount: populateAmount(invoice)` = `invoice.amount_paid` (`:175-178`). For a free-trial first invoice this is `0`, so a CHARGE transaction with `centAmount: 0` **is** written to CT today.
 
-**Invariant:** When `invoice.amount_due === 0`, create the order but skip the financial transaction. Do not create a CHARGE transaction with amount 0.
+**Why (intended):** The CT order must be created even for free trials so fulfillment systems are notified. But recording a zero-amount charge would pollute financial reporting.
 
-**Implementation:** `stripe-subscription.service.ts` → `processSubscriptionEventPaid()` — conditional on `amount_due`.
+**Invariant (target state, not yet enforced):** When `invoice.amount_due === 0` (or `amount_paid === 0`), create the order but skip the financial transaction — this check does not exist in `populateTransactions()` today.
 
-**What breaks if violated:** Zero-amount CHARGE transactions appear in CT financial reports, inflating transaction counts and potentially confusing reconciliation systems.
+**Implementation:** `processor/src/services/converters/subscriptionEventConverter.ts:57-90` (`populateTransactions()`), `:175-178` (`populateAmount()`) — invoked from `processSubscriptionEventPaid()` (`stripe-subscription.service.ts:1232`) via `subscriptionEventConverter.convert(...)`, but the missing guard is in the converter, not in `processSubscriptionEventPaid()`'s own logic.
+
+**What breaks today:** Zero-amount CHARGE transactions appear in CT for every free-trial first invoice, inflating transaction counts and potentially confusing reconciliation systems — exactly the outcome this rule was meant to prevent.
 
 ---
 
@@ -62,14 +64,14 @@ After the initial subscription is created, Stripe generates invoices automatical
 
 ---
 
-## Rule 5: Cart reconstruction for recurring orders must use the original order's variant positions
+## Rule 5: Cart reconstruction for recurring orders replays the original variant ID directly — variant-position resolution is a separate, merchant-update-only mechanism
 
-**What:** When creating a CT cart from a recurring invoice, line items are rebuilt using the variant's position in the product (position 1 = master variant, position >1 = index in variants array), not the variant ID directly.
+**What:** When creating a CT cart from a recurring invoice, `buildLineItemAction()` (`stripe-subscription.service.ts:2256-2287`) rebuilds line items with `variantId: item.variant?.id` — the **original variant ID copied directly** from the prior order's line item (`:2271-2278`), falling back to a SKU lookup from the Stripe Price metadata only if the item doesn't match the subscription price (`:2280-2286`). Variant-**position** resolution (`getVariantByPosition()`, `:1069`) exists in this codebase, but it is called only from `updateSubscription()` (`:983`) — the merchant-initiated `POST /subscription-api/:customerId` variant/price-change endpoint — never from the recurring-order cart-reconstruction path (`createNewCartFromOrder()`, `:2194`, or `buildLineItemAction()`).
 
-**Why:** CT product variants can be updated (new variants added). Using the variant position ensures the correct variant is selected when the product structure changes between billing cycles.
+**Why:** This rule described the intended safeguard against a product's variant list changing between billing cycles, but the recurring path doesn't implement it — it trusts the variant ID stored on the prior order to still be valid.
 
-**Invariant:** Always resolve variants by position from the product, not by storing and replaying the original variant ID.
+**Invariant (as implemented, recurring path only):** `buildLineItemAction()` replays `item.variant?.id` verbatim; it does not re-resolve the variant from the product by position or by any other means.
 
-**Implementation:** `stripe-subscription.service.ts` → subscription update handler, cart reconstruction logic.
+**Implementation:** `stripe-subscription.service.ts:2256-2287` (`buildLineItemAction()`, recurring path); `:1069` (`getVariantByPosition()`, used only by the separate merchant-update path at `:983`).
 
-**What breaks if violated:** If a product's variant list is modified between billing cycles, the wrong variant (wrong size, color, tier) is added to the recurring order.
+**What breaks if violated (i.e., what the original intent was guarding against):** If a product's variant list is modified between billing cycles (e.g., a variant is deleted or reindexed) such that the stored `variantId` no longer resolves on the current product, cart reconstruction for that recurring cycle would fail or produce a stale/wrong variant — the recurring path currently has no mitigation for this.

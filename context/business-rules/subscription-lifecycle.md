@@ -6,7 +6,7 @@
 
 ## Rule 1: Cart is frozen immediately after subscription creation
 
-**What:** After `POST /subscription` creates the Stripe subscription and CT Payment, `freezeCart()` is called to set `frozen: true` on the CT cart.
+**What:** After `POST /subscription` creates the Stripe subscription and CT Payment, `freezeCart()` is called, which issues a CT `freezeCart` update action (`cart-client.ts:141-148`). This sets the cart's `cartState` to `'Frozen'` — CT has no boolean `frozen` field; `isCartFrozen()` (`:171`) checks `cart.cartState === 'Frozen'`.
 
 **Why:** A subscription is tied to a fixed set of items and prices at creation time. Allowing cart modifications after subscription initiation would create a mismatch between what Stripe charges each cycle and what CT's cart contains.
 
