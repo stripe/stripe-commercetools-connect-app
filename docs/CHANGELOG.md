@@ -2,45 +2,37 @@
 
 ## Latest
 
-### Stripe API 2025-12-15.clover Migration — Invoice Structure Changes
+### Subscription Confirm IDOR Fix and Error Sanitization
 
-**Changed:**
-- **Invoice subscription access path**: `invoice.subscription` is deprecated in Stripe API `2025-12-15.clover`. All subscription references now use `invoice.parent.subscription_details.subscription`.
-- **Invoice metadata access path**: `invoice.subscription_details.metadata` → `invoice.parent.subscription_details.metadata` across all webhook event processors and the `SubscriptionEventConverter`.
-- **Invoice expand path**: Changed from `expand: ['payment_intent', 'subscription', 'charge']` to `expand: ['payment_intent', 'parent.subscription_details.subscription', 'charge']` in `getStripeInvoiceExpanded`.
-- **Subscription creation confirmation secret**: Subscription creation now expands `latest_invoice.confirmation_secret` instead of `latest_invoice.payment_intent`. The `paymentIntentId` is derived by splitting `confirmation_secret.client_secret` on `_secret_`.
-- **`StripeInvoiceExpanded` type**: Removed `subscription` and top-level `subscription_details` fields; added `parent.subscription_details.{ metadata, subscription }` and `confirmation_secret` to match the new API shape.
-- **Stripe client**: `stripeApiVersion` from config is now passed to the `Stripe` constructor as `apiVersion`, ensuring all API calls use the configured version.
+Closes a broken object-level authorization gap on `POST /subscription/confirm` reported via bug bounty (Stripe VulnMgmt), and sanitizes an error response on the same route.
 
-**Files modified:**
-- `processor/src/services/stripe-subscription.service.ts`
-- `processor/src/services/ct-payment-creation.service.ts`
-- `processor/src/services/converters/subscriptionEventConverter.ts`
-- `processor/src/services/types/stripe-subscription.type.ts`
-- `processor/src/clients/stripe.client.ts`
+**Security:**
+- **Subscription confirm ownership binding (CWE-639)**: `POST /subscription/confirm` accepted a caller-supplied `paymentReference` and wrote `Authorization:Success`/`Charge:Success` transactions to that CT payment without verifying it belonged to the caller's own cart. A caller with a valid storefront session (subscription item in their own cart) could stamp success transactions onto another customer's payment record. Now rejects unless `paymentReference` is a member of `cart.paymentInfo.payments[].id`, with a mode-aware `interfaceId` check as defense-in-depth. The structurally identical `updatePaymentIntentStripeSuccessful` guard already existed for the PaymentIntent-confirm path; this brings subscription-confirm into the same protection and documents the pattern in `context/business-rules/payment-ownership-binding.md` (see ADR-008) so future caller-facing confirmation endpoints apply it directly.
+- **Error response sanitization (CWE-209)**: the `/subscription/confirm` catch returned `JSON.stringify(error)` to the client, which could leak Stripe error payloads. Now returns `error.message` or a generic message only, matching the pattern already used elsewhere in the route.
+- **Server-side error log sanitization (CWE-209)**: `updatePaymentIntentStripeSuccessful`'s catch block logged the raw error via `console.log(..., JSON.stringify(error, null, 2))` instead of the file's standard structured logger. Now uses `log.error('Error updating PaymentIntent to successful in CT', { error })`, consistent with every other catch block in `stripe-payment.service.ts`.
+- **Dependency CVEs**: pinned `fast-uri@3.1.4` (processor + enabler), `immutable@5.1.9` (enabler), `find-my-way@9.7.0` and `qs@6.15.3` (processor), and `postcss@8.5.24`, `minimatch@10.2.6`/`brace-expansion@5.0.8` (enabler) via `overrides` to clear high-severity SCA findings. Removed the unused `@fastify/static` dependency from processor (confirmed no references in `src/`), which also cleared its own high-severity finding (`GHSA-8pvw-jcv7-9cmj`, `GHSA-83w8-p2f5-377r`).
+- **Known residual (processor only)**: `brace-expansion`'s DoS fix (`GHSA-mh99-v99m-4gvg` et al.) only ships from `5.0.8`, which requires `minimatch@10.x` — but `@eslint/eslintrc@3.3.6` (latest, required by `eslint@9.x`'s flat-config compat layer) still does `import minimatch from "minimatch"` (a default import) and pins `minimatch@^3.1.5`; `minimatch@10.x` no longer provides a default export, so bumping it crashes ESLint entirely (`SyntaxError: ... does not provide an export named 'default'`). Verified directly — not resolvable from this repo without a breaking `eslint`/`@typescript-eslint` major upgrade once `@eslint/eslintrc` ships a fix. DevDependency-only (lint tooling), not reachable at runtime. Enabler carries no such constraint (no `eslint` in its tree) and is fully clean at 0 vulnerabilities.
 
 ---
 
-### Fix `isCartFrozen()` — Incorrect Frozen-State Detection
+### Subscription Webhook Payment De-duplication and First-Cycle Order Fixes
+
+Corrects subscription payment/order handling: duplicate CT payments/orders on recurring cycles and first-cycle order creation.
 
 **Fixed:**
-- `isCartFrozen()` was checking `'frozen' in cart && cart.frozen === true`, a field that commercetools does not expose on the `Cart` type. Frozen carts are represented as `cartState === 'Frozen'`. The function now checks `cart.cartState === 'Frozen'` correctly.
+- **Duplicate / mismatched CT payments on subscription webhooks**: `invoice.paid` (`processSubscriptionEventPaid`) is now the single source of truth for subscription payments. Subscription-invoice `charge.succeeded` / `payment_intent.succeeded` events are ignored in the webhook route via `isFromSubscriptionInvoice()`, so a recurring cycle no longer produces two CT payments/orders. **This supersedes** the `charge.succeeded` config-branching (`handleRecurringChargeOrder`) described in the previous entry — `processSubscriptionEventCharged` is now `@deprecated` and no longer wired.
+- **Transactions keyed by Stripe invoice id**: subscription CT transactions are keyed by the invoice id (`in_…`) instead of the PaymentIntent id; recurring mixed-cart order composition is corrected accordingly.
+- **PaymentIntent metadata under the invoice-id scheme**: Stripe PaymentIntent metadata (CT order / payment ids) continues to be updated correctly under the new invoice-id keying.
+- **First-cycle order created from the frozen cart**: the first subscription order is created from the frozen cart instead of cloning a non-existent order (which previously failed to produce the first-cycle order).
+- **First-cycle failure handling restored**: a failed first-cycle payment again yields the expected composable behavior — no spurious paid order; the failure is reflected on the CT payment/order.
+- **Product sale price honored**: subscription line items now charge the effective per-unit amount (`price.discounted ?? price.value`), so a product's sale price is used instead of the list price. Cart-level coupons remain out of scope (see `context/known-issues.md` KI-016).
 
-**Impact:** Cart-freeze guards in `StripeSubscriptionService` and `StripeShippingService` now behave correctly. Previously, `isCartFrozen()` always returned `false`, meaning the unfrozen-cart warning in `createSubscriptionOrderFromCart` was never triggered and the Express Checkout unfreeze/refreeze logic always ran an unnecessary unfreeze.
+**Security:**
+- Processor and Enabler: resolved dependency vulnerabilities via `npm audit fix`.
 
-**Files modified:**
-- `processor/src/services/commerce-tools/cart-client.ts`
-
----
-
-### Express Checkout Line Items — Stripe Tax Support and Shipping Label
-
-**Changed:**
-- **Stripe Tax support in line items**: When `cart.taxedPrice` is present (Stripe Tax is active), `getCartLineItems()` now returns a `Subtotal` line (net amount minus shipping), an optional `Tax` line, and the shipping line — instead of enumerating individual product line items. This avoids a double-tax display in the Express Checkout sheet.
-- **Shipping label**: The shipping line item now uses `ctCart.shippingInfo.shippingMethodName` as its label instead of the hardcoded string `'Shipping'`, showing the actual method name (e.g. "Standard", "Express") in the Express Checkout summary.
-
-**Files modified:**
-- `processor/src/services/stripe-shipping.service.ts`
+**Config & Docs:**
+- Documented `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING` in `processor/.env.template`.
+- Added ADR-007 (standalone invoicing origination model, SB3-204) and refreshed the connector `context/` (known-issues, recurring-billing, recurring-payment workflow).
 
 ---
 

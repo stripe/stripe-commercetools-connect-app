@@ -48,17 +48,17 @@ After the initial subscription is created, Stripe generates invoices automatical
 
 ---
 
-## Rule 4: Recurring `charge.succeeded` is distinct from initial `payment_intent.succeeded`
+## Rule 4: Recurring payments are processed from `invoice.paid` only — subscription-invoice `charge.*` / `payment_intent.*` events are ignored
 
-**What:** The first payment on a subscription arrives via `payment_intent.succeeded`. Subsequent recurring payments arrive via `charge.succeeded` with the subscription's invoice attached. These are handled by different handlers.
+**What:** The first payment on a subscription arrives via `payment_intent.succeeded` (initial checkout, handled by `processStripeEvent()`). Every subsequent recurring payment is processed **exclusively** from `invoice.paid` via `processSubscriptionEventPaid()`. Stripe also emits `charge.succeeded` / `payment_intent.succeeded` for the same subscription invoice, but the webhook route drops those when they originate from a subscription invoice — the `isFromSubscriptionInvoice()` guard in `stripe-payment.route.ts` stops them before `processStripeEvent()`. `processSubscriptionEventCharged()` still exists but is `@deprecated` and no longer wired.
 
-**Why:** Stripe's event model differs between the initial checkout confirmation (payment intent flow) and automatic recurring charges (invoice + charge flow). The CT transaction type and order creation logic differ between them.
+**Why:** Routing both the invoice event and the charge/PI events for the same recurring cycle previously created **duplicate** CT payments and orders. Making `invoice.paid` the single source of truth — and keying subscription CT transactions by the Stripe **invoice id** (`in_…`) rather than the PaymentIntent id — guarantees exactly one CT payment/order per cycle. (Fix landed on `fix/composable-order-creation-on-success-only`.)
 
-**Invariant:** Never route a subscription `charge.succeeded` to the payment intent handler, and never route an initial `payment_intent.succeeded` to the subscription handler.
+**Invariant:** For a subscription invoice, exactly one CT payment record is created per cycle, keyed by the invoice id. A subscription-invoice `charge.succeeded` / `payment_intent.succeeded` must never trigger CT payment or order creation.
 
-**Implementation:** `stripe-subscription.service.ts` → `processSubscriptionEventCharged()` for recurring; `stripe-payment.service.ts` → `processStripeEvent()` for initial.
+**Implementation:** `stripe-payment.route.ts` → `isFromSubscriptionInvoice()` guard on `charge.succeeded` / `payment_intent.succeeded`; `stripe-subscription.service.ts` → `processSubscriptionEventPaid()` (source of truth, `:1186`); `processSubscriptionEventCharged()` marked `@deprecated` (`:1484`).
 
-**What breaks if violated:** The initial payment is processed as a recurring charge (creating an extra order) or a recurring charge is processed as an initial payment (failing because there's no matching PaymentIntent to update).
+**What breaks if violated:** Re-wiring subscription-invoice `charge.succeeded` reintroduces duplicate CT payments/orders per cycle — the exact defect this fix removed.
 
 ---
 

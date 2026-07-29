@@ -12,7 +12,7 @@ Before deploying, confirm you have:
 
 **commercetools:**
 - CT project with API client credentials (client ID, client secret, project key)
-- API client scopes: `manage_payments`, `manage_orders`, `manage_customers`, `manage_types`, `manage_products`, `view_products`
+- API client scopes: `manage_payments`, `manage_orders`, `manage_customers`, `manage_types`, `manage_products`, `view_products`, `manage_subscriptions` (required for the subscription cancel/update/patch endpoints — see `processor/src/routes/stripe-subscription.route.ts`)
 
 **Stripe:**
 - Stripe account (test or live)
@@ -71,8 +71,6 @@ Deploy `ct-connect-stripe-composable` through the CT Connect marketplace. The po
 
 > **After first deploy:** copy `STRIPE_WEBHOOK_SIGNING_SECRET` from Stripe Dashboard → Developers → Webhooks → your endpoint. Redeploy.
 
-> **CORS (security note):** The processor does **not** restrict origins. CORS is hardcoded to `origin: '*'` (open to all origins) where the `@fastify/cors` plugin is registered in `processor/src/server/server.ts`. There is no `ALLOWED_ORIGINS` (or equivalent) env var — Express Checkout and other endpoints are not gated by an origin allowlist. If your deployment requires origin restriction, that must be added in code; it cannot be configured via environment variable today.
-
 ### Step 3 — Verify post-deploy resources
 
 In CT Merchant Center → Settings → Developer → API:
@@ -87,27 +85,27 @@ In Stripe Dashboard → Developers → Webhooks:
 
 ## 4. Configuring Products for Subscriptions
 
-Every CT product variant sold as a subscription must belong to the `payment-connector-subscription-information` product type, which the connector installs with the following 15 `stripeConnector_*` attributes (source of truth: `processor/src/custom-types/custom-types.ts`; also documented in `context/ARCHITECTURE.md` → "Subscription product type attributes"):
+Every CT product variant sold as a subscription must have all required `stripeConnector_*` attributes on the `payment-connector-subscription-information` product type (verified against `processor/src/custom-types/custom-types.ts`):
 
-| Attribute | Required | Values |
-| --- | --- | --- |
-| `stripeConnector_recurring_interval` | **Yes** | `day`, `week`, `month`, `year` |
-| `stripeConnector_recurring_interval_count` | **Yes** | integer |
-| `stripeConnector_off_session` | **Yes** | boolean |
-| `stripeConnector_collection_method` | **Yes** | `charge_automatically`, `send_invoice` |
-| `stripeConnector_description` | No | string |
-| `stripeConnector_trial_period_days` | No | integer — **mutually exclusive with `trial_end_date`** |
-| `stripeConnector_trial_end_date` | No | datetime — **mutually exclusive with `trial_period_days`** |
-| `stripeConnector_billing_cycle_anchor_day` | No | integer (1–31) |
-| `stripeConnector_billing_cycle_anchor_time` | No | string (HH:MM UTC) |
-| `stripeConnector_billing_cycle_anchor_date` | No | datetime — overrides day + time |
-| `stripeConnector_cancel_at_period_end` | No | boolean |
-| `stripeConnector_cancel_at` | No | datetime |
-| `stripeConnector_proration_behavior` | No | `none`, `create_prorations`, `always_invoice` |
-| `stripeConnector_days_until_due` | No | integer (only when `collection_method=send_invoice`; default: 1) |
-| `stripeConnector_missing_payment_method_at_trial_end` | No | `cancel`, `create_invoice`, `pause` |
+| Attribute | Type | Required | Description |
+| --- | --- | --- | --- |
+| `stripeConnector_recurring_interval` | Enum (`day`, `week`, `month`, `year`) | **Yes** | Billing interval |
+| `stripeConnector_recurring_interval_count` | Number | **Yes** | Interval count (e.g. `1` for every 1 month) |
+| `stripeConnector_off_session` | Boolean | **Yes** | Whether the subscription is created off-session |
+| `stripeConnector_collection_method` | Enum (`charge_automatically`, `send_invoice`) | **Yes** | How Stripe collects payment for invoices |
+| `stripeConnector_description` | Text | No | Free-text description used as the Stripe Price nickname |
+| `stripeConnector_days_until_due` | Number | No | Only applies when `collection_method=send_invoice`; default `1` |
+| `stripeConnector_cancel_at_period_end` | Boolean | No | Cancel automatically at the end of the current period |
+| `stripeConnector_cancel_at` | Datetime | No | Specific date/time to cancel the subscription |
+| `stripeConnector_billing_cycle_anchor_day` | Number | No | Day of month for billing anchor |
+| `stripeConnector_billing_cycle_anchor_time` | Time (HH:MM UTC) | No | Time of day for billing anchor |
+| `stripeConnector_billing_cycle_anchor_date` | Datetime | No | Exact date/time for billing anchor; overrides day + time |
+| `stripeConnector_trial_period_days` | Number | No | Trial length in days — mutually exclusive with `trial_end_date` |
+| `stripeConnector_trial_end_date` | Datetime | No | Trial end date/time — mutually exclusive with `trial_period_days` |
+| `stripeConnector_missing_payment_method_at_trial_end` | Enum (`cancel`, `create_invoice`, `pause`) | No | Behavior when trial ends without a saved payment method |
+| `stripeConnector_proration_behavior` | Enum (`none`, `create_prorations`, `always_invoice`) | No | Proration behavior on price/plan change |
 
-> There is no `stripeConnector_stripePriceId` or `stripeConnector_isSubscription` attribute. A variant is treated as a subscription item when its product belongs to the `payment-connector-subscription-information` product type (key = `CT_PRODUCT_TYPE_SUBSCRIPTION_KEY`). The connector derives the Stripe recurring price from these attributes plus the CT variant price — it does not read a pre-created Stripe Price ID from the variant.
+> There is no `stripeConnector_stripePriceId` attribute — the connector looks up or creates the Stripe Price itself via product/price metadata (see `context/business-rules/price-sync.md`); it does not read a pre-existing Stripe Price ID from the product.
 
 ---
 
@@ -177,7 +175,7 @@ Before go-live:
 - [ ] Stripe Dashboard → Webhooks → Recent deliveries — all events show HTTP 200
 
 **Subscriptions:**
-- [ ] Create a product on the `payment-connector-subscription-information` product type with the required attributes set (`stripeConnector_recurring_interval`, `stripeConnector_recurring_interval_count`, `stripeConnector_off_session`, `stripeConnector_collection_method`)
+- [ ] Create a product on the `payment-connector-subscription-information` product type with the required `stripeConnector_*` attributes set (see Section 4)
 - [ ] Complete a subscription checkout — CT cart should be frozen; Stripe subscription appears in Dashboard
 - [ ] Receive an `invoice.paid` event — a CT order should be created (or payment added, per `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING`)
 - [ ] Cancel the subscription in Stripe Dashboard — manually verify CT cart state (see known gap below)
@@ -206,5 +204,4 @@ These behaviors are not bugs in your configuration — they are known limitation
 | CT cart remains Frozen after subscription canceled | `customer.subscription.deleted` not registered (known gap) | Manually unfreeze cart and clear subscription ID on line item |
 | Recurring invoice paid but no CT order created | Subscription event processing error swallowed (connector returns 200 regardless) | Check processor logs around the `invoice.paid` event timestamp |
 | Price sync changes live subscription prices unexpectedly | `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true` with misconfigured prices | Disable price sync; audit Stripe prices against CT product attributes |
-| Express Checkout buttons not appearing | Wallet not enabled in Stripe, or storefront domain not registered for Apple Pay / Google Pay | Confirm Apple Pay / Google Pay are enabled in the Stripe Dashboard and the domain is verified. Note: this is **not** caused by CORS/origin config — the processor allows all origins (`origin: '*'`) and has no `ALLOWED_ORIGINS` var |
 | All payments fail at startup with auth errors | Placeholder credentials still in env vars | Set all required env vars with real values |

@@ -369,7 +369,7 @@ describe('Stripe Subscription and Customer route APIs', () => {
         expect(spiedSubscriptionService.confirmSubscriptionPayment).toHaveBeenCalledWith(payload);
       });
 
-      test('it should return 400 when confirmation fails', async () => {
+      test('it should return 400 with a sanitized message (not the raw error object) when confirmation fails', async () => {
         // Given
         const payload = {
           subscriptionId: 'sub_123',
@@ -378,7 +378,7 @@ describe('Stripe Subscription and Customer route APIs', () => {
 
         jest
           .spyOn(spiedSubscriptionService, 'confirmSubscriptionPayment')
-          .mockRejectedValue(new Error('Confirmation failed'));
+          .mockRejectedValue(new Error('Payment reference does not belong to the current cart.'));
 
         // When
         const response = await fastifyApp.inject({
@@ -391,9 +391,15 @@ describe('Stripe Subscription and Customer route APIs', () => {
           payload,
         });
 
-        // Then
+        // Then — the error field is the plain Error.message, never a serialized object.
         expect(response.statusCode).toEqual(400);
         expect(response.json().outcome).toEqual('rejected');
+        const errorField = response.json().error;
+        expect(typeof errorField).toBe('string');
+        expect(errorField).toBe('Payment reference does not belong to the current cart.');
+        // Guard against the previous JSON.stringify(error) leak: no serialized object shape.
+        expect(errorField).not.toContain('{');
+        expect(errorField).not.toContain('stack');
       });
 
       test('it should return 400 when required fields are missing', async () => {
@@ -414,7 +420,7 @@ describe('Stripe Subscription and Customer route APIs', () => {
         expect(response.statusCode).toEqual(400);
       });
 
-      test('it should handle non-Error exceptions gracefully', async () => {
+      test('it should not leak non-Error exceptions — returns a safe generic message', async () => {
         const payload = {
           subscriptionId: 'sub_123',
           paymentReference: 'payment_123',
@@ -435,10 +441,11 @@ describe('Stripe Subscription and Customer route APIs', () => {
           payload,
         });
 
-        // Then
+        // Then — a non-Error throw must NOT be echoed back; a generic message is returned instead.
         expect(response.statusCode).toEqual(400);
         expect(response.json().outcome).toEqual('rejected');
-        expect(response.json().error).toContain('String error instead of Error object');
+        expect(response.json().error).toBe('Subscription confirmation failed');
+        expect(response.json().error).not.toContain('String error instead of Error object');
       });
     });
 

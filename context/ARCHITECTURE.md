@@ -9,7 +9,7 @@ Extends `ct-connect-stripe-checkout` with subscription billing, mixed carts (one
 | Payment model | One-time charges | One-time + recurring subscriptions |
 | Cart lifecycle | Active until order | **Frozen after subscription initiation** |
 | Payment method capture | Direct via PaymentIntent | Also via SetupIntent (save now, charge later) |
-| Webhooks handled | `payment_intent.*`, `charge.*` | + `invoice.paid`, `invoice.payment_failed`, `invoice.upcoming`, `charge.succeeded` (recurring), `charge.refunded` (always registered), `charge.captured` (always registered), `payment_intent.requires_action` (logged only). `customer.subscription.deleted` declared in code but NOT registered — no handler (TODO). `charge.updated` route handler exists but NOT registered in `actions.ts` enabled events. |
+| Webhooks handled | `payment_intent.*`, `charge.*` | + `invoice.paid`, `invoice.payment_failed`, `invoice.upcoming`, `charge.refunded` (always registered), `charge.captured` (always registered), `payment_intent.requires_action` (logged only). `charge.succeeded` for a subscription invoice is registered but deliberately **dropped** (`isFromSubscriptionInvoice()` guard) — `invoice.paid` is the sole source of truth for recurring payments, see `business-rules/recurring-billing.md` Rule 4. `customer.subscription.deleted` declared in code but NOT registered — no handler (TODO). `charge.updated` route handler exists but NOT registered in `actions.ts` enabled events. |
 | Order creation | Once per cart | Configurable: once or per recurring event |
 | Price management | Not applicable | CT → Stripe price sync (optional) |
 | Customer API | Session only | + Subscription management endpoints |
@@ -133,7 +133,7 @@ Events registered in `processor/src/connectors/actions.ts` (in addition to check
 | `invoice.paid` | ✅ | Creates CT order or adds payment per `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING` |
 | `invoice.payment_failed` | ✅ | Updates CT payment state |
 | `invoice.upcoming` | ✅ | Triggers price sync when `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true` |
-| `charge.succeeded` (recurring) | ✅ | Handled for subscription renewal charges |
+| `charge.succeeded` (subscription invoice) | ⚠️ Registered, deliberately dropped | `isFromSubscriptionInvoice()` guard in `stripe-payment.route.ts` stops it before processing — `invoice.paid` is the single source of truth for recurring payments (`business-rules/recurring-billing.md` Rule 4), avoiding the duplicate CT payments/orders this used to cause |
 | `charge.refunded` | ✅ Always registered | Multi-refund behavior |
 | `charge.captured` | ✅ Always registered | Multi-capture behavior |
 | `payment_intent.requires_action` | ⚠️ Logged only | No CT update |
@@ -218,7 +218,7 @@ Fields are optional — B2C payments carry no Launchpad data. See `business-rule
 | `STRIPE_LAYOUT` | `{"type":"tabs","defaultCollapsed":false}` | Payment Element layout config (JSON string). |
 | `STRIPE_APPEARANCE_PAYMENT_ELEMENT` | _(empty)_ | Custom CSS appearance config for the Payment Element (JSON string). |
 | `STRIPE_APPEARANCE_EXPRESS_CHECKOUT` | _(empty)_ | Custom CSS appearance config for Express Checkout (JSON string). |
-| `STRIPE_COLLECT_BILLING_ADDRESS` | `auto` | `auto`, `never`, or `if_required` (enum `CollectBillingAddressOptions` in `processor/src/dtos/stripe-payment.dto.ts`). |
+| `STRIPE_COLLECT_BILLING_ADDRESS` | `auto` | `auto`, `never`, or `required`. |
 | `STRIPE_SAVED_PAYMENT_METHODS_CONFIG` | _(empty)_ | JSON config for saved payment method visibility. Parse errors are silently swallowed — see `known-issues.md` KI-017. |
 
 ---

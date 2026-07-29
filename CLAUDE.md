@@ -23,7 +23,16 @@ ct-connect-stripe-composable/
     reference/        # External API/SDK reference docs
 ```
 
+## Before Every Task
+
+1. Read `context/ARCHITECTURE.md` — components, flows, and boundaries (subscriptions, mixed carts, price/coupon sync)
+2. Read `context/known-issues.md` — known bugs and active restrictions, referenced as `KI-###` throughout this file
+3. Read `context/failure-modes.md` — how the connector degrades when Stripe or commercetools misbehaves
+4. Read the relevant `context/business-rules/` file for the domain being touched
+
 ## Commands
+
+There is no root `package.json` — run these from `processor/` or `enabler/` individually.
 
 ```bash
 # Install
@@ -32,9 +41,8 @@ npm install
 # Build
 npm run build
 
-# Test
+# Test (processor's `test` already runs with --collect-coverage; enabler's does not)
 npm run test
-npm run test:coverage
 
 # Lint
 npm run lint
@@ -88,6 +96,22 @@ cd processor && npm run start:dev
 - Subscription price sync opt-in via `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true`
 - Express Checkout address changes trigger CT shipping rate recalculation
 
+## Coding Rules
+
+- Idempotency keys for price/subscription creation must derive from stable CT identifiers (CT price ID + variant SKU) — never `Date.now()` or another timestamp (KI-013)
+- Cart freeze/unfreeze failures on subscription creation must abort the operation, not continue silently — a failed freeze leaves the cart editable mid-subscription (KI-008)
+- CT product type updates must use update-in-place (add missing fields, remove stale) — never delete-then-create, a failed create after delete permanently removes the type (KI-012)
+- A cart may contain at most one subscription line item — reject additional ones at subscription creation, do not process them silently (KI-018, `business-rules/mixed-carts.md` Rule 4)
+- Any reuse of an existing Stripe Price (line item or shipping) must verify the amount still matches the current CT price, not just that the price is `active` (KI-021)
+
+## What Claude Must Never Do
+
+- Catch a Stripe or CT error inside `processSubscriptionEventPaid/Charged/Failed` (or any webhook handler) and return HTTP 200 anyway (KI-002, KI-003)
+- Register a new subscription webhook event without also adding its route dispatcher case — `customer.subscription.deleted` (declared in the enum, not registered, no route handler) and `charge.updated` (route handler exists, not registered in `actions.ts`) are already broken examples to fix, not patterns to copy (KI-009)
+- Resolve "the" refund from a list call (`refunds.list(limit: 2)[0]`) without correlating to the actual webhook event's own refund object — near-simultaneous refunds can misattribute amount/ID (KI-023)
+- Add a new payment method to `createComponentBuilder` without fixing the hardcoded empty `supportedMethods` map first (KI-025)
+- Call `cancelSubscription()` and assume CT is updated afterward — today it only cancels in Stripe; CT stays frozen with a stale subscription ID until this is fixed (KI-010)
+
 ## Skills
 
 See @../.claude/SKILLS-REFERENCE.md
@@ -98,3 +122,5 @@ See @../.claude/SKILLS-REFERENCE.md
 - **Business rules:** `context/business-rules/`
 - **Workflows:** `context/workflows/`
 - **Decisions:** `context/decisions/`
+- **Known issues:** `context/known-issues.md`
+- **Failure modes:** `context/failure-modes.md`

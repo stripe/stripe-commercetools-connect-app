@@ -48,8 +48,10 @@ export const getProductMasterPrice = async (productId: string): Promise<PaymentA
 
     const price = product.masterData.current.masterVariant.prices[0];
 
+    // Sync the effective price: a product sale price (price.discounted) is the real selling price,
+    // so it must reach Stripe instead of the list price. Falls back to price.value when no discount.
     return {
-      centAmount: price.value.centAmount,
+      centAmount: price.discounted?.value.centAmount ?? price.value.centAmount,
       currencyCode: price.value.currencyCode,
       fractionDigits: price.value.fractionDigits || 2,
     };
@@ -108,8 +110,9 @@ const findPriceById = (prices: Price[] | undefined, priceId: string): PaymentAmo
     return undefined;
   }
 
+  // Prefer the product sale price (price.discounted) — the effective amount charged — over list price.
   return {
-    centAmount: price.value.centAmount,
+    centAmount: price.discounted?.value.centAmount ?? price.value.centAmount,
     currencyCode: price.value.currencyCode,
     fractionDigits: price.value.fractionDigits || 2,
   };

@@ -138,32 +138,17 @@ Each diagram details the interactions and steps involved in processing the respe
 
 ## Recent Updates and Improvements
 
-### Stripe API 2025-12-15.clover Compatibility (Latest)
+### Subscription Webhook Payment De-duplication and First-Cycle Order Fixes (Latest)
 
-The connector has been updated to align with breaking changes introduced in Stripe API version `2025-12-15.clover` (the version pinned by `STRIPE_API_VERSION`):
+Subscription payment and order handling was corrected so that each recurring cycle produces exactly one commercetools payment/order, and the first cycle creates its order reliably.
 
-- **Invoice subscription path**: `invoice.subscription` is deprecated; the connector now accesses subscription data via `invoice.parent.subscription_details.subscription`.
-- **Subscription confirmation secret**: Subscription creation now uses `latest_invoice.confirmation_secret` instead of `latest_invoice.payment_intent` to obtain the client secret, as required by the new API shape.
-- **Stripe client version pinning**: The configured `STRIPE_API_VERSION` is now passed directly to the Stripe SDK constructor, ensuring all API calls use the declared version.
+- **`invoice.paid` is the single source of truth for subscription payments.** Stripe also emits `charge.succeeded` / `payment_intent.succeeded` for the same subscription invoice, but the webhook route now ignores those via `isFromSubscriptionInvoice()` to prevent duplicate CT payments/orders. `processSubscriptionEventCharged` is deprecated and no longer wired.
+- **Transactions are keyed by the Stripe invoice id (`in_…`)** rather than the PaymentIntent id, and recurring mixed-cart order composition was fixed.
+- **First-cycle order is created from the frozen cart** instead of cloning a non-existent order, and **first-cycle payment failure** is handled correctly (no spurious paid order).
+- **Product sale prices are honored**: subscription line items charge `price.discounted ?? price.value`, not the list price. (Cart-level coupon `duration` mapping remains a known gap — see `context/known-issues.md` KI-016.)
+- **Security**: processor and enabler dependency vulnerabilities resolved via `npm audit fix`.
 
-### Fix: Cart Frozen-State Detection
-
-`isCartFrozen()` was checking a `frozen` field that commercetools does not expose. It now correctly checks `cartState === 'Frozen'`, which means:
-- The unfrozen-cart warning in subscription order creation now fires when expected.
-- Express Checkout unfreeze/refreeze logic no longer runs unnecessarily on already-active carts.
-
-### Express Checkout Line Items — Stripe Tax and Shipping Label
-
-- **Stripe Tax support**: When the cart has `taxedPrice` (Stripe Tax is active), the Express Checkout order summary now shows a `Subtotal` line (net, excluding shipping), an optional `Tax` line, and the shipping line — preventing double-tax display.
-- **Shipping method label**: The shipping line now shows the actual shipping method name (e.g. "Standard Delivery") instead of the generic label "Shipping".
-
-### Subscription Order Creation Improvements
-
-- **`OrderPaymentState` enum**: Failed subscription events (`invoice.payment_failed`) now create CT orders with `paymentState: Failed` instead of `Paid`.
-- **Race condition handling**: Concurrent `invoice.paid` + `charge.succeeded` webhooks are handled gracefully — version-conflict errors (409) are caught and the duplicate order creation is skipped.
-- **Cart state guard**: Order creation is skipped if the cart is already in `Ordered` state, preventing duplicate orders.
-- **Unfrozen cart warning**: A warning is logged when a subscription order is processed for a cart that was not frozen, indicating the payment may not have originated from this connector.
-- **Config-based branching for `charge.succeeded`**: Recurring charge events now respect `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING` (`createOrder` vs `addPaymentToOrder`), consistent with how `invoice.paid` already worked.
+See `docs/CHANGELOG.md` and `context/business-rules/recurring-billing.md` (Rule 4) for details.
 
 ### Multiple Refunds and Multicapture Implementation - OPT-IN FEATURE
 
@@ -271,11 +256,11 @@ The following webhooks are currently supported, and the payment transactions in 
 - **payment_intent.requires_action**: Logs the information in the connector app inside the Processor logs.
 - **payment_intent.payment_failed**: Modify the payment transaction Authorization to Failure.
 - **charge.refunded**: Creates payment transactions Refund: Success and Chargeback: Success with accurate refund amounts fetched from Stripe API. **Note**: Only processed when `STRIPE_ENABLE_MULTI_OPERATIONS=true`; gracefully skipped when disabled.
-- **charge.succeeded**: Create the payment transaction to 'Authorization:Success' if charge is not captured, and update the payment method type that was used to pay.
+- **charge.succeeded**: Create the payment transaction to 'Authorization:Success' if charge is not captured, and update the payment method type that was used to pay. **Note (subscriptions):** when the charge belongs to a subscription invoice it is ignored (`isFromSubscriptionInvoice`); recurring subscription payments are recorded solely from `invoice.paid` to avoid duplicate commercetools payments/orders.
 - **charge.captured**: Logs the information in the connector app inside the Processor logs.
 - **charge.updated**: Handles multicapture scenarios by creating Charge: Success transactions with incremental captured amounts. **Note**: Only processed when `STRIPE_ENABLE_MULTI_OPERATIONS=true`; gracefully skipped when disabled.
-- **invoice.paid**: If payment charge is pending, we update the payment transaction to Charge:Success. If charge is not pending, we update the payment transaction to Authorization:Success and create a payment transaction Charge:Success.
-- **invoice.payment_failed**: If payment charge is pending, we update the payment transaction to Charge:Failure. If charge is not pending, we update the payment transaction to Authorization:Failure and create a payment transaction Charge:Failure. A CT order is also created with `paymentState: Failed`.
+- **invoice.paid**: Single source of truth for subscription-cycle payments. If payment charge is pending, we update the payment transaction to Charge:Success. If charge is not pending, we update the payment transaction to Authorization:Success and create a payment transaction Charge:Success. Transactions are keyed by the Stripe invoice id (`in_…`).
+- **invoice.payment_failed**: If payment charge is pending, we update the payment transaction to Charge:Failure. If charge is not pending, we update the payment transaction to Authorization:Failure and create a payment transaction Charge:Failure.
 - **invoice.upcoming**: Handles upcoming invoice events for subscription payments, supporting the new subscription payment handling strategy.
 
 

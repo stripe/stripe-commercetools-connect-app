@@ -166,18 +166,26 @@ export class StripeSubscriptionService {
       );
 
       const { clientSecret, paymentIntentId } = this.validateSubscription(subscription);
+      // Subscription transactions are keyed by the Stripe invoice id (in_), consistent with the
+      // invoice.paid webhook and the SetupIntent flow. This keeps a single, invoice-referenced set of
+      // transactions on the CT payment (no pi_/in_ split that would duplicate them).
+      const invoiceId = typeof subscription.latest_invoice === 'object' ? subscription.latest_invoice?.id : undefined;
 
       log.info('Stripe Subscription created.', {
         ctCartId: cart.id,
         stripeSubscriptionId: subscription.id,
         stripePaymentIntentId: paymentIntentId,
+        stripeInvoiceId: invoiceId,
       });
 
       await this.saveSubscriptionId(cart, subscription.id);
 
       const paymentReference = await this.paymentCreationService.handleCtPaymentCreation({
         subscriptionId: subscription.id,
-        interactionId: paymentIntentId,
+        interactionId: invoiceId || paymentIntentId,
+        // Keep updating the Stripe PaymentIntent metadata against the real pi_ even though CT
+        // transactions are keyed by the invoice id (in_).
+        paymentIntentId,
         amountPlanned,
         cart,
       });
@@ -409,9 +417,13 @@ export class StripeSubscriptionService {
   }
 
   private async getLineItemPriceId(lineItem: LineItem): Promise<string> {
+    // Use the effective per-unit price: a product sale price (price.discounted) is the real amount
+    // charged, so it belongs in the Stripe Price unit_amount. Cart-level coupons stay in the
+    // subscription `discounts` field. Falling back to price.value keeps undiscounted items unchanged.
+    const effectiveUnitAmount = lineItem.price.discounted?.value.centAmount ?? lineItem.price.value.centAmount;
     const amount: ExtendedPaymentAmount = {
-      centAmount: lineItem.price.value.centAmount,
-      totalCentAmount: lineItem.price.value.centAmount * lineItem.quantity,
+      centAmount: effectiveUnitAmount,
+      totalCentAmount: effectiveUnitAmount * lineItem.quantity,
       currencyCode: lineItem.price.value.currencyCode,
       fractionDigits: lineItem.price.value.fractionDigits,
     };
@@ -689,12 +701,28 @@ export class StripeSubscriptionService {
   }: ConfirmSubscriptionRequestSchemaDTO): Promise<void> {
     try {
       const cart = await getCartExpanded();
+
+      // Layer 1 — ownership binding (IDOR / CWE-639): a caller may only confirm a payment
+      // that is attached to their own cart. paymentInfo.payments[] carries reference ids even
+      // on the unexpanded cart, so match by .id (never .obj). Placed before both the hasNoInvoice
+      // getPayment and the getCurrentPayment path, so this single check covers both branches.
+      const ownsPayment = cart.paymentInfo?.payments?.some((p) => p.id === paymentReference) ?? false;
+      if (!ownsPayment) {
+        log.warn('Rejected subscription confirm: paymentReference not attached to caller cart.', {
+          ctCartId: cart.id,
+          paymentReference,
+        });
+        throw new Error('Payment reference does not belong to the current cart.');
+      }
+
       const subscriptionLineItem = this.findSubscriptionLineItem(cart);
       const subscriptionParams = getSubscriptionAttributes(subscriptionLineItem.variant.attributes!);
       const { hasNoInvoice, isSendInvoice, hasTrial } = this.getSubscriptionTypes(subscriptionParams);
 
       if (hasNoInvoice) {
         const payment = await this.ctPaymentService.getPayment({ id: paymentReference });
+        // Layer 2 — mode-aware defense-in-depth: no invoice exists in this mode.
+        this.assertPaymentInterfaceMatches(payment, [paymentIntentId, subscriptionId], cart.id, paymentReference);
         await this.paymentCreationService.updateSubscriptionPaymentTransactions({
           interactionId: subscriptionId,
           payment: { ...payment, amountPlanned: { ...payment.amountPlanned, centAmount: 0 } },
@@ -703,9 +731,18 @@ export class StripeSubscriptionService {
       } else {
         const invoice = await this.getInvoiceFromSubscription(subscriptionId);
         const payment = await this.getCurrentPayment({ paymentReference, invoice, subscriptionParams });
+        // Layer 2 — mode-aware defense-in-depth: invoice-backed modes may carry in_/sub_/pi_ in interfaceId.
+        this.assertPaymentInterfaceMatches(
+          payment,
+          [paymentIntentId, invoice?.id, subscriptionId],
+          cart.id,
+          paymentReference,
+        );
 
         await this.paymentCreationService.updateSubscriptionPaymentTransactions({
-          interactionId: paymentIntentId || invoice?.id || subscriptionId,
+          // Key by the invoice id (in_) so the confirm transaction matches the checkout/webhook
+          // transactions and deduplicates instead of creating a parallel pi_-keyed set.
+          interactionId: invoice?.id || paymentIntentId || subscriptionId,
           payment,
           subscriptionId,
           isPending: isSendInvoice || hasTrial ? true : false,
@@ -713,6 +750,30 @@ export class StripeSubscriptionService {
       }
     } catch (error) {
       throw wrapStripeError(error);
+    }
+  }
+
+  /**
+   * Layer 2 defense-in-depth for subscription confirm. Rejects when the CT payment's interfaceId
+   * matches none of the server-derived references for the subscription being confirmed. Uses
+   * membership (not single-value equality) so setup-intent / trial / no-invoice modes — whose
+   * interfaceId carries in_/sub_ rather than pi_ — are not falsely rejected. Secondary to the
+   * Layer 1 ownership binding, which is what actually closes the IDOR.
+   */
+  private assertPaymentInterfaceMatches(
+    payment: Payment,
+    validReferences: (string | undefined)[],
+    ctCartId: string,
+    paymentReference: string,
+  ): void {
+    const refs = validReferences.filter((r): r is string => Boolean(r));
+    if (payment.interfaceId && !refs.includes(payment.interfaceId)) {
+      log.warn('Subscription confirm: payment.interfaceId does not match any server-derived reference.', {
+        ctCartId,
+        paymentReference,
+        interfaceId: payment.interfaceId,
+      });
+      throw new Error('Payment does not match the subscription being confirmed.');
     }
   }
 
@@ -816,11 +877,14 @@ export class StripeSubscriptionService {
 
   public getSubscriptionPaymentAmount(cart: Cart): ExtendedPaymentAmount {
     const product = this.findSubscriptionLineItem(cart);
-    const { centAmount, currencyCode, fractionDigits } = product.price.value;
+    const { currencyCode, fractionDigits } = product.price.value;
 
+    // Prefer the product sale price (price.discounted) so the recurring Stripe Price reflects the
+    // real amount charged. Without a discount this equals price.value (unchanged behavior).
+    const centAmount = product.price.discounted?.value.centAmount ?? product.price.value.centAmount;
     const totalCentAmount = centAmount * product.quantity;
 
-    return { centAmount: centAmount, totalCentAmount: totalCentAmount, currencyCode, fractionDigits };
+    return { centAmount, totalCentAmount, currencyCode, fractionDigits };
   }
 
   async getCustomerSubscriptions(customerId: string): Promise<Stripe.Subscription[]> {
@@ -1164,6 +1228,7 @@ export class StripeSubscriptionService {
         transactionType: PaymentTransactions.CHARGE,
         states: [PaymentStatus.PENDING],
       });
+      const isFirstSubscriptionCycle = invoiceExpanded.billing_reason === 'subscription_create';
       const updateData = this.subscriptionEventConverter.convert(
         event,
         invoiceExpanded,
@@ -1177,6 +1242,7 @@ export class StripeSubscriptionService {
         updateData,
         isPaymentChargePending,
         isPaymentFailed,
+        isFirstSubscriptionCycle,
       );
       if (!shouldContinue) {
         return;
@@ -1196,7 +1262,7 @@ export class StripeSubscriptionService {
         });
       }
 
-      if (isPaymentChargePending || isPaymentFailed) {
+      if (isPaymentChargePending || isPaymentFailed || isFirstSubscriptionCycle) {
         await this.createSubscriptionOrderFromCart({
           paymentId: payment.id,
           charge: invoiceExpanded.charge as Stripe.Charge,
@@ -1222,6 +1288,7 @@ export class StripeSubscriptionService {
    * @param updateData - The payment update data (mutated if new order is created)
    * @param isPaymentChargePending - Whether payment charge is pending
    * @param isPaymentFailed - Whether payment has failed
+   * @param isFirstSubscriptionCycle - Whether the invoice belongs to the first billing cycle (`billing_reason: subscription_create`)
    * @returns True if processing should continue, false if caller should return early
    */
   private async handleOrderProcessingForPaidEvent(
@@ -1231,8 +1298,17 @@ export class StripeSubscriptionService {
     updateData: StripeEventUpdatePayment,
     isPaymentChargePending: boolean,
     isPaymentFailed: boolean,
+    isFirstSubscriptionCycle: boolean,
   ): Promise<boolean> {
     if (!isPaymentChargePending && !isPaymentFailed) {
+      if (isFirstSubscriptionCycle) {
+        // First cycle: no previous order exists to clone or attach to — the caller
+        // creates the order from the frozen cart via createSubscriptionOrderFromCart.
+        log.info(`First subscription cycle for payment ${updateData.id}, order will be created from the frozen cart`, {
+          invoiceId: invoiceExpanded.id,
+        });
+        return true;
+      }
       const config = getConfig();
       const shouldCreateNewOrder = config.subscriptionPaymentHandling === 'createOrder';
       if (shouldCreateNewOrder) {
@@ -1404,6 +1480,15 @@ export class StripeSubscriptionService {
     return true;
   }
 
+  /**
+   * @deprecated No longer wired for subscription payments. As of the duplicate-payment fix, the
+   * webhook dispatch ignores charge.succeeded / payment_intent.* events that come from a
+   * subscription invoice, because Stripe also emits invoice.paid for the same charge and routing
+   * both created duplicate CT payments/orders. `processSubscriptionEventPaid` (invoice.paid) is now
+   * the single source of truth for subscription payments; `processSubscriptionEventFailed`
+   * (invoice.payment_failed) for failures. Kept for reference / potential reuse — pending team
+   * decision on full removal. Do not re-wire without restoring first-cycle guards.
+   */
   public async processSubscriptionEventCharged(event: Stripe.Event): Promise<void> {
     log.info('Processing subscription processSubscriptionEventCharged notification', {
       event: JSON.stringify(event.id),
@@ -1710,8 +1795,7 @@ export class StripeSubscriptionService {
     try {
       const invoiceData = event.data.object as StripeInvoiceExpanded;
       const invoiceSubscription = invoiceData.parent?.subscription_details?.subscription;
-      const subscriptionId =
-        typeof invoiceSubscription === 'string' ? invoiceSubscription : invoiceSubscription?.id;
+      const subscriptionId = typeof invoiceSubscription === 'string' ? invoiceSubscription : invoiceSubscription?.id;
 
       if (!subscriptionId) {
         log.warn('Skipping upcoming subscription price synchronization: no subscription ID found in event');
@@ -2010,6 +2094,27 @@ export class StripeSubscriptionService {
       invoiceId: invoiceExpanded.id,
       pspReference: updateData.pspReference,
     });
+
+    // Idempotency guard: Stripe webhooks are at-least-once, so the same invoice.paid for a recurring
+    // cycle can be redelivered. The new CT Payment is created with interfaceId = pspReference (the
+    // invoice PaymentIntent, unique per cycle), so if a payment already exists for it we have already
+    // processed this cycle — return it instead of cloning another order/payment. (First cycle is
+    // guarded separately by createSubscriptionOrderFromCart.)
+    const cyclePaymentIntentId = updateData.pspReference;
+    if (cyclePaymentIntentId) {
+      const existingPayments = await this.ctPaymentService.findPaymentsByInterfaceId({
+        interfaceId: cyclePaymentIntentId,
+      });
+      if (existingPayments.length > 0) {
+        log.info('Recurring subscription invoice already processed; skipping duplicate order/payment creation', {
+          pspReference: cyclePaymentIntentId,
+          invoiceId: invoiceExpanded.id,
+          existingPaymentId: existingPayments[0].id,
+        });
+        return existingPayments[0].id;
+      }
+    }
+
     const originalOrder = await this.ctOrderService.getOrderByPaymentId({ paymentId: updateData.id });
 
     const customerId = invoiceExpanded.parent?.subscription_details?.metadata?.[METADATA_CUSTOMER_ID_FIELD];
@@ -2024,15 +2129,17 @@ export class StripeSubscriptionService {
 
     const newCart = await this.createCartFromOrder(originalOrder, customer, subscription);
     const updatedCart = await this.paymentService.updateCartAddress(invoiceExpanded.charge as Stripe.Charge, newCart);
+    // Stripe (the financial provider) is the source of truth for the amount charged this cycle.
+    // Using the cloned cart total would misreport recurring charges for multi-quantity / mixed carts
+    // (e.g. a $225 cloned cart vs a $75 recurring invoice), leaving the Authorization amount out of
+    // sync with the actual Charge. Base the payment on the invoice total; fall back to the cloned cart
+    // total only if the invoice total is unavailable.
     const paymentAmount: PaymentAmount = {
-      centAmount: updatedCart.totalPrice?.centAmount || 0,
+      centAmount: invoiceExpanded.total || updatedCart.totalPrice?.centAmount || 0,
       currencyCode: updatedCart.totalPrice?.currencyCode || 'USD',
       fractionDigits: updatedCart.totalPrice?.fractionDigits || 2,
     };
 
-    if (invoiceExpanded.total > paymentAmount.centAmount) {
-      paymentAmount.centAmount = invoiceExpanded.total;
-    }
     const paymentReference = await this.paymentCreationService.handleCtPaymentCreation({
       interactionId: updateData.pspReference || '',
       amountPlanned: paymentAmount,
@@ -2104,12 +2211,26 @@ export class StripeSubscriptionService {
 
     if (originalOrder.lineItems?.length) {
       const subscriptionPrice = subscription.items.data[0].price;
-      //Improvements ideas:
-      //Adding all the line items from the original order as subscription products
-      //possible solution, use the old cart to get the line items and add them to the new cart
-      //maybe we can use the stripe product information as the source of truth to add the line items to the new cart using this approche we can have multiple products items.
-      // or we can create cart and order to update subscription and we keep the source of truth in teh line item in commercetools
-      const lineItemActions: CartUpdateAction[] = originalOrder.lineItems.map((item: LineItem) =>
+      // Only the subscription's own line item(s) recur. One-time items are billed once on the first
+      // invoice and must NOT be re-added to recurring cycles — Stripe already excludes them from the
+      // recurring invoice. Previously every original line item was mapped onto the subscription SKU,
+      // so a mixed cart (1 subscription + 2 one-time) produced a recurring cart of qty 3 (3 x $75 =
+      // $225) while Stripe only charged $75. Keep the line item(s) belonging to THIS subscription,
+      // identified by the subscription-id custom field (robust to price-sync) with product/price
+      // matching as a fallback. Multiple distinct subscriptions per cart are not a supported scenario.
+      const subscriptionLineItems = originalOrder.lineItems.filter(
+        (item: LineItem) =>
+          item.custom?.fields?.[lineItemStripeSubscriptionIdField] === subscription.id ||
+          this.isMatchingSubscriptionItem(item, subscriptionPrice, subscription),
+      );
+      if (!subscriptionLineItems.length) {
+        log.warn('No subscription line item identified in the original order; cloning all line items.', {
+          orderId: originalOrder.id,
+          subscriptionId: subscription.id,
+        });
+      }
+      const itemsToClone = subscriptionLineItems.length ? subscriptionLineItems : originalOrder.lineItems;
+      const lineItemActions: CartUpdateAction[] = itemsToClone.map((item: LineItem) =>
         this.buildLineItemAction(item, subscriptionPrice, subscription),
       );
 

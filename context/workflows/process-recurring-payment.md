@@ -45,15 +45,18 @@ Stripe                    Processor                                        CT
   |                           |--------------------------------------------->|
   |                           |                                              |
   | POST /stripe/webhooks     |                                              |
-  | charge.succeeded          |                                              |
-  | (subscription charge)     |                                              |
+  | charge.succeeded /        |                                              |
+  | payment_intent.succeeded  |                                              |
+  | (subscription invoice)    |                                              |
   |-------------------------->|                                              |
   |   200 OK                  |                                              |
   |<--------------------------|                                              |
-  |                           | processSubscriptionEventCharged()            |
-  |                           | update CT Payment transactions               |
-  |                           |--------------------------------------------->|
+  |                           | isFromSubscriptionInvoice() → IGNORED        |
+  |                           | (invoice.paid is the single source of truth; |
+  |                           |  no CT write — prevents duplicate payments)  |
 ```
+
+> **Recurring payments are driven solely by `invoice.paid`.** Stripe also emits `charge.succeeded` / `payment_intent.succeeded` for the same subscription invoice, but the route drops them via `isFromSubscriptionInvoice()` (`stripe-payment.route.ts`) so they never create a second CT payment/order. `processSubscriptionEventCharged()` is `@deprecated` and unwired. See `business-rules/recurring-billing.md` Rule 4.
 
 ---
 
@@ -122,5 +125,5 @@ Stripe                    Processor                                        CT
 |---|---|---|
 | Original order not found | CT data gap | Cannot create recurring order; event logged |
 | Cart reconstruction fails | CT API error or missing variant | Recurring payment recorded in Stripe; CT order not created |
-| `charge.succeeded` before `invoice.paid` | Event ordering | Transactions may be created out of sequence — idempotent checks prevent duplicates |
+| Subscription-invoice `charge.succeeded` / `payment_intent.succeeded` | Stripe emits them alongside `invoice.paid` | Ignored by `isFromSubscriptionInvoice()` — no CT write; only `invoice.paid` creates the payment/order |
 | CT Payment creation fails | CT API error | Stripe charged; no CT record (requires manual reconciliation) |

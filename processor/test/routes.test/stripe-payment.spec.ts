@@ -457,6 +457,76 @@ describe('Stripe Payment APIs', () => {
       expect(Logger.log.info).toHaveBeenCalled();
     });
 
+    test('it should ignore a charge.succeeded event that comes from a subscription invoice (no duplicate processing).', async () => {
+      setupMockConfig({
+        stripeSecretKey: 'stripeSecretKey',
+        stripeWebhookSigningSecret: 'stripeWebhookSigningSecret',
+        authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
+      });
+
+      // charge.succeeded carrying a subscription invoice -> isFromSubscriptionInvoice() === true
+      const chargeFromSubscriptionInvoice: Stripe.Event = {
+        ...mockEvent__charge_succeeded_captured,
+        data: {
+          object: {
+            ...(mockEvent__charge_succeeded_captured.data.object as Stripe.Charge),
+            invoice: 'in_subscription_11111',
+          },
+        },
+      } as Stripe.Event;
+
+      Stripe.prototype.webhooks = { constructEvent: jest.fn() } as unknown as Stripe.Webhooks;
+      jest.spyOn(Stripe.prototype.webhooks, 'constructEvent').mockReturnValue(chargeFromSubscriptionInvoice);
+
+      const response = await fastifyApp.inject({
+        method: 'POST',
+        url: `/stripe/webhooks`,
+        headers: {
+          'stripe-signature': 't=123123123,v1=gk2j34gk2j34g2k3j4',
+        },
+      });
+
+      // invoice.paid / invoice.payment_failed are the single source of truth for subscription
+      // payments, so the charge/PI events from a subscription invoice must be ignored here.
+      expect(response.statusCode).toEqual(200);
+      expect(spiedSubscriptionService.processSubscriptionEventCharged).not.toHaveBeenCalled();
+      expect(spiedPaymentService.processStripeEvent).not.toHaveBeenCalled();
+    });
+
+    test('it should ignore a payment_intent.succeeded event that comes from a subscription invoice (no duplicate processing).', async () => {
+      setupMockConfig({
+        stripeSecretKey: 'stripeSecretKey',
+        stripeWebhookSigningSecret: 'stripeWebhookSigningSecret',
+        authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
+      });
+
+      // payment_intent.succeeded carrying a subscription invoice -> isFromSubscriptionInvoice() === true
+      const paymentIntentFromSubscriptionInvoice: Stripe.Event = {
+        ...mockEvent__paymentIntent_succeeded_captureMethodManual,
+        data: {
+          object: {
+            ...(mockEvent__paymentIntent_succeeded_captureMethodManual.data.object as Stripe.PaymentIntent),
+            invoice: 'in_subscription_11111',
+          },
+        },
+      } as Stripe.Event;
+
+      Stripe.prototype.webhooks = { constructEvent: jest.fn() } as unknown as Stripe.Webhooks;
+      jest.spyOn(Stripe.prototype.webhooks, 'constructEvent').mockReturnValue(paymentIntentFromSubscriptionInvoice);
+
+      const response = await fastifyApp.inject({
+        method: 'POST',
+        url: `/stripe/webhooks`,
+        headers: {
+          'stripe-signature': 't=123123123,v1=gk2j34gk2j34g2k3j4',
+        },
+      });
+
+      expect(response.statusCode).toEqual(200);
+      expect(spiedSubscriptionService.processSubscriptionEventCharged).not.toHaveBeenCalled();
+      expect(spiedPaymentService.processStripeEvent).not.toHaveBeenCalled();
+    });
+
     test('it should return a 400 status error when the request body is not a valid Stripe event.', async () => {
       setupMockConfig({
         stripeSecretKey: 'stripeSecretKey',

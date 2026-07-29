@@ -1,22 +1,29 @@
-# Code Editor directories and files
-.idea
+# Environment
 .env
 
-# MCP (Model Context Protocol) configuration and data
-.mcp/
+# Code Editor
+.idea
+
+# OS
 .DS_Store
+
+# MCP (Model Context Protocol)
+.mcp/
 .mcp.json
 
 # Playwright MCP
 .playwright-profile/
 .playwright-mcp/
 
-#Context documentation
+# Context7 (external tool, not project context)
 docs/context7-libraries
 context7-config.json
 
 # Internal security documents (not for public repo)
 docs/security-findings.md
+
+# Test coverage
+coverage/
 
 # Connect CLI generated files
 .connect

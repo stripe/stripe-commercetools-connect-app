@@ -18,7 +18,11 @@ export class SubscriptionEventConverter {
     isPaymentChargePending: boolean,
     payment: Payment,
   ): StripeEventUpdatePayment {
-    // invoice.id is always defined when retrieved from Stripe API
+    // Subscription transactions are keyed by the Stripe invoice id (in_): the invoice is the canonical
+    // reference for each billing cycle and lets CT transactions reconcile against Stripe invoices.
+    // On the Stripe API in use (basil/clover) invoice.payment_intent is not populated, so this falls
+    // through to invoice.id; the payment_intent branch is retained only for older API versions.
+    // invoice.id is always defined when retrieved from Stripe API.
     let paymentIntentId: string = invoice.id!;
     let paymentMethod: string | undefined;
 

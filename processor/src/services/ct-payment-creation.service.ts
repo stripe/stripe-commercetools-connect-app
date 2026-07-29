@@ -75,6 +75,7 @@ export class CtPaymentCreationService {
     amountPlanned,
     interactionId,
     subscriptionId,
+    paymentIntentId,
   }: HandleCtPaymentCreationProps): Promise<string> {
     const ctPaymentId = await this.createCtPayment({
       cart,
@@ -90,10 +91,15 @@ export class CtPaymentCreationService {
       interactionId,
     });
 
+    // The CT payment/transactions are keyed by `interactionId` (the invoice id for subscriptions),
+    // but the Stripe PaymentIntent metadata must be written against the real pi_. Prefer the explicit
+    // `paymentIntentId`; fall back to `interactionId` only when it already is a pi_ (non-subscription).
+    const stripePaymentIntentId = paymentIntentId ?? (interactionId.startsWith('pi_') ? interactionId : undefined);
+
     await this.updatePaymentMetadata({
       cart,
       ctPaymentId,
-      paymentIntentId: interactionId.startsWith('pi_') ? interactionId : undefined,
+      paymentIntentId: stripePaymentIntentId,
       subscriptionId,
     });
 
