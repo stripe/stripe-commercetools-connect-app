@@ -42,10 +42,13 @@ Merchant                  Processor                        Stripe          CT
   |                           | (subscription-mapper.ts)       |              |
   |                           | get CT price by newPriceId     |              |
   |                           |---------------------------------------------->|
-  |                           | getOrCreateStripePriceForProduct()             |
-  |                           |   → search existing Stripe prices by metadata |
-  |                           |   → if match: reuse                           |
-  |                           |   → if different amount: deprecate + create new|
+  |                           | getCreateSubscriptionPriceId() (stripe-subscription.service.ts:368) |
+  |                           |   → search existing Stripe prices by variant   |
+  |                           |     SKU + CT price ID metadata (AND query)     |
+  |                           |   → if match (active, same amount/interval/    |
+  |                           |     interval_count): reuse                     |
+  |                           |   → else: deactivate stale match (if any),     |
+  |                           |     create new                                 |
   |                           |-------------------------------->|              |
   |                           | subscriptions.update(id,       |              |
   |                           |   { items: [new price],        |              |
@@ -84,27 +87,28 @@ Advanced update passes raw Stripe params directly. No CT product lookup or price
 
 ## Subscription Update: Price Management Detail
 
-When changing subscription variant/price, price management follows this logic:
+When changing subscription variant/price, `getCreateSubscriptionPriceId()` (`stripe-subscription.service.ts:368-390`) follows this logic — the same function used at subscription creation:
 
 ```
-1. Build price lookup key: { ct_price_id, amount, currency, interval }
+1. Search Stripe prices via getStripePriceByMetadata() (:493-498): an AND query on
+   metadata['ct_variant_sku'] == <variant SKU> AND metadata['ct_price_id'] == <CT price id>
+   (both real values — this path does not have the KI-032 defect that affects the
+   invoice.upcoming sync path in process-price-sync.md)
 
-2. Search Stripe prices with metadata: { ct_price_id: newPriceId }
-
-3. CASE: existing price found, same amount and interval
+2. CASE: match found, active AND same amount AND same interval AND same interval_count
    → REUSE existing price ID
-   → No Stripe API call needed
+   → No Stripe API write needed
 
-4. CASE: existing price found, different amount
-   → DEPRECATE old price (prices.update({ active: false }))
-   → CREATE new price with updated amount + same metadata
+3. CASE: match found but active/amount/interval/interval_count differ
+   → DEACTIVATE the stale price (disableStripePrice(), prices.update({ active: false }))
+   → CREATE new price with the current amount/interval + the same metadata keys
    → USE new price ID
 
-5. CASE: no existing price found
+4. CASE: no existing price found
    → CREATE new price
    → USE new price ID
 
-6. Update subscription items with new price ID
+5. Update subscription items with new price ID
 ```
 
 ---
@@ -113,8 +117,7 @@ When changing subscription variant/price, price management follows this logic:
 
 | Point | Condition | Path |
 |---|---|---|
-| Cancel timing | `cancel_at_period_end=true` on original sub | Cancels at period end, not immediately |
-| Cancel timing | Default | Immediate cancellation |
+| Cancel timing | Always | `cancelSubscription()` calls `stripe.subscriptions.cancel(subscriptionId, { invoice_now: false, prorate: true })` unconditionally (`:923-928`) — there is no `cancel_at_period_end` branch; cancellation is always immediate. |
 | Price change | Same amount + interval | Reuse existing Stripe price |
 | Price change | Different amount | Deprecate old, create new |
 | Proration | `proration_behavior` on variant | Applied per variant configuration |

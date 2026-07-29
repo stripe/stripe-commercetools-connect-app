@@ -13,6 +13,13 @@ export interface HandleCtPaymentCreationProps {
   amountPlanned: PaymentAmount;
   interactionId: string;
   subscriptionId?: string;
+  /**
+   * The Stripe PaymentIntent id (pi_) whose metadata must be updated (cart/customer/payment/project/
+   * subscription ids). Kept separate from `interactionId` because subscription transactions are keyed
+   * by the invoice id (in_): the CT payment/transactions use `interactionId`, while the Stripe PI
+   * metadata is written against this id. If omitted, falls back to `interactionId` when it is a pi_.
+   */
+  paymentIntentId?: string;
 }
 
 export interface UpdatePaymentMetadataProps {

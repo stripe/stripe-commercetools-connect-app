@@ -1472,7 +1472,8 @@ describe('stripe-payment.service', () => {
       await subscriptionService.processSubscriptionEventPaid(mockEvent);
 
       const mockedInvoice = mockEvent.data.object as Stripe.Invoice;
-      const mockedSubscription = (mockedInvoice as any).parent?.subscription_details?.subscription as Stripe.Subscription;
+      const mockedSubscription = (mockedInvoice as any).parent?.subscription_details
+        ?.subscription as Stripe.Subscription;
       const mockedPaymentIntent = mockedInvoice.payment_intent as Stripe.PaymentIntent;
       expect(spiedStripeInvoiceExpandedMock).toHaveBeenCalled();
 
@@ -1528,9 +1529,14 @@ describe('stripe-payment.service', () => {
 
     test('should process subscription invoice.paid successfully creating a new payment in the order', async () => {
       const mockEvent: Stripe.Event = mockEvent__invoice_paid__Expanded_Paymnet_intent__amount_paid;
+      // Recurring cycle: first-cycle invoices (subscription_create) no longer take the clone-order path
+      const mockRecurringInvoiceExpanded = {
+        ...mockStripeInvoicesRetrievedExpanded,
+        billing_reason: 'subscription_cycle' as Stripe.Invoice.BillingReason,
+      };
       const spiedStripeInvoiceExpandedMock = jest
         .spyOn(CtPaymentCreationService.prototype, 'getStripeInvoiceExpanded')
-        .mockReturnValue(Promise.resolve(mockStripeInvoicesRetrievedExpanded));
+        .mockReturnValue(Promise.resolve(mockRecurringInvoiceExpanded));
       const spiedPaymentMock = jest
         .spyOn(DefaultPaymentService.prototype, 'getPayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
@@ -1561,7 +1567,7 @@ describe('stripe-payment.service', () => {
 
       expect(spiedHandleSubscriptionPaymentCreateNewOrder).toHaveBeenCalledWith(
         expect.any(Object),
-        mockStripeInvoicesRetrievedExpanded,
+        mockRecurringInvoiceExpanded,
         expect.objectContaining({
           paymentMethod: expect.any(String),
           pspReference: expect.any(String),
@@ -1583,9 +1589,14 @@ describe('stripe-payment.service', () => {
 
       const mockEvent: Stripe.Event = mockEvent__invoice_paid__Expanded_Paymnet_intent__amount_paid;
       const mockedCart = mockGetCartResult();
+      // Recurring cycle: first-cycle invoices (subscription_create) no longer take the add-to-order path
+      const mockRecurringInvoiceExpanded = {
+        ...mockStripeInvoicesRetrievedExpanded,
+        billing_reason: 'subscription_cycle' as Stripe.Invoice.BillingReason,
+      };
       const spiedStripeInvoiceExpandedMock = jest
         .spyOn(CtPaymentCreationService.prototype, 'getStripeInvoiceExpanded')
-        .mockReturnValue(Promise.resolve(mockStripeInvoicesRetrievedExpanded));
+        .mockReturnValue(Promise.resolve(mockRecurringInvoiceExpanded));
       const spiedPaymentMock = jest
         .spyOn(DefaultPaymentService.prototype, 'getPayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
@@ -1660,7 +1671,8 @@ describe('stripe-payment.service', () => {
       await subscriptionService.processSubscriptionEventPaid(mockEvent);
 
       const mockedInvoice = mockEvent.data.object as Stripe.Invoice;
-      const mockedSubscription = (mockedInvoice as any).parent?.subscription_details?.subscription as Stripe.Subscription;
+      const mockedSubscription = (mockedInvoice as any).parent?.subscription_details
+        ?.subscription as Stripe.Subscription;
       const mockedPaymentIntent = mockedInvoice.payment_intent as Stripe.PaymentIntent;
       expect(spiedStripeInvoiceExpandedMock).toHaveBeenCalled();
 
@@ -1749,7 +1761,8 @@ describe('stripe-payment.service', () => {
       await subscriptionService.processSubscriptionEventFailed(mockEvent);
 
       const mockedInvoice = mockEvent.data.object as Stripe.Invoice;
-      const mockedSubscription = (mockedInvoice as any).parent?.subscription_details?.subscription as Stripe.Subscription;
+      const mockedSubscription = (mockedInvoice as any).parent?.subscription_details
+        ?.subscription as Stripe.Subscription;
       const mockedPaymentIntent = mockedInvoice.payment_intent as Stripe.PaymentIntent;
       expect(spiedStripeInvoiceExpandedMock).toHaveBeenCalled();
 
@@ -1879,13 +1892,17 @@ describe('stripe-payment.service', () => {
       expect(spiedStripeInvoiceExpandedMock).toHaveBeenCalledWith(mockedCharge.invoice);
 
       // The expanded invoice contains the subscription with metadata
-      const mockedSubscription = (mockStripeInvoicesRetrievedExpanded as any).parent?.subscription_details?.subscription as Stripe.Subscription;
+      const mockedSubscription = (mockStripeInvoicesRetrievedExpanded as any).parent?.subscription_details
+        ?.subscription as Stripe.Subscription;
       expect(spiedPaymentMock).toHaveBeenCalled();
       expect(spiedPaymentMock).toHaveBeenCalledWith({
         id: mockedSubscription.metadata.ct_payment_id,
       });
 
-      expect(spiedFindPaymentInterfaceIdMock).not.toHaveBeenCalled();
+      // The idempotency guard in handleSubscriptionPaymentCreateNewOrder looks up existing payments
+      // by the cycle PaymentIntent before cloning; the payment id resolution itself still comes from
+      // subscription metadata (not this lookup).
+      expect(spiedFindPaymentInterfaceIdMock).toHaveBeenCalled();
 
       expect(spiedHasTransactionInState).toHaveBeenCalled();
       expect(spiedHasTransactionInState.mock.calls[0][0]).toMatchObject({

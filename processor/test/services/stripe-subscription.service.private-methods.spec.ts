@@ -6,6 +6,7 @@ import { CtPaymentCreationService } from '../../src/services/ct-payment-creation
 import { StripePaymentService } from '../../src/services/stripe-payment.service';
 import { mockGetSubscriptionCartWithVariant } from '../utils/mock-cart-data';
 import { METADATA_CUSTOMER_ID_FIELD, METADATA_VARIANT_SKU_FIELD, METADATA_PRICE_ID_FIELD } from '../../src/constants';
+import { lineItemStripeSubscriptionIdField } from '../../src/custom-types/custom-types';
 import * as CartClient from '../../src/services/commerce-tools/cart-client';
 import * as CustomerClient from '../../src/services/commerce-tools/customer-client';
 
@@ -60,7 +61,8 @@ describe('StripeSubscriptionService - Private Methods', () => {
       } as any,
       ctPaymentService: {
         getPayment: jest.fn(),
-        findPaymentsByInterfaceId: jest.fn(),
+        // Default: no existing payment for the cycle PI, so the idempotency guard proceeds to clone.
+        findPaymentsByInterfaceId: jest.fn<() => Promise<unknown[]>>().mockResolvedValue([]),
         hasTransactionInState: jest.fn(),
         updatePayment: jest.fn(),
       } as any,
@@ -327,6 +329,44 @@ describe('StripeSubscriptionService - Private Methods', () => {
         ),
       ).rejects.toThrow('Customer not found');
     });
+
+    test('should base the recurring payment amount on the invoice total, not the cloned cart total', async () => {
+      // Repro of the mixed / multi-quantity recurring bug: the cloned cart totals $225 (qty 3 x $75)
+      // but Stripe only charges the $75 recurring invoice. The payment must reflect Stripe ($75).
+      const mockSubscription = { id: 'sub_123', items: { data: [{ price: { metadata: {} } }] } };
+      const mockInvoiceExpanded = {
+        id: 'in_123',
+        total: 7500, // Stripe recurring charge this cycle
+        parent: { subscription_details: { metadata: { [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123' } } },
+        charge: { id: 'ch_123', billing_details: { address: { country: 'US' } } },
+      };
+      const mockUpdateData = { id: 'update_123', pspReference: 'pi_recurring_123' };
+      const mockOrder = { id: 'order_123', lineItems: [{ id: 'li_1' }] };
+      const mockClonedCart = {
+        id: 'cart_cloned',
+        totalPrice: { centAmount: 22500, currencyCode: 'USD', fractionDigits: 2 }, // $225 clone
+      };
+
+      jest.spyOn(paymentSDK.ctOrderService, 'getOrderByPaymentId').mockResolvedValue(mockOrder as any);
+      jest.spyOn(CustomerClient, 'getCustomerById').mockResolvedValue({ id: 'ct_customer_123' } as any);
+      jest.spyOn(stripeSubscriptionService as any, 'createCartFromOrder').mockResolvedValue(mockClonedCart as any);
+      jest.spyOn(StripePaymentService.prototype, 'updateCartAddress').mockResolvedValue(mockClonedCart as any);
+      const spiedCreatePayment = jest
+        .spyOn(CtPaymentCreationService.prototype, 'handleCtPaymentCreation')
+        .mockResolvedValue('new_payment_123');
+      jest.spyOn(paymentSDK.ctCartService, 'getCart').mockResolvedValue(mockClonedCart as any);
+      jest.spyOn(StripePaymentService.prototype, 'createOrder').mockResolvedValue(undefined);
+      jest.spyOn(stripeSubscriptionService, 'updateSubscriptionMetadata').mockResolvedValue(undefined);
+
+      await (stripeSubscriptionService as any).handleSubscriptionPaymentCreateNewOrder(
+        mockSubscription,
+        mockInvoiceExpanded,
+        mockUpdateData,
+      );
+
+      const amountPlanned = (spiedCreatePayment.mock.calls[0][0] as any).amountPlanned;
+      expect(amountPlanned.centAmount).toBe(7500); // invoice total, NOT the $225 cloned cart
+    });
   });
 
   describe('createCartFromOrder', () => {
@@ -524,6 +564,64 @@ describe('StripeSubscriptionService - Private Methods', () => {
       });
       expect(CartClient.updateCartById).toHaveBeenCalled();
       expect(CartClient.getCartExpanded).toHaveBeenCalled();
+    });
+
+    test('should clone ONLY the subscription line item from a mixed order (exclude one-time items)', async () => {
+      // Mixed order: 2 one-time items + 1 subscription item. The subscription item is identified by
+      // its subscription-id custom field even when SKU/price differ (e.g. after price-sync). One-time
+      // items must NOT be cloned into the recurring cart (that produced the qty-3 / $225 inflation).
+      const mockOrder = {
+        id: 'order_mixed',
+        lineItems: [
+          {
+            id: 'li_candle',
+            productId: 'p_candle',
+            variant: { id: 'v1', sku: 'CANDLE' },
+            price: { id: 'price_candle' },
+            quantity: 1,
+            custom: { fields: {} },
+          },
+          {
+            id: 'li_cup',
+            productId: 'p_cup',
+            variant: { id: 'v2', sku: 'CUP' },
+            price: { id: 'price_cup' },
+            quantity: 1,
+            custom: { fields: {} },
+          },
+          {
+            id: 'li_sub',
+            productId: 'p_sub',
+            variant: { id: 'v3', sku: 'DIFFERENT-AFTER-SYNC' },
+            price: { id: 'price_changed' },
+            quantity: 1,
+            custom: { fields: { [lineItemStripeSubscriptionIdField]: 'sub_mixed' } },
+          },
+        ],
+        totalPrice: { centAmount: 8498, currencyCode: 'USD', fractionDigits: 2 },
+      };
+      const mockCustomer = { id: 'ct_customer_123', email: 'test@example.com' };
+      const mockSubscription = {
+        id: 'sub_mixed',
+        items: {
+          data: [{ id: 'item_1', price: { metadata: { [METADATA_VARIANT_SKU_FIELD]: 'SUBSKU' }, unit_amount: 7500 } }],
+        },
+        metadata: { [METADATA_PRICE_ID_FIELD]: 'price_sub' },
+      };
+      const mockCart = { id: 'cart_new', lineItems: [] };
+
+      jest.spyOn(CartClient, 'createCartFromDraft').mockResolvedValue(mockCart as any);
+      const spiedUpdate = jest.spyOn(CartClient, 'updateCartById').mockResolvedValue({ id: 'cart_new' } as any);
+      jest.spyOn(CartClient, 'getCartExpanded').mockResolvedValue(mockCart as any);
+      jest.spyOn(stripeSubscriptionService as any, 'updateSubscriptionPriceIfNeeded').mockResolvedValue(mockCart);
+      jest.spyOn(stripeSubscriptionService as any, 'setCartAddresses').mockResolvedValue(mockCart);
+
+      await (stripeSubscriptionService as any).createNewCartFromOrder(mockOrder, mockCustomer, mockSubscription);
+
+      // First updateCartById call carries the line-item actions: exactly ONE (the subscription item).
+      const actions = spiedUpdate.mock.calls[0][1] as any[];
+      expect(actions).toHaveLength(1);
+      expect(actions[0].action).toBe('addLineItem');
     });
 
     test('should handle cart creation without line items', async () => {

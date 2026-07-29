@@ -51,7 +51,7 @@ Events registered in `processor/src/connectors/actions.ts` (in addition to check
 | `invoice.paid` | ✅ | Creates CT order or adds payment per `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING` |
 | `invoice.payment_failed` | ✅ | Updates CT payment state |
 | `invoice.upcoming` | ✅ | Triggers price sync when `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true` |
-| `charge.succeeded` (recurring) | ✅ | Handled for subscription renewal charges |
+| `charge.succeeded` (subscription invoice) | ⚠️ Registered, deliberately dropped | `isFromSubscriptionInvoice()` guard stops it before processing — `invoice.paid` alone handles recurring payments, see `business-rules/recurring-billing.md` Rule 4 |
 | `charge.refunded` | ✅ Always registered | Registered unconditionally; multirefund behavior |
 | `charge.captured` | ✅ Always registered | Registered unconditionally; multicapture behavior |
 | `payment_intent.requires_action` | ⚠️ Logged only | Not fully handled; no CT update |
@@ -77,7 +77,7 @@ Events **not registered** (same as checkout):
 | --- | --- | --- |
 | CT price → Stripe subscription price sync | ✅ Opt-in | `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true`; triggered on `invoice.upcoming` |
 | Sync source of truth | CT prices | Stripe subscription prices are updated to match CT prices |
-| Risk | ⚠️ High | Misconfiguration silently changes prices on active subscriptions; price IDs generated with `Date.now()` (not stable — see `known-issues.md` KI-013) |
+| Risk | ⚠️ High | Misconfiguration silently changes prices on active subscriptions; the metadata meant to reference the CT price on a synced Stripe price is stamped with `Date.now()` instead, and the reuse lookup searches the wrong metadata key entirely — synced prices are effectively never matched/reused (see `known-issues.md` KI-013 and KI-032, `business-rules/price-sync.md` Rule 3) |
 
 ---
 

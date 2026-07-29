@@ -146,10 +146,12 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
           if (!isFromSubscriptionInvoice(event)) {
             log.info(`Processing Stripe payment event: ${event.type}`);
             await opts.paymentService.processStripeEvent(event);
-          } else {
-            log.info(`--->>> This Stripe event is from a subscription invoice charge: ${event.type}`);
-            await opts.subscriptionService.processSubscriptionEventCharged(event);
           }
+          // Subscription-invoice charge/PI events are ignored on purpose:
+          // invoice.paid / invoice.payment_failed are the single source of truth for
+          // subscription payments. Stripe emits charge.succeeded + payment_intent.succeeded +
+          // invoice.paid for one subscription charge; routing the charge/PI here would create
+          // duplicate CT payments and orders. See processSubscriptionEventPaid / processSubscriptionEventFailed.
           break;
         case StripeEvent.CHARGE__UPDATED:
           if (getConfig().stripeEnableMultiOperations) {

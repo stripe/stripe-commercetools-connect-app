@@ -219,6 +219,16 @@ export class StripeShippingService {
         });
       }
 
+      // Cart-level discounts that target the total (discount codes) are not reflected in
+      // lineItem.totalPrice, so the displayed items would otherwise exceed the amount actually charged.
+      // Stripe requires the Express Checkout line items to reconcile with the charged total and supports
+      // representing discounts as negative-amount line items — surface the cart total discount as one.
+      // The taxed branch shows a net Subtotal that already accounts for it, so it is skipped.
+      const cartDiscount = ctCart.discountOnTotalPrice?.discountedAmount?.centAmount ?? 0;
+      if (!ctCart.taxedPrice && cartDiscount > 0) {
+        lineItems.push({ name: 'Discount', amount: -cartDiscount });
+      }
+
       return lineItems;
     } catch (error) {
       log.error(`Error getting cart line items: ${error}`);

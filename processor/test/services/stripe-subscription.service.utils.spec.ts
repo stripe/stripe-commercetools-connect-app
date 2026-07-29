@@ -77,6 +77,33 @@ describe('stripe-subscription.service.utils', () => {
       expect(result).toStrictEqual(expectedAmount);
     });
 
+    test('should use the discounted price when the subscription product is on sale', () => {
+      const baseCart = mockGetSubscriptionCartWithVariant(6);
+      const baseLineItem = baseCart.lineItems[0];
+      const discountedCentAmount = baseLineItem.price.value.centAmount - 500;
+      const mockCartWithDiscount = {
+        ...baseCart,
+        lineItems: [
+          {
+            ...baseLineItem,
+            quantity: 2,
+            price: {
+              ...baseLineItem.price,
+              discounted: {
+                value: { ...baseLineItem.price.value, centAmount: discountedCentAmount },
+                discount: { typeId: 'product-discount' as const, id: 'pd-1' },
+              },
+            },
+          },
+        ],
+      };
+
+      const result = stripeSubscriptionService.getSubscriptionPaymentAmount(mockCartWithDiscount);
+
+      expect(result.centAmount).toBe(discountedCentAmount);
+      expect(result.totalCentAmount).toBe(discountedCentAmount * 2);
+    });
+
     test('should throw an error when no subscription found', () => {
       expect(() => stripeSubscriptionService.getSubscriptionPaymentAmount(mockGetCartResult())).toThrow();
     });

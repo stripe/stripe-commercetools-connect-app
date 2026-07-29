@@ -50,7 +50,7 @@ Complete these steps before deploying the connector. Skipping any will cause sil
 | `CTP_CHECKOUT_URL` | Yes | — | |
 | `CTP_JWKS_URL` | Yes | `https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json` | |
 | `CTP_JWT_ISSUER` | Yes | `https://mc-api.europe-west1.gcp.commercetools.com` | |
-| `STRIPE_WEBHOOK_ID` | Yes | — | `we_*****` from Stripe Dashboard. **Deploy-time only:** read via `properties.get('STRIPE_WEBHOOK_ID')` in `processor/src/connectors/post-deploy.ts` (a `connect.yaml` property), not via `process.env` in `config.ts`. It is consumed by the post-deploy script, not at runtime — don't look for it in the runtime service config. |
+| `STRIPE_WEBHOOK_ID` | Yes | — | `we_*****` from Stripe Dashboard |
 | `STRIPE_PUBLISHABLE_KEY` | Yes | — | `pk_*****` |
 | `MERCHANT_RETURN_URL` | Yes | — | URL for 3DS redirects |
 | `STRIPE_COLLECT_BILLING_ADDRESS` | Yes | `auto` | `auto` \| `never` \| `if_required` |
@@ -137,5 +137,5 @@ The processor exposes its root at `/`. The enabler is a static asset bundle cons
 1. Stripe Dashboard → Webhooks → confirm the endpoint URL is updated and all 10 events are enabled
 2. CT Merchant Center → Types → confirm `payment-connector-stripe-customer-id`, `payment-connector-subscription-line-item-type` exist
 3. CT Merchant Center → Product Types → confirm `payment-connector-subscription-information` exists with all `stripeConnector_*` attributes
-4. Hit `GET <CONNECT_SERVICE_URL>/operations/status` — expect `200 OK`. There is no `/health` route. This endpoint is **JWT-authenticated** (`jwtAuthHook`, see `processor/src/routes/operation.route.ts`), so the request must carry a valid CT JWT; an unauthenticated call returns 401, not 200.
+4. Hit `GET <CONNECT_SERVICE_URL>/health` — expect `200 OK`
 5. Place a test subscription order end-to-end with a Stripe test card

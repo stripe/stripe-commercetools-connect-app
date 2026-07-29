@@ -209,6 +209,32 @@ describe('Price Client', () => {
 
       expect(result).toBeUndefined();
     });
+
+    it('should return the discounted price when the product is on sale', async () => {
+      const mockProduct = {
+        masterData: {
+          current: {
+            masterVariant: {
+              prices: [
+                {
+                  value: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
+                  discounted: {
+                    value: { centAmount: 800, currencyCode: 'USD', fractionDigits: 2 },
+                    discount: { typeId: 'product-discount', id: 'pd-1' },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      };
+
+      jest.spyOn(PriceClient, 'getProductById').mockResolvedValue(mockProduct as any);
+
+      const result = await PriceClient.getProductMasterPrice('test-product-id');
+
+      expect(result).toEqual({ centAmount: 800, currencyCode: 'USD', fractionDigits: 2 });
+    });
   });
 
   describe('getPriceFromProduct', () => {
@@ -293,6 +319,23 @@ describe('Price Client', () => {
         currencyCode: 'USD',
         fractionDigits: 2,
       });
+    });
+
+    it('should return the discounted price when the matched price is on sale', async () => {
+      const mockProduct = createMockProduct([
+        {
+          id: 'price-123',
+          value: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
+          discounted: {
+            value: { centAmount: 750, currencyCode: 'USD', fractionDigits: 2 },
+            discount: { typeId: 'product-discount', id: 'pd-1' },
+          },
+        },
+      ]);
+
+      const result = PriceClient.getPriceFromProduct(mockProduct, 'price-123');
+
+      expect(result).toEqual({ centAmount: 750, currencyCode: 'USD', fractionDigits: 2 });
     });
 
     it('should find price in variants when not in master variant', async () => {
