@@ -103,6 +103,30 @@ describe('subscriptionEvent.converter', () => {
     });
   });
 
+  test('convert a invoice.paid event keys transactions by the invoice id when there is no top-level payment_intent (basil/clover)', () => {
+    // Stripe 2025+ no longer populates invoice.payment_intent; subscription transactions must reference
+    // the invoice id (in_), NOT the PaymentIntent, so they reconcile against Stripe invoices.
+    const mockInvoice = {
+      id: 'in_clover123',
+      amount_paid: 1000,
+      currency: 'usd',
+      amount_due: 0,
+      payment_intent: null,
+      charge: null,
+    } as unknown as Stripe.Invoice;
+
+    const mockEvent = {
+      type: 'invoice.paid',
+      data: { object: mockInvoice },
+    } as unknown as Stripe.Event;
+
+    const result = converter.convert(mockEvent, mockInvoice, false, mockGetPaymentResult);
+
+    expect(result.pspReference).toBe('in_clover123');
+    expect(result.transactions).toHaveLength(2);
+    expect(result.transactions.every((t) => t.interactionId === 'in_clover123')).toBe(true);
+  });
+
   test('convert a invoice.paid event with NO Payment intent and YES Charge pending', () => {
     const eventInvoice = mockEvent__invoice_paid__Expanded_noPaymnet_intent__amount_paid.data.object as Stripe.Invoice;
     const mockPayment: Payment = mockGetPaymentResult;

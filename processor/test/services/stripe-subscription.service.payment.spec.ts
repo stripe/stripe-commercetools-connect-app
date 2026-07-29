@@ -381,6 +381,126 @@ describe('stripe-subscription.service.payment', () => {
       expect(paymentSDK.ctCartService.getCart).toHaveBeenCalledWith({ id: 'cart_123' });
     });
 
+    test('should create the order from the frozen cart on the first cycle (billing_reason subscription_create)', async () => {
+      setupMockConfig({
+        subscriptionPaymentHandling: 'createOrder',
+      });
+
+      const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
+      const mockFirstCycleInvoice = {
+        ...mockInvoiceExpanded__simple,
+        billing_reason: 'subscription_create',
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {
+                [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+              },
+            },
+            metadata: {
+              [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+            },
+          },
+        },
+        charge: {
+          id: 'ch_123',
+          billing_details: {
+            address: {
+              city: 'Test City',
+              country: 'US',
+              line1: '123 Test St',
+              postal_code: '12345',
+              state: 'CA',
+            },
+          },
+        },
+      };
+
+      const mockFrozenCart = {
+        id: 'cart_123',
+        cartState: 'Frozen',
+        totalPrice: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
+      };
+
+      jest
+        .spyOn(CtPaymentCreationService.prototype, 'getStripeInvoiceExpanded')
+        .mockResolvedValue(mockFirstCycleInvoice as any);
+      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockResolvedValue(mockPayment__subscription_success);
+      jest.spyOn(DefaultPaymentService.prototype, 'findPaymentsByInterfaceId').mockResolvedValue([]);
+      jest.spyOn(DefaultPaymentService.prototype, 'hasTransactionInState').mockReturnValue(false); // Not pending and not failed
+      jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockResolvedValue(mockPayment__subscription_success);
+
+      const spiedGetOrderByPaymentIdMock = jest
+        .spyOn(paymentSDK.ctOrderService, 'getOrderByPaymentId')
+        .mockRejectedValue(new Error('Order not found'));
+      const spiedGetCartByPaymentIdMock = jest
+        .spyOn(paymentSDK.ctCartService, 'getCartByPaymentId')
+        .mockResolvedValue(mockFrozenCart as any);
+      jest.spyOn(StripePaymentService.prototype, 'updateCartAddress').mockResolvedValue(mockFrozenCart as any);
+      const spiedCreateOrderMock = jest
+        .spyOn(StripePaymentService.prototype, 'createOrder')
+        .mockResolvedValue(undefined);
+
+      await stripeSubscriptionService.processSubscriptionEventPaid(mockEvent);
+
+      expect(spiedGetOrderByPaymentIdMock).not.toHaveBeenCalled();
+      expect(spiedGetCartByPaymentIdMock).toHaveBeenCalledWith({ paymentId: 'ct_payment_123' });
+      expect(spiedCreateOrderMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cart: mockFrozenCart,
+          paymentState: 'Paid',
+        }),
+      );
+      expect(Logger.log.error).not.toHaveBeenCalledWith(
+        expect.stringContaining('Error processing Subscription processSubscriptionEventPaid'),
+      );
+    });
+
+    test('should clone the previous order on recurring cycles (billing_reason subscription_cycle)', async () => {
+      setupMockConfig({
+        subscriptionPaymentHandling: 'createOrder',
+      });
+
+      const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
+      const mockRecurringInvoice = {
+        ...mockInvoiceExpanded__simple,
+        billing_reason: 'subscription_cycle',
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {
+                [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+              },
+            },
+            metadata: {
+              [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+            },
+          },
+        },
+        payment_intent: null,
+        charge: null,
+      };
+
+      jest
+        .spyOn(CtPaymentCreationService.prototype, 'getStripeInvoiceExpanded')
+        .mockResolvedValue(mockRecurringInvoice as any);
+      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockResolvedValue(mockPayment__subscription_success);
+      jest.spyOn(DefaultPaymentService.prototype, 'findPaymentsByInterfaceId').mockResolvedValue([]);
+      jest.spyOn(DefaultPaymentService.prototype, 'hasTransactionInState').mockReturnValue(false);
+
+      const spiedGetOrderByPaymentIdMock = jest
+        .spyOn(paymentSDK.ctOrderService, 'getOrderByPaymentId')
+        .mockRejectedValue(new Error('Order not found'));
+      const spiedGetCartByPaymentIdMock = jest.spyOn(paymentSDK.ctCartService, 'getCartByPaymentId');
+
+      await stripeSubscriptionService.processSubscriptionEventPaid(mockEvent);
+
+      expect(spiedGetOrderByPaymentIdMock).toHaveBeenCalledWith({ paymentId: 'payment_123' });
+      expect(spiedGetCartByPaymentIdMock).not.toHaveBeenCalled();
+    });
+
     test('should handle missing customer ID when creating new order', async () => {
       setupMockConfig({
         subscriptionPaymentHandling: 'createOrder',
@@ -547,6 +667,101 @@ describe('stripe-subscription.service.payment', () => {
       await stripeSubscriptionService.processSubscriptionEventFailed(mockEvent);
 
       expect(paymentSDK.ctOrderService.getOrderByPaymentId).toHaveBeenCalledWith({ paymentId: 'payment_123' });
+    });
+
+    test('P3 regression: recurring-cycle failure still clones the order via handleSubscriptionPaymentCreateNewOrder', async () => {
+      setupMockConfig({
+        subscriptionPaymentHandling: 'createOrder',
+      });
+
+      const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
+      const mockRecurringInvoice = {
+        ...mockInvoiceExpanded__simple,
+        billing_reason: 'subscription_cycle',
+        parent: {
+          subscription_details: {
+            subscription: {
+              ...mockInvoiceExpanded__simple.parent.subscription_details.subscription,
+              metadata: {
+                [METADATA_PAYMENT_ID_FIELD]: 'ct_payment_123',
+              },
+            },
+            metadata: {
+              [METADATA_CUSTOMER_ID_FIELD]: 'ct_customer_123',
+            },
+          },
+        },
+      };
+
+      jest
+        .spyOn(CtPaymentCreationService.prototype, 'getStripeInvoiceExpanded')
+        .mockResolvedValue(mockRecurringInvoice as any);
+      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockResolvedValue(mockPayment__subscription_success);
+      jest.spyOn(DefaultPaymentService.prototype, 'findPaymentsByInterfaceId').mockResolvedValue([]); // isPaymentFailed = false
+      jest.spyOn(DefaultPaymentService.prototype, 'hasTransactionInState').mockReturnValue(false); // not charge pending
+      jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockResolvedValue(mockPayment__subscription_success);
+
+      const handleNewOrderSpy = jest
+        .spyOn(StripeSubscriptionService.prototype as any, 'handleSubscriptionPaymentCreateNewOrder')
+        .mockResolvedValue('new_payment_ref');
+
+      await stripeSubscriptionService.processSubscriptionEventFailed(mockEvent);
+
+      expect(handleNewOrderSpy).toHaveBeenCalled();
+      // FAILED state is propagated to the cloned order.
+      expect(handleNewOrderSpy.mock.calls[0][3]).toBe('Failed');
+    });
+  });
+
+  describe('handleSubscriptionPaymentCreateNewOrder idempotency guard (P2)', () => {
+    const baseInvoice = {
+      ...mockInvoiceExpanded__simple,
+      id: 'in_recurring_1',
+    };
+    const subscription = { id: 'sub_123', metadata: {} } as any;
+    const updateData = {
+      id: 'payment_123',
+      pspReference: 'pi_recurring_123',
+      paymentMethod: 'card',
+      transactions: [],
+    } as any;
+
+    test('returns the existing payment and skips cloning when a payment already exists for the cycle PI (invoice.paid redelivery)', async () => {
+      const findSpy = jest
+        .spyOn(DefaultPaymentService.prototype, 'findPaymentsByInterfaceId')
+        .mockResolvedValue([{ id: 'existing_recurring_payment' }] as any);
+      const getOrderSpy = jest.spyOn(paymentSDK.ctOrderService, 'getOrderByPaymentId');
+
+      const result = await (stripeSubscriptionService as any).handleSubscriptionPaymentCreateNewOrder(
+        subscription,
+        baseInvoice,
+        updateData,
+        'Paid',
+      );
+
+      expect(result).toBe('existing_recurring_payment');
+      expect(findSpy).toHaveBeenCalledWith({ interfaceId: 'pi_recurring_123' });
+      // Guard short-circuits before any cloning work.
+      expect(getOrderSpy).not.toHaveBeenCalled();
+    });
+
+    test('proceeds to clone on first delivery when no payment exists for the cycle PI', async () => {
+      jest.spyOn(DefaultPaymentService.prototype, 'findPaymentsByInterfaceId').mockResolvedValue([]);
+      const getOrderSpy = jest
+        .spyOn(paymentSDK.ctOrderService, 'getOrderByPaymentId')
+        .mockRejectedValue(new Error('reached-clone-path'));
+
+      await expect(
+        (stripeSubscriptionService as any).handleSubscriptionPaymentCreateNewOrder(
+          subscription,
+          baseInvoice,
+          updateData,
+          'Paid',
+        ),
+      ).rejects.toThrow('reached-clone-path');
+
+      // Passed the guard and entered the cloning path.
+      expect(getOrderSpy).toHaveBeenCalledWith({ paymentId: 'payment_123' });
     });
   });
 
@@ -819,6 +1034,8 @@ describe('stripe-subscription.service.payment', () => {
         .spyOn(CtPaymentCreationService.prototype, 'getStripeInvoiceExpanded')
         .mockResolvedValue(mockInvoiceWithCustomer as any);
       jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockResolvedValue(mockPayment__subscription_success);
+      // No existing payment for the cycle PI -> idempotency guard passes through (first delivery)
+      jest.spyOn(DefaultPaymentService.prototype, 'findPaymentsByInterfaceId').mockResolvedValue([]);
       // isPaymentChargePending = false (recurring payment, triggers config branching)
       jest.spyOn(DefaultPaymentService.prototype, 'hasTransactionInState').mockReturnValue(false);
       jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockResolvedValue(mockPayment__subscription_success);

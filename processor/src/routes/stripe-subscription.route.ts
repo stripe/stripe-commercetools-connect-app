@@ -95,7 +95,12 @@ export const subscriptionRoutes = async (
         await opts.subscriptionService.confirmSubscriptionPayment(req.body);
         return reply.status(200).send({ outcome: PaymentModificationStatus.APPROVED });
       } catch (error) {
-        return reply.status(400).send({ outcome: PaymentModificationStatus.REJECTED, error: JSON.stringify(error) });
+        // Return a safe message only — never serialize the raw error object, which can leak
+        // Stripe error payloads to the client (project rule: never expose Stripe payloads).
+        return reply.status(400).send({
+          outcome: PaymentModificationStatus.REJECTED,
+          error: error instanceof Error ? error.message : 'Subscription confirmation failed',
+        });
       }
     },
   );

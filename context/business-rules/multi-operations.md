@@ -14,7 +14,7 @@ Requires multicapture to be enabled in the Stripe account (Dashboard → Setting
 
 **Invariant:** Never process `charge.updated` for CT state changes without the flag enabled. A partial capture without the flag active results in no CT transaction update.
 
-**Implementation:** `stripe-payment.route.ts:154-160` — `charge.updated` case.
+**Implementation:** `stripe-payment.route.ts:156-163` — `charge.updated` case.
 
 ---
 

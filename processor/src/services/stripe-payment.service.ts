@@ -557,7 +557,7 @@ export class StripePaymentService extends AbstractPaymentService {
         },
       });
     } catch (error) {
-      console.log('updatePaymentIntentStripeSuccessful error', JSON.stringify(error, null, 2));
+      log.error('Error updating PaymentIntent to successful in CT', { error });
       throw error;
     }
   }

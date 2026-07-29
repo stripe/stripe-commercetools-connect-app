@@ -34,23 +34,23 @@ A mixed cart contains one subscription line item plus any number of one-time ite
 
 ---
 
-## Rule 3: Stripe prices for one-time items are created on the fly
+## Rule 3: Stripe prices for one-time items are looked up by metadata and reused when still valid, created fresh otherwise
 
-**What:** For each non-subscription line item, a new Stripe price is created using the CT line item price and variant SKU. These prices are non-recurring (`type: one_time`).
+**What:** For each non-subscription line item, `getLineItemPriceId()` first searches for an existing Stripe price via `getStripePriceByMetadata()` (keyed on the line item's variant SKU). If found and both `active` and matching the current CT amount (`hasSamePrice`), that price is reused. Otherwise the stale price is disabled (`disableStripePrice()`) and a new non-recurring (`type: one_time`) Stripe price is created with the current CT amount and variant SKU in its metadata.
 
-**Why:** One-time line items don't have pre-existing Stripe prices. They're arbitrary products that happen to be in the cart alongside the subscription.
+**Why:** One-time line items are ordinary CT products, not ephemeral checkout-only entities — the same product can appear in a mixed cart across multiple checkouts, and creating a fresh Stripe Price every time would leave stale, unused Price objects behind. Reuse-when-valid mirrors the pattern used for subscription and shipping prices (`getCreateSubscriptionPriceId()`, `getSubscriptionShippingPriceId()`) and is the fix KI-021 describes as the correct reference implementation.
 
-**Invariant:** These prices are ephemeral — created per-checkout, not reused. Never attempt to reuse a one-time invoice item price across different checkouts.
+**Invariant:** Never reuse a price whose `unit_amount` no longer matches the current CT line item price — always verify `active && hasSamePrice` before reuse, and disable+recreate when it fails either check (see KI-021 for the sibling shipping-price method that was found *not* to check amount).
 
-**Implementation:** `stripe-subscription.service.ts` → `getAllLineItemPrices()`
+**Implementation:** `stripe-subscription.service.ts` → `getLineItemPriceId()` (lookup/reuse/create logic), `getAllLineItemPrices()` (caller), `disableStripePrice()` (deprecation on mismatch).
 
-**What breaks if violated:** Reusing old prices risks applying stale prices (old amounts, wrong currency) to current checkouts.
+**What breaks if violated:** Skipping the reuse check creates an orphaned Stripe Price on every checkout for the same recurring one-time product. Skipping the amount-match check (the KI-021 failure mode) risks charging a stale, no-longer-current amount.
 
 ---
 
 ## Rule 4: Mixed cart identification requires checking product type, not line item flags
 
-**What:** The connector distinguishes subscription from one-time items by checking if the line item's product belongs to `CT_PRODUCT_TYPE_SUBSCRIPTION_KEY`. All other line items are treated as one-time.
+**What:** The connector distinguishes subscription from one-time items by checking if `lineItem.productType.obj?.name` equals the hardcoded literal `'payment-connector-subscription-information'` (`stripe-subscription.service.ts:479`) — not by the `CT_PRODUCT_TYPE_SUBSCRIPTION_KEY` env var, which only configures the product type's `key`, unrelated to this `name` comparison. See `business-rules/subscription-lifecycle.md` Rule 3. All other line items are treated as one-time.
 
 **Why:** There is no explicit "is recurring" flag on CT line items. The product type is the authoritative classifier.
 

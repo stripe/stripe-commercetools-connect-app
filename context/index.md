@@ -36,6 +36,7 @@ For questions about the Integration as a whole (failure modes, connector selecti
 | How does multi-capture / multi-refund work? | `business-rules/multi-operations.md` |
 | How does Launchpad B2B integration work? | `business-rules/launchpad-integration.md` |
 | How does the payment lifecycle map to CT transactions? | `ARCHITECTURE.md` + `../../context/business-rules/payment-lifecycle.md` |
+| How is a caller-supplied payment reference authorized before use? | `business-rules/payment-ownership-binding.md` |
 
 ### "What happens when X fails?"
 
@@ -56,6 +57,7 @@ For questions about the Integration as a whole (failure modes, connector selecti
 | Rules for coupon sync | `business-rules/coupon-sync.md` |
 | Universal Stripe + CT rules | `../../context/business-rules/stripe-ct-shared.md` |
 | Universal refund rules | `../../context/business-rules/refunds.md` |
+| Rules for authorizing caller-supplied payment references | `business-rules/payment-ownership-binding.md` |
 | Why was architectural decision X made? | `decisions/` |
 
 ---

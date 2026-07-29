@@ -719,13 +719,20 @@ describe('stripe-subscription.service.business-logic', () => {
   });
 
   describe('method confirmSubscriptionPayment', () => {
-    const mockCart = mockGetSubscriptionCartWithVariant(1);
+    const mockCart = {
+      ...mockGetSubscriptionCartWithVariant(1),
+      // 'payment_123' must be attached to the cart so the Layer 1 ownership binding
+      // (IDOR / CWE-639 guard) permits the confirm.
+      paymentInfo: { payments: [{ id: 'payment_123', typeId: 'payment' as const }] },
+    } as any;
     const mockPayment = {
       id: 'payment_123',
       amountPlanned: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
       version: 1,
       customer: { id: 'customer_123', typeId: 'customer' as const },
-      interfaceId: 'int_123',
+      // interfaceId equals the subscriptionId, which is always a member of the server-derived
+      // reference set, so the Layer 2 defense-in-depth check passes across every mode here.
+      interfaceId: 'sub_123',
       paymentMethodInfo: { method: 'card', name: { en: 'Card' } },
       paymentStatus: { interfaceText: 'Pending' },
       transactions: [],
@@ -891,7 +898,7 @@ describe('stripe-subscription.service.business-logic', () => {
         require('../../src/services/ct-payment-creation.service').CtPaymentCreationService.prototype
           .updateSubscriptionPaymentTransactions,
       ).toHaveBeenCalledWith({
-        interactionId: 'pi_123',
+        interactionId: 'in_123',
         payment: mockPayment,
         subscriptionId: 'sub_123',
         isPending: false,
@@ -934,7 +941,7 @@ describe('stripe-subscription.service.business-logic', () => {
         require('../../src/services/ct-payment-creation.service').CtPaymentCreationService.prototype
           .updateSubscriptionPaymentTransactions,
       ).toHaveBeenCalledWith({
-        interactionId: 'pi_123',
+        interactionId: 'in_123',
         payment: mockPayment,
         subscriptionId: 'sub_123',
         isPending: true, // Should be pending for send invoice + trial

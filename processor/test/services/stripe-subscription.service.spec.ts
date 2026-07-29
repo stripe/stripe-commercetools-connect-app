@@ -223,23 +223,163 @@ describe('stripe-subscription.service', () => {
   });
 
   describe('method confirmSubscriptionPayment', () => {
-    test('should confirm subscription payment successfully', async () => {
-      const mockCart = mockGetSubscriptionCartWithVariant(1);
+    // The mock cart (mockGetCartResult) attaches a single payment with id 'paymentId'
+    // to cart.paymentInfo.payments[]. A caller may only confirm a payment that is a
+    // member of that set (Layer 1 ownership binding / IDOR CWE-639 guard).
+    const ownedPaymentReference = 'paymentId';
 
-      jest.spyOn(CartClient, 'getCartExpanded').mockResolvedValue(mockCart);
+    // getSubscriptionTypes flag sets used to drive each subscription mode through confirm.
+    const types = (overrides: Record<string, boolean> = {}) => ({
+      hasTrial: false,
+      hasAnchorDays: false,
+      hasFreeAnchorDays: false,
+      hasProrations: false,
+      isSendInvoice: false,
+      hasNoInvoice: false,
+      ...overrides,
+    });
+
+    const spyUpdate = () =>
+      jest.spyOn(CtPaymentCreationService.prototype, 'updateSubscriptionPaymentTransactions').mockResolvedValue();
+
+    test('happy path — PI / subscription mode (invoice-backed, immediate charge)', async () => {
+      jest.spyOn(CartClient, 'getCartExpanded').mockResolvedValue(mockGetSubscriptionCartWithVariant(1));
+      jest.spyOn(StripeSubscriptionService.prototype, 'getSubscriptionTypes').mockReturnValue(types());
       jest.spyOn(StripeSubscriptionService.prototype, 'getInvoiceFromSubscription').mockResolvedValue(mockInvoice);
       jest
         .spyOn(StripeSubscriptionService.prototype, 'getCurrentPayment')
-        .mockResolvedValue(mockPayment__subscription_success);
-      jest.spyOn(CtPaymentCreationService.prototype, 'updateSubscriptionPaymentTransactions').mockResolvedValue();
+        .mockResolvedValue(mockPayment__subscription_success); // interfaceId: 'pi_123'
+      const updateSpy = spyUpdate();
 
       const result = await stripeSubscriptionService.confirmSubscriptionPayment({
-        paymentReference: 'payment_ref_123',
+        paymentReference: ownedPaymentReference,
         subscriptionId: 'sub_123',
         paymentIntentId: 'pi_123',
       });
 
       expect(result).toBeUndefined();
+      expect(updateSpy).toHaveBeenCalledTimes(1);
+      expect(updateSpy).toHaveBeenCalledWith(expect.objectContaining({ isPending: false }));
+    });
+
+    test('happy path — setup-intent mode (trial-backed setup, pending authorization)', async () => {
+      jest.spyOn(CartClient, 'getCartExpanded').mockResolvedValue(mockGetSubscriptionCartWithVariant(1));
+      jest
+        .spyOn(StripeSubscriptionService.prototype, 'getSubscriptionTypes')
+        .mockReturnValue(types({ hasTrial: true }));
+      jest.spyOn(StripeSubscriptionService.prototype, 'getInvoiceFromSubscription').mockResolvedValue(mockInvoice);
+      jest
+        .spyOn(StripeSubscriptionService.prototype, 'getCurrentPayment')
+        .mockResolvedValue(mockPayment__subscription_success);
+      const updateSpy = spyUpdate();
+
+      await stripeSubscriptionService.confirmSubscriptionPayment({
+        paymentReference: ownedPaymentReference,
+        subscriptionId: 'sub_123',
+        paymentIntentId: 'pi_123',
+      });
+
+      expect(updateSpy).toHaveBeenCalledWith(expect.objectContaining({ isPending: true }));
+    });
+
+    test('happy path — trial mode (pending authorization, no paymentIntentId)', async () => {
+      jest.spyOn(CartClient, 'getCartExpanded').mockResolvedValue(mockGetSubscriptionCartWithVariant(1));
+      jest
+        .spyOn(StripeSubscriptionService.prototype, 'getSubscriptionTypes')
+        .mockReturnValue(types({ hasTrial: true }));
+      jest.spyOn(StripeSubscriptionService.prototype, 'getInvoiceFromSubscription').mockResolvedValue(mockInvoice);
+      // In trial mode there is no paymentIntentId; interfaceId matches via the subscriptionId,
+      // proving the Layer 2 guard is mode-aware (does not require pi_).
+      jest
+        .spyOn(StripeSubscriptionService.prototype, 'getCurrentPayment')
+        .mockResolvedValue({ ...mockPayment__subscription_success, interfaceId: 'sub_123' });
+      const updateSpy = spyUpdate();
+
+      await stripeSubscriptionService.confirmSubscriptionPayment({
+        paymentReference: ownedPaymentReference,
+        subscriptionId: 'sub_123',
+      });
+
+      expect(updateSpy).toHaveBeenCalledWith(expect.objectContaining({ isPending: true }));
+    });
+
+    test('happy path — send-invoice mode (pending authorization)', async () => {
+      jest.spyOn(CartClient, 'getCartExpanded').mockResolvedValue(mockGetSubscriptionCartWithVariant(1));
+      jest
+        .spyOn(StripeSubscriptionService.prototype, 'getSubscriptionTypes')
+        .mockReturnValue(types({ isSendInvoice: true }));
+      jest.spyOn(StripeSubscriptionService.prototype, 'getInvoiceFromSubscription').mockResolvedValue(mockInvoice);
+      jest
+        .spyOn(StripeSubscriptionService.prototype, 'getCurrentPayment')
+        .mockResolvedValue(mockPayment__subscription_success);
+      const updateSpy = spyUpdate();
+
+      await stripeSubscriptionService.confirmSubscriptionPayment({
+        paymentReference: ownedPaymentReference,
+        subscriptionId: 'sub_123',
+        paymentIntentId: 'pi_123',
+      });
+
+      expect(updateSpy).toHaveBeenCalledWith(expect.objectContaining({ isPending: true }));
+    });
+
+    test('happy path — no-invoice / free-anchor mode (zero-amount, keyed by subscription)', async () => {
+      jest.spyOn(CartClient, 'getCartExpanded').mockResolvedValue(mockGetSubscriptionCartWithVariant(1));
+      jest
+        .spyOn(StripeSubscriptionService.prototype, 'getSubscriptionTypes')
+        .mockReturnValue(types({ hasFreeAnchorDays: true, hasNoInvoice: true }));
+      // hasNoInvoice branch fetches the payment directly via the CT payment service.
+      const getPaymentSpy = jest
+        .spyOn(DefaultPaymentService.prototype, 'getPayment')
+        .mockResolvedValue(mockPayment__subscription_success); // interfaceId: 'pi_123'
+      const updateSpy = spyUpdate();
+
+      await stripeSubscriptionService.confirmSubscriptionPayment({
+        paymentReference: ownedPaymentReference,
+        subscriptionId: 'sub_123',
+        paymentIntentId: 'pi_123',
+      });
+
+      expect(getPaymentSpy).toHaveBeenCalledWith({ id: ownedPaymentReference });
+      expect(updateSpy).toHaveBeenCalledWith(expect.objectContaining({ interactionId: 'sub_123' }));
+    });
+
+    test('IDOR guard — rejects paymentReference not attached to the caller cart', async () => {
+      jest.spyOn(CartClient, 'getCartExpanded').mockResolvedValue(mockGetSubscriptionCartWithVariant(1));
+      const getPaymentSpy = jest.spyOn(DefaultPaymentService.prototype, 'getPayment');
+      const updateSpy = spyUpdate();
+
+      await expect(
+        stripeSubscriptionService.confirmSubscriptionPayment({
+          paymentReference: 'someone-elses-payment-uuid',
+          subscriptionId: 'sub_123',
+          paymentIntentId: 'pi_123',
+        }),
+      ).rejects.toThrow('Payment reference does not belong to the current cart.');
+
+      // The guard runs before any payment is fetched or written.
+      expect(getPaymentSpy).not.toHaveBeenCalled();
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    test('defense-in-depth — rejects when payment.interfaceId matches no server-derived reference', async () => {
+      jest.spyOn(CartClient, 'getCartExpanded').mockResolvedValue(mockGetSubscriptionCartWithVariant(1));
+      jest.spyOn(StripeSubscriptionService.prototype, 'getSubscriptionTypes').mockReturnValue(types());
+      jest.spyOn(StripeSubscriptionService.prototype, 'getInvoiceFromSubscription').mockResolvedValue(mockInvoice);
+      jest
+        .spyOn(StripeSubscriptionService.prototype, 'getCurrentPayment')
+        .mockResolvedValue({ ...mockPayment__subscription_success, interfaceId: 'pi_belongs_to_other_sub' });
+      const updateSpy = spyUpdate();
+
+      await expect(
+        stripeSubscriptionService.confirmSubscriptionPayment({
+          paymentReference: ownedPaymentReference,
+          subscriptionId: 'sub_123',
+          paymentIntentId: 'pi_123',
+        }),
+      ).rejects.toThrow('Payment does not match the subscription being confirmed.');
+
+      expect(updateSpy).not.toHaveBeenCalled();
     });
   });
 
