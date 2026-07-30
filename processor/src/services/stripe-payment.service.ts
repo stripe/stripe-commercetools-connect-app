@@ -718,29 +718,13 @@ export class StripePaymentService extends AbstractPaymentService {
 
       // Ordering + dedup guard for async crypto settlement (payment_intent.processing).
       // Stripe does not guarantee event order and may redeliver: skip writing the Pending
-      // authorization if the payment is already resolved (Charge/Success) or a Pending
-      // authorization already exists. Scoped to processing — other events are unaffected.
-      if (event.type === StripeEvent.PAYMENT_INTENT__PROCESSING) {
-        const payment = await this.ctPaymentService.getPayment({ id: updateData.id });
-        const hasChargeSuccess = this.ctPaymentService.hasTransactionInState({
-          payment,
-          transactionType: PaymentTransactions.CHARGE,
-          states: [PaymentStatus.SUCCESS],
-        });
-        const hasAuthPending = this.ctPaymentService.hasTransactionInState({
-          payment,
-          transactionType: PaymentTransactions.AUTHORIZATION,
-          states: [PaymentStatus.PENDING],
-        });
-        if (hasChargeSuccess || hasAuthPending) {
-          log.info('Skipping payment_intent.processing — payment already resolved or pending transaction exists', {
-            paymentId: updateData.id,
-            pspReference: updateData.pspReference,
-            hasChargeSuccess,
-            hasAuthPending,
-          });
-          return;
-        }
+      // authorization if the payment is already resolved or already pending. Scoped to
+      // processing — other events are unaffected. See isRedundantProcessingEvent below.
+      if (
+        event.type === StripeEvent.PAYMENT_INTENT__PROCESSING &&
+        (await this.isRedundantProcessingEvent(updateData))
+      ) {
+        return;
       }
 
       if (updateData.transactions.length === 0 && event.type === StripeEvent.CHARGE__SUCCEEDED) {
@@ -793,41 +777,7 @@ export class StripePaymentService extends AbstractPaymentService {
       await this.unfreezeCartOnPaymentCancelOrFailed(event, updateData);
 
       if (event.type === StripeEvent.PAYMENT_INTENT__SUCCEEDED) {
-        // Best-effort: transition any lingering Pending authorization (written during
-        // payment_intent.processing for async crypto settlement) to Success, so the
-        // authorization does not stay stuck in Pending after the payment completes.
-        // No-op for card payments that never went through processing. Wrapped in its own
-        // try/catch so a failure here never blocks order creation below.
-        try {
-          const payment = await this.ctPaymentService.getPayment({ id: updateData.id });
-          const hasAuthPending = this.ctPaymentService.hasTransactionInState({
-            payment,
-            transactionType: PaymentTransactions.AUTHORIZATION,
-            states: [PaymentStatus.PENDING],
-          });
-          if (hasAuthPending) {
-            await this.ctPaymentService.updatePayment({
-              id: payment.id,
-              pspReference: updateData.pspReference,
-              transaction: {
-                type: PaymentTransactions.AUTHORIZATION,
-                state: PaymentStatus.SUCCESS,
-                amount: updateData.transactions[0]?.amount ?? payment.amountPlanned,
-                interactionId: updateData.pspReference,
-              },
-            });
-            log.info('Transitioned pending authorization to Success after payment_intent.succeeded', {
-              paymentId: payment.id,
-              pspReference: updateData.pspReference,
-            });
-          }
-        } catch (authTransitionError) {
-          log.warn('Could not transition pending authorization to Success (non-blocking)', {
-            error: authTransitionError,
-            paymentId: updateData.id,
-          });
-        }
-
+        await this.transitionPendingAuthorizationToSuccess(updateData);
         await this.handlePaymentIntentSucceededFlow(event, updateData);
       }
     } catch (e) {
@@ -839,6 +789,80 @@ export class StripePaymentService extends AbstractPaymentService {
         throw e;
       }
       return;
+    }
+  }
+
+  /**
+   * Ordering + dedup guard for async crypto settlement (payment_intent.processing).
+   * Stripe does not guarantee event order and may redeliver: returns true when the Pending
+   * authorization should be skipped because the payment is already resolved (Charge/Success)
+   * or a Pending authorization already exists.
+   *
+   * @param {StripeEventUpdatePayment} updateData - Converted event payload for the payment.
+   * @return {Promise<boolean>} True when the processing event is redundant and must be skipped.
+   */
+  private async isRedundantProcessingEvent(updateData: StripeEventUpdatePayment): Promise<boolean> {
+    const payment = await this.ctPaymentService.getPayment({ id: updateData.id });
+    const hasChargeSuccess = this.ctPaymentService.hasTransactionInState({
+      payment,
+      transactionType: PaymentTransactions.CHARGE,
+      states: [PaymentStatus.SUCCESS],
+    });
+    const hasAuthPending = this.ctPaymentService.hasTransactionInState({
+      payment,
+      transactionType: PaymentTransactions.AUTHORIZATION,
+      states: [PaymentStatus.PENDING],
+    });
+    if (hasChargeSuccess || hasAuthPending) {
+      log.info('Skipping payment_intent.processing — payment already resolved or pending transaction exists', {
+        paymentId: updateData.id,
+        pspReference: updateData.pspReference,
+        hasChargeSuccess,
+        hasAuthPending,
+      });
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Best-effort transition of a lingering Pending authorization (written during
+   * payment_intent.processing for async crypto settlement) to Success, so it does not stay
+   * stuck in Pending after the payment completes. No-op for card payments that never went
+   * through processing. Own try/catch so a failure here never blocks order creation.
+   *
+   * @param {StripeEventUpdatePayment} updateData - Converted event payload for the payment.
+   * @return {Promise<void>}
+   */
+  private async transitionPendingAuthorizationToSuccess(updateData: StripeEventUpdatePayment): Promise<void> {
+    try {
+      const payment = await this.ctPaymentService.getPayment({ id: updateData.id });
+      const hasAuthPending = this.ctPaymentService.hasTransactionInState({
+        payment,
+        transactionType: PaymentTransactions.AUTHORIZATION,
+        states: [PaymentStatus.PENDING],
+      });
+      if (hasAuthPending) {
+        await this.ctPaymentService.updatePayment({
+          id: payment.id,
+          pspReference: updateData.pspReference,
+          transaction: {
+            type: PaymentTransactions.AUTHORIZATION,
+            state: PaymentStatus.SUCCESS,
+            amount: updateData.transactions[0]?.amount ?? payment.amountPlanned,
+            interactionId: updateData.pspReference,
+          },
+        });
+        log.info('Transitioned pending authorization to Success after payment_intent.succeeded', {
+          paymentId: payment.id,
+          pspReference: updateData.pspReference,
+        });
+      }
+    } catch (authTransitionError) {
+      log.warn('Could not transition pending authorization to Success (non-blocking)', {
+        error: authTransitionError,
+        paymentId: updateData.id,
+      });
     }
   }
 
