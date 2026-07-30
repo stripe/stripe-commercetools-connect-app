@@ -9,7 +9,7 @@ Extends `ct-connect-stripe-checkout` with subscription billing, mixed carts (one
 | Payment model | One-time charges | One-time + recurring subscriptions |
 | Cart lifecycle | Active until order | **Frozen after subscription initiation** |
 | Payment method capture | Direct via PaymentIntent | Also via SetupIntent (save now, charge later) |
-| Webhooks handled | `payment_intent.*`, `charge.*` | + `invoice.paid`, `invoice.payment_failed`, `invoice.upcoming`, `charge.refunded` (always registered), `charge.captured` (always registered), `payment_intent.requires_action` (logged only). `charge.succeeded` for a subscription invoice is registered but deliberately **dropped** (`isFromSubscriptionInvoice()` guard) — `invoice.paid` is the sole source of truth for recurring payments, see `business-rules/recurring-billing.md` Rule 4. `customer.subscription.deleted` declared in code but NOT registered — no handler (TODO). `charge.updated` route handler exists but NOT registered in `actions.ts` enabled events. |
+| Webhooks handled | `payment_intent.*`, `charge.*` | + `invoice.paid`, `invoice.payment_failed`, `invoice.upcoming`, `charge.refunded` (always registered), `charge.captured` (always registered), `payment_intent.requires_action` (logged only), `payment_intent.processing` (async settlement, e.g. crypto/stablecoin → `Authorization/Pending`). `charge.succeeded` for a subscription invoice is registered but deliberately **dropped** (`isFromSubscriptionInvoice()` guard) — `invoice.paid` is the sole source of truth for recurring payments, see `business-rules/recurring-billing.md` Rule 4. `customer.subscription.deleted` declared in code but NOT registered — no handler (TODO). `charge.updated` route handler exists but NOT registered in `actions.ts` enabled events. |
 | Order creation | Once per cart | Configurable: once or per recurring event |
 | Price management | Not applicable | CT → Stripe price sync (optional) |
 | Customer API | Session only | + Subscription management endpoints |
@@ -137,6 +137,7 @@ Events registered in `processor/src/connectors/actions.ts` (in addition to check
 | `charge.refunded` | ✅ Always registered | Multi-refund behavior |
 | `charge.captured` | ✅ Always registered | Multi-capture behavior |
 | `payment_intent.requires_action` | ⚠️ Logged only | No CT update |
+| `payment_intent.processing` | ✅ Handled | Async settlement (crypto/stablecoin): writes `Authorization/Pending`; resolved by `payment_intent.succeeded` (→ Success) or `payment_intent.payment_failed`/`canceled` (→ Failure). Guarded against out-of-order/duplicate events (`hasTransactionInState`). |
 | `customer.subscription.deleted` | ❌ NOT registered | Declared in `StripeSubscriptionEvent` enum; marked as TODO; no route handler |
 | `charge.updated` | ❌ Route handler exists, NOT registered | Must be manually added to `actions.ts` enabled events |
 
@@ -154,7 +155,7 @@ The enabler extends the checkout enabler with subscription payment modes.
 
 | Mode | `paymentMode` value | Flow |
 | --- | --- | --- |
-| One-time | `payment` | `getPayment()` → `confirmStripePayment()` → `confirmPaymentIntent()` |
+| One-time | `payment` | `getPayment()` → `confirmStripePayment()` → `confirmPaymentIntent()`. The confirm gate (`updatePaymentIntentStripeSuccessful`) retrieves the real PI (fail-closed), validates status (`succeeded`/`requires_capture`/`processing`) plus amount/currency, and returns `APPROVED` (HTTP 200) or — when the PI is still `processing` (async settlement) — `PENDING` (HTTP 202) after writing `Authorization/Pending`. |
 | Subscription | `subscription` | `createSubscription()` → `confirmStripePayment()` → `confirmSubscriptionPayment()` |
 | Setup intent | `setup` | `createSetupIntent()` → `confirmStripeSetupIntent()` → `createSubscriptionFromSetupIntent()` → `confirmSubscriptionPayment()` |
 

@@ -273,3 +273,21 @@ Connector-specific limitations, code defects, and operational gotchas. Cross-cut
 **Root cause:** `processor/src/services/stripe-subscription.service.ts:1990` — query key (`METADATA_VARIANT_SKU_FIELD`) does not match the value being searched for (a product ID, not a SKU), and no price-level metadata field stores the product ID to search by instead.
 **Rule:** A price lookup used to avoid duplicate creation must search on a metadata field that was actually written with the value being compared. See `business-rules/price-sync.md`.
 **Implementation note:** Either search by `METADATA_PRODUCT_ID_FIELD` after adding that field to the Price metadata at creation time, or resolve the product's SKU and search `ct_variant_sku` by SKU (matching the pattern already used in `getStripePriceByMetadata()` at `:493-498`). Found 2026-07-28 during the composable docs-audit pass while tracing the `invoice.upcoming` price-sync path for KI-013 verification.
+
+---
+
+## KI-033: `ConcurrentModification` (409) race when async-settlement webhooks write the same Payment near-simultaneously
+
+**Problem:** For async settlement (crypto/stablecoin), `payment_intent.processing`, `payment_intent.succeeded`, `charge.succeeded` and the pending→success authorization transition all update the same CT Payment within a short window. Concurrent `updatePayment` calls collide on the Payment's optimistic-locking version, producing a `409 ConcurrentModification`. Observed during E2E crypto testing (e.g. on the `setMethodInfoMethod` and `changeTransactionState` actions).
+**Root cause:** `processor/src/services/stripe-payment.service.ts` — each webhook handler does `getPayment` + `updatePayment` independently; the added `processing`/`Pending` writes increase write contention on the same Payment.
+**Rule:** The built-in retry recovers (the update is retried against the fresh version and becomes a no-op if already applied), so the final CT state stays coherent — this is NOT a data-loss bug today. Under heavier load a retry could exhaust; a periodic reconciliation is recommended (see hub follow-ups).
+**Implementation note:** `processor/src/services/stripe-payment.service.ts` (webhook write path); recovery via the SDK retry wrapper.
+
+---
+
+## KI-034: Synchronous confirm gate — fail-closed on `retrieve()` failure and non-atomic Pending dedup (operational awareness)
+
+**Problem:** The one-time synchronous confirm gate (`updatePaymentIntentStripeSuccessful`, `processor/src/services/stripe-payment.service.ts`) now calls `stripeApi().paymentIntents.retrieve()` before writing to CT. Two operational edge cases follow: (1) **fail-closed (D1):** if `retrieve()` fails/times out, the route responds `400 REJECTED` and the buyer sees an error — yet the `payment_intent.succeeded` webhook may still create the order, so a buyer re-attempt can create a second PaymentIntent (double-charge risk lives at the checkout layer, outside this function). (2) **non-atomic dedup:** the `hasTransactionInState` read + `updatePayment` write for the `processing → Authorization/Pending` case is not atomic against the concurrent `payment_intent.processing` webhook; both can write `Authorization/Pending` (duplicate transaction, no double-charge — Pending moves no money; CT optimistic locking may 409, recovered by the SDK retry — see KI-033).
+**Root cause:** `processor/src/services/stripe-payment.service.ts` — `retrieve()` failure is intentionally fail-closed (D1 decision, mirrors the checkout connector); the anti-duplicate guard is best-effort, not transactional.
+**Rule:** Accepted trade-offs, documented for operational awareness. The webhook remains the source of truth for order creation; the Pending dedup guard + SDK retry keep the final CT state coherent. If checkout-layer re-attempts become a problem, gate the re-attempt on the existing PI rather than creating a new one.
+**Implementation note:** Fail-closed path at the `retrieve()` try/catch; dedup guard via `hasTransactionInState` (`Authorization/Pending` + `Charge/Success`) before the Pending write. Introduced with the sync-gate fix (commit `a09b963`); identity binding rationale in `decisions/adr-009-sync-confirmation-identity-binding.md`.

@@ -35,7 +35,7 @@ import { AbstractPaymentService } from '../../src/services/abstract-payment.serv
 import { StripePaymentService } from '../../src/services/stripe-payment.service';
 import { SupportedPaymentComponentsSchemaDTO } from '../../src/dtos/operations/payment-componets.dto';
 import { StripeEventConverter } from '../../src/services/converters/stripeEventConverter';
-import { PaymentTransactions } from '../../src/dtos/operations/payment-intents.dto';
+import { PaymentModificationStatus, PaymentTransactions } from '../../src/dtos/operations/payment-intents.dto';
 import * as Config from '../../src/config/config';
 import * as Logger from '../../src/libs/logger/index';
 import { CtPaymentCreationService } from '../../src/services/ct-payment-creation.service';
@@ -606,55 +606,160 @@ describe('stripe-payment.service', () => {
   });
 
   describe('method updatePaymentIntentStripeSuccessful', () => {
-    test('should update the commercetools payment "Authorization" from "Initial" to "Success"', async () => {
-      const paymentWithMatchingInterfaceId = { ...mockGetPaymentResult, interfaceId: 'paymentId' };
-      const getCartMock = jest
-        .spyOn(DefaultCartService.prototype, 'getCart')
-        .mockReturnValue(Promise.resolve(mockGetCartResult()));
-      const getPaymentMock = jest
-        .spyOn(DefaultPaymentService.prototype, 'getPayment')
-        .mockReturnValue(Promise.resolve(paymentWithMatchingInterfaceId));
+    const matchingPayment = { ...mockGetPaymentResult, interfaceId: 'paymentId' };
+
+    // Build a retrieved PaymentIntent whose amount/currency match the CT payment's amountPlanned
+    // (GBP / 120000) so amount/currency validation passes unless a test overrides it.
+    const mockRetrievedPI = (overrides: Partial<Stripe.PaymentIntent>) =>
+      Promise.resolve({
+        ...mockStripeRetrievePaymentResult,
+        status: 'succeeded',
+        amount: matchingPayment.amountPlanned.centAmount,
+        currency: matchingPayment.amountPlanned.currencyCode.toLowerCase(),
+        ...overrides,
+      } as Stripe.Response<Stripe.PaymentIntent>);
+
+    const stubCartAndPayment = () => {
+      jest.spyOn(DefaultCartService.prototype, 'getCart').mockReturnValue(Promise.resolve(mockGetCartResult()));
+      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockReturnValue(Promise.resolve(matchingPayment));
+    };
+
+    test('should write Authorization/Success and return APPROVED when the PaymentIntent succeeded', async () => {
+      stubCartAndPayment();
+      const retrieveMock = jest
+        .spyOn(Stripe.prototype.paymentIntents, 'retrieve')
+        .mockReturnValue(mockRetrievedPI({ status: 'succeeded' }));
       const updatePaymentMock = jest
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
 
-      await stripePaymentService.updatePaymentIntentStripeSuccessful('paymentId', 'paymentReference');
+      const result = await stripePaymentService.updatePaymentIntentStripeSuccessful('paymentId', 'paymentReference');
 
-      expect(getCartMock).toHaveBeenCalled();
-      expect(getPaymentMock).toHaveBeenCalled();
+      expect(result).toBe(PaymentModificationStatus.APPROVED);
+      expect(retrieveMock).toHaveBeenCalledWith('paymentId');
+      expect(updatePaymentMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          transaction: expect.objectContaining({ type: PaymentTransactions.AUTHORIZATION }),
+        }),
+      );
+    });
+
+    test('should return APPROVED when the PaymentIntent is requires_capture (manual capture)', async () => {
+      stubCartAndPayment();
+      jest
+        .spyOn(Stripe.prototype.paymentIntents, 'retrieve')
+        .mockReturnValue(mockRetrievedPI({ status: 'requires_capture' }));
+      const updatePaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
+
+      const result = await stripePaymentService.updatePaymentIntentStripeSuccessful('paymentId', 'paymentReference');
+
+      expect(result).toBe(PaymentModificationStatus.APPROVED);
       expect(updatePaymentMock).toHaveBeenCalled();
     });
 
-    test('should catch error ', async () => {
-      const mockError = new Error('Cart retrieval failed');
-      const getCartMock = jest.spyOn(DefaultCartService.prototype, 'getCart').mockImplementation(() => {
-        throw mockError;
-      });
+    test('should write Authorization/Pending and return PENDING when the PaymentIntent is processing (async settlement)', async () => {
+      stubCartAndPayment();
+      jest
+        .spyOn(Stripe.prototype.paymentIntents, 'retrieve')
+        .mockReturnValue(mockRetrievedPI({ status: 'processing' }));
+      const hasTxnMock = jest.spyOn(DefaultPaymentService.prototype, 'hasTransactionInState').mockReturnValue(false);
+      const updatePaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
 
-      const paymentWithMatchingInterfaceId = { ...mockGetPaymentResult, interfaceId: 'paymentId' };
-      const getPaymentMock = jest
-        .spyOn(DefaultPaymentService.prototype, 'getPayment')
-        .mockReturnValue(Promise.resolve(paymentWithMatchingInterfaceId));
+      const result = await stripePaymentService.updatePaymentIntentStripeSuccessful('paymentId', 'paymentReference');
+
+      expect(result).toBe(PaymentModificationStatus.PENDING);
+      expect(hasTxnMock).toHaveBeenCalled();
+      expect(updatePaymentMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          transaction: expect.objectContaining({
+            type: PaymentTransactions.AUTHORIZATION,
+            state: PaymentStatus.PENDING,
+          }),
+        }),
+      );
+    });
+
+    test('should NOT write a duplicate when processing but a Pending/Charge-Success transaction already exists', async () => {
+      stubCartAndPayment();
+      jest
+        .spyOn(Stripe.prototype.paymentIntents, 'retrieve')
+        .mockReturnValue(mockRetrievedPI({ status: 'processing' }));
+      jest.spyOn(DefaultPaymentService.prototype, 'hasTransactionInState').mockReturnValue(true);
+      const updatePaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
+
+      const result = await stripePaymentService.updatePaymentIntentStripeSuccessful('paymentId', 'paymentReference');
+
+      expect(result).toBe(PaymentModificationStatus.PENDING);
+      expect(updatePaymentMock).not.toHaveBeenCalled();
+    });
+
+    test('should throw and not write when the PaymentIntent status is not allowed', async () => {
+      stubCartAndPayment();
+      jest
+        .spyOn(Stripe.prototype.paymentIntents, 'retrieve')
+        .mockReturnValue(mockRetrievedPI({ status: 'requires_payment_method' }));
       const updatePaymentMock = jest
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
 
       await expect(
         stripePaymentService.updatePaymentIntentStripeSuccessful('paymentId', 'paymentReference'),
-      ).rejects.toThrow('Cart retrieval failed');
-
-      expect(getCartMock).toHaveBeenCalled();
-      expect(getPaymentMock).not.toHaveBeenCalled();
+      ).rejects.toThrow(/status "requires_payment_method" is not allowed/);
       expect(updatePaymentMock).not.toHaveBeenCalled();
     });
 
-    test('should reject and log error when paymentIntentId does not match CT payment interfaceId', async () => {
-      const getCartMock = jest
-        .spyOn(DefaultCartService.prototype, 'getCart')
-        .mockReturnValue(Promise.resolve(mockGetCartResult()));
-      const getPaymentMock = jest
-        .spyOn(DefaultPaymentService.prototype, 'getPayment')
+    test('should throw on amount mismatch between Stripe and the CT payment', async () => {
+      stubCartAndPayment();
+      jest
+        .spyOn(Stripe.prototype.paymentIntents, 'retrieve')
+        .mockReturnValue(mockRetrievedPI({ status: 'succeeded', amount: 999 }));
+      const updatePaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
+
+      await expect(
+        stripePaymentService.updatePaymentIntentStripeSuccessful('paymentId', 'paymentReference'),
+      ).rejects.toThrow(/amount\/currency mismatch/);
+      expect(updatePaymentMock).not.toHaveBeenCalled();
+    });
+
+    test('should throw on currency mismatch between Stripe and the CT payment', async () => {
+      stubCartAndPayment();
+      jest
+        .spyOn(Stripe.prototype.paymentIntents, 'retrieve')
+        .mockReturnValue(mockRetrievedPI({ status: 'succeeded', currency: 'usd' }));
+
+      await expect(
+        stripePaymentService.updatePaymentIntentStripeSuccessful('paymentId', 'paymentReference'),
+      ).rejects.toThrow(/amount\/currency mismatch/);
+    });
+
+    test('should fail closed (throw) when retrieving the PaymentIntent from Stripe fails', async () => {
+      stubCartAndPayment();
+      const retrieveMock = jest.spyOn(Stripe.prototype.paymentIntents, 'retrieve').mockImplementation(() => {
+        throw new Error('Stripe unavailable');
+      });
+      const updatePaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
+
+      await expect(
+        stripePaymentService.updatePaymentIntentStripeSuccessful('paymentId', 'paymentReference'),
+      ).rejects.toThrow(/could not retrieve from Stripe/);
+      expect(retrieveMock).toHaveBeenCalled();
+      expect(updatePaymentMock).not.toHaveBeenCalled();
+    });
+
+    test('should reject before calling Stripe when paymentIntentId does not match CT payment interfaceId', async () => {
+      jest.spyOn(DefaultCartService.prototype, 'getCart').mockReturnValue(Promise.resolve(mockGetCartResult()));
+      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
+      const retrieveMock = jest.spyOn(Stripe.prototype.paymentIntents, 'retrieve');
       const updatePaymentMock = jest
         .spyOn(DefaultPaymentService.prototype, 'updatePayment')
         .mockReturnValue(Promise.resolve(mockGetPaymentResult));
@@ -663,8 +768,7 @@ describe('stripe-payment.service', () => {
         stripePaymentService.updatePaymentIntentStripeSuccessful('paymentId', 'paymentReference'),
       ).rejects.toThrow(/PaymentIntent mismatch/);
 
-      expect(getCartMock).toHaveBeenCalled();
-      expect(getPaymentMock).toHaveBeenCalled();
+      expect(retrieveMock).not.toHaveBeenCalled();
       expect(updatePaymentMock).not.toHaveBeenCalled();
       expect(Logger.log.error).toHaveBeenCalledWith(
         'PaymentIntent ID does not match CT Payment interfaceId — rejecting update to avoid wrong PI to wrong CT payment.',
@@ -674,6 +778,17 @@ describe('stripe-payment.service', () => {
           ctPaymentInterfaceId: mockGetPaymentResult.interfaceId,
         }),
       );
+    });
+
+    test('should propagate errors from cart retrieval', async () => {
+      const getCartMock = jest.spyOn(DefaultCartService.prototype, 'getCart').mockImplementation(() => {
+        throw new Error('Cart retrieval failed');
+      });
+
+      await expect(
+        stripePaymentService.updatePaymentIntentStripeSuccessful('paymentId', 'paymentReference'),
+      ).rejects.toThrow('Cart retrieval failed');
+      expect(getCartMock).toHaveBeenCalled();
     });
   });
 
@@ -927,6 +1042,276 @@ describe('stripe-payment.service', () => {
           stripeAmountReceived: 13200,
           stripeCurrency: 'mxn',
           amountMismatch: false,
+        }),
+      );
+    });
+
+    const processingUpdateData = {
+      id: 'paymentId',
+      pspReference: 'pi_processing',
+      paymentMethod: 'payment',
+      transactions: [
+        {
+          type: PaymentTransactions.AUTHORIZATION,
+          state: PaymentStatus.PENDING,
+          amount: { centAmount: 13200, currencyCode: 'USD' },
+        },
+      ],
+    };
+    const processingEvent = {
+      ...mockEvent__paymentIntent_succeeded_captureMethodManual,
+      type: 'payment_intent.processing',
+    } as Stripe.Event;
+
+    test('payment_intent.processing: skips writing Pending when a successful Charge already exists (ordering guard)', async () => {
+      jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(processingUpdateData);
+      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockResolvedValue(mockGetPaymentResult);
+      const updatePaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockResolvedValue(mockGetPaymentResult);
+      jest.spyOn(DefaultPaymentService.prototype, 'hasTransactionInState').mockReturnValue(true);
+
+      await stripePaymentService.processStripeEvent(processingEvent);
+
+      expect(updatePaymentMock).not.toHaveBeenCalled();
+      expect(Logger.log.info).toHaveBeenCalledWith(
+        'Skipping payment_intent.processing — payment already resolved or pending transaction exists',
+        expect.any(Object),
+      );
+    });
+
+    test('payment_intent.processing: skips (dedup) when a Pending Authorization already exists', async () => {
+      jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(processingUpdateData);
+      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockResolvedValue(mockGetPaymentResult);
+      const updatePaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockResolvedValue(mockGetPaymentResult);
+      jest
+        .spyOn(DefaultPaymentService.prototype, 'hasTransactionInState')
+        .mockReturnValueOnce(false)
+        .mockReturnValueOnce(true);
+
+      await stripePaymentService.processStripeEvent(processingEvent);
+
+      expect(updatePaymentMock).not.toHaveBeenCalled();
+    });
+
+    test('payment_intent.processing: writes Authorization/Pending when no prior transaction exists', async () => {
+      jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(processingUpdateData);
+      const getPaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'getPayment')
+        .mockResolvedValue(mockGetPaymentResult);
+      const updatePaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockResolvedValue(mockGetPaymentResult);
+      jest.spyOn(DefaultPaymentService.prototype, 'hasTransactionInState').mockReturnValue(false);
+
+      await stripePaymentService.processStripeEvent(processingEvent);
+
+      expect(getPaymentMock).toHaveBeenCalled();
+      expect(updatePaymentMock).toHaveBeenCalledTimes(1);
+    });
+
+    test('payment_intent.processing: re-throws on CT write failure (no silent swallow)', async () => {
+      jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(processingUpdateData);
+      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockResolvedValue(mockGetPaymentResult);
+      jest.spyOn(DefaultPaymentService.prototype, 'hasTransactionInState').mockReturnValue(false);
+      jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockRejectedValue(new Error('CT write failed'));
+
+      await expect(stripePaymentService.processStripeEvent(processingEvent)).rejects.toThrow('CT write failed');
+    });
+
+    test('regression: a non-processing event (card succeeded) still swallows CT write errors', async () => {
+      const cardUpdateData = {
+        id: 'paymentId',
+        pspReference: 'pi_card',
+        paymentMethod: 'payment',
+        transactions: [
+          {
+            type: PaymentTransactions.CHARGE,
+            state: PaymentStatus.SUCCESS,
+            amount: { centAmount: 13200, currencyCode: 'USD' },
+          },
+        ],
+      };
+      jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(cardUpdateData);
+      jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockRejectedValue(new Error('CT write failed'));
+
+      await expect(
+        stripePaymentService.processStripeEvent(mockEvent__paymentIntent_succeeded_captureMethodManual),
+      ).resolves.toBeUndefined();
+    });
+
+    const succeededUpdateData = {
+      id: 'paymentId',
+      pspReference: 'pi_succeeded',
+      paymentMethod: 'payment',
+      transactions: [
+        {
+          type: PaymentTransactions.CHARGE,
+          state: PaymentStatus.SUCCESS,
+          amount: { centAmount: 13200, currencyCode: 'USD' },
+        },
+      ],
+    };
+    const succeededEvent = {
+      ...mockEvent__paymentIntent_succeeded_captureMethodManual,
+      type: 'payment_intent.succeeded',
+    } as Stripe.Event;
+
+    test('payment_intent.succeeded: transitions a lingering Pending authorization to Success', async () => {
+      jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(succeededUpdateData);
+      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockResolvedValue(mockGetPaymentResult);
+      const updatePaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockResolvedValue(mockGetPaymentResult);
+      // Authorization/Pending exists → should be transitioned to Success
+      jest.spyOn(DefaultPaymentService.prototype, 'hasTransactionInState').mockReturnValue(true);
+      jest
+        .spyOn(
+          StripePaymentService.prototype as unknown as { handlePaymentIntentSucceededFlow: () => Promise<void> },
+          'handlePaymentIntentSucceededFlow',
+        )
+        .mockResolvedValue(undefined);
+
+      await stripePaymentService.processStripeEvent(succeededEvent);
+
+      expect(updatePaymentMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          transaction: expect.objectContaining({
+            type: PaymentTransactions.AUTHORIZATION,
+            state: PaymentStatus.SUCCESS,
+          }),
+        }),
+      );
+    });
+
+    test('regression: payment_intent.succeeded without a Pending authorization does not write an extra Authorization (card path)', async () => {
+      jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(succeededUpdateData);
+      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockResolvedValue(mockGetPaymentResult);
+      const updatePaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockResolvedValue(mockGetPaymentResult);
+      // No Authorization/Pending (card never went through processing) → no-op
+      jest.spyOn(DefaultPaymentService.prototype, 'hasTransactionInState').mockReturnValue(false);
+      jest
+        .spyOn(
+          StripePaymentService.prototype as unknown as { handlePaymentIntentSucceededFlow: () => Promise<void> },
+          'handlePaymentIntentSucceededFlow',
+        )
+        .mockResolvedValue(undefined);
+
+      await stripePaymentService.processStripeEvent(succeededEvent);
+
+      expect(updatePaymentMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          transaction: expect.objectContaining({
+            type: PaymentTransactions.AUTHORIZATION,
+            state: PaymentStatus.SUCCESS,
+          }),
+        }),
+      );
+    });
+
+    // Crypto failure-path: a payment that reached processing (Authorization/Pending) and then
+    // fails must resolve the Pending authorization to Failure. The converter's event→Failure
+    // mapping is covered in stripeEvent.converter.spec.ts; these lock in that the service
+    // actually writes Authorization/Failure for both crypto failure events (payment_failed and
+    // canceled/expiration), i.e. no guard silently skips them.
+    const failedUpdateData = {
+      id: 'paymentId',
+      pspReference: 'pi_failed',
+      paymentMethod: 'payment',
+      transactions: [
+        {
+          type: PaymentTransactions.AUTHORIZATION,
+          state: PaymentStatus.FAILURE,
+          amount: { centAmount: 13200, currencyCode: 'USD' },
+        },
+      ],
+    };
+
+    test('payment_intent.payment_failed: writes Authorization/Failure (resolves a Pending authorization from crypto processing)', async () => {
+      const paymentFailedEvent = {
+        ...mockEvent__paymentIntent_succeeded_captureMethodManual,
+        type: 'payment_intent.payment_failed',
+      } as Stripe.Event;
+      jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(failedUpdateData);
+      const updatePaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockResolvedValue(mockGetPaymentResult);
+      jest
+        .spyOn(
+          StripePaymentService.prototype as unknown as {
+            unfreezeCartOnPaymentCancelOrFailed: () => Promise<void>;
+          },
+          'unfreezeCartOnPaymentCancelOrFailed',
+        )
+        .mockResolvedValue(undefined);
+
+      await stripePaymentService.processStripeEvent(paymentFailedEvent);
+
+      expect(updatePaymentMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          transaction: expect.objectContaining({
+            type: PaymentTransactions.AUTHORIZATION,
+            state: PaymentStatus.FAILURE,
+          }),
+        }),
+      );
+    });
+
+    test('payment_intent.canceled (crypto expiration): writes Authorization/Failure to resolve a Pending authorization', async () => {
+      const canceledUpdateData = {
+        id: 'paymentId',
+        pspReference: 'pi_canceled',
+        paymentMethod: 'payment',
+        transactions: [
+          {
+            type: PaymentTransactions.AUTHORIZATION,
+            state: PaymentStatus.FAILURE,
+            amount: { centAmount: 13200, currencyCode: 'USD' },
+          },
+          {
+            type: PaymentTransactions.CANCEL_AUTHORIZATION,
+            state: PaymentStatus.SUCCESS,
+            amount: { centAmount: 13200, currencyCode: 'USD' },
+          },
+        ],
+      };
+      const canceledEvent = {
+        ...mockEvent__paymentIntent_succeeded_captureMethodManual,
+        type: 'payment_intent.canceled',
+      } as Stripe.Event;
+      jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(canceledUpdateData);
+      const updatePaymentMock = jest
+        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
+        .mockResolvedValue(mockGetPaymentResult);
+      jest
+        .spyOn(
+          StripePaymentService.prototype as unknown as {
+            unfreezeCartOnPaymentCancelOrFailed: () => Promise<void>;
+          },
+          'unfreezeCartOnPaymentCancelOrFailed',
+        )
+        .mockResolvedValue(undefined);
+
+      await stripePaymentService.processStripeEvent(canceledEvent);
+
+      expect(updatePaymentMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          transaction: expect.objectContaining({
+            type: PaymentTransactions.AUTHORIZATION,
+            state: PaymentStatus.FAILURE,
+          }),
+        }),
+      );
+      expect(updatePaymentMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          transaction: expect.objectContaining({
+            type: PaymentTransactions.CANCEL_AUTHORIZATION,
+            state: PaymentStatus.SUCCESS,
+          }),
         }),
       );
     });

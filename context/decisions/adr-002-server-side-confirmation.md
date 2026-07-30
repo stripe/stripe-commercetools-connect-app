@@ -23,3 +23,4 @@ Server-side confirmation applies to both one-time PaymentIntents and the initial
 - See checkout ADR-002 for base consequences
 - Subscription 3DS is handled by Stripe inline in the Payment Element — no external redirect required for card payments
 - Redirect-based payment methods for subscriptions (SEPA, Bacs) still require `MERCHANT_RETURN_URL`
+- One-time server-side confirmation now validates the **real** PaymentIntent status via `stripeApi().paymentIntents.retrieve()` (fail-closed), plus amount/currency vs `amountPlanned`, and returns an outcome: `APPROVED` (HTTP 200) or `PENDING` (HTTP 202, async settlement → `Authorization/Pending`). Identity binding rationale in ADR-009. The core decision (server-side confirmation) is unchanged.

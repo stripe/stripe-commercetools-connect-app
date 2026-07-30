@@ -518,48 +518,125 @@ export class StripePaymentService extends AbstractPaymentService {
    * @param {string} paymentReference - The identifier of the payment associated with the PaymentIntent in Stripe.
    * @return {Promise<void>} - A Promise that resolves when the PaymentIntent is successfully updated.
    */
-  public async updatePaymentIntentStripeSuccessful(paymentIntentId: string, paymentReference: string): Promise<void> {
-    try {
-      const ctCart = await this.ctCartService.getCart({ id: getCartIdFromContext() });
-      const ctPayment = await this.ctPaymentService.getPayment({ id: paymentReference });
+  public async updatePaymentIntentStripeSuccessful(
+    paymentIntentId: string,
+    paymentReference: string,
+  ): Promise<PaymentModificationStatus> {
+    const ctCart = await this.ctCartService.getCart({ id: getCartIdFromContext() });
+    const ctPayment = await this.ctPaymentService.getPayment({ id: paymentReference });
 
-      if (ctPayment.interfaceId !== paymentIntentId) {
-        log.error(
-          'PaymentIntent ID does not match CT Payment interfaceId — rejecting update to avoid wrong PI to wrong CT payment.',
-          {
-            paymentReference,
-            requestPaymentIntentId: paymentIntentId,
-            ctPaymentInterfaceId: ctPayment.interfaceId,
-            ctCartId: ctCart.id,
-          },
-        );
-        throw new Error(
-          `PaymentIntent mismatch: request paymentIntentId (${paymentIntentId}) does not match CT payment interfaceId (${ctPayment.interfaceId})`,
-        );
-      }
-
-      const amountPlanned = ctPayment.amountPlanned;
-
-      log.info(`PaymentIntent confirmed.`, {
-        ctCartId: ctCart.id,
-        stripePaymentIntentId: ctPayment.interfaceId,
-        amountPlanned: JSON.stringify(amountPlanned),
-      });
-
-      await this.ctPaymentService.updatePayment({
-        id: ctPayment.id,
-        pspReference: paymentIntentId,
-        transaction: {
-          interactionId: paymentIntentId,
-          type: PaymentTransactions.AUTHORIZATION,
-          amount: amountPlanned,
-          state: convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
+    // (1) Identity binding — keep composable's existing gate: the CT payment's interfaceId must
+    // match the PaymentIntent id, so we never bind a PI to the wrong CT payment.
+    if (ctPayment.interfaceId !== paymentIntentId) {
+      log.error(
+        'PaymentIntent ID does not match CT Payment interfaceId — rejecting update to avoid wrong PI to wrong CT payment.',
+        {
+          paymentReference,
+          requestPaymentIntentId: paymentIntentId,
+          ctPaymentInterfaceId: ctPayment.interfaceId,
+          ctCartId: ctCart.id,
         },
-      });
-    } catch (error) {
-      log.error('Error updating PaymentIntent to successful in CT', { error });
-      throw error;
+      );
+      throw new Error(
+        `PaymentIntent mismatch: request paymentIntentId (${paymentIntentId}) does not match CT payment interfaceId (${ctPayment.interfaceId})`,
+      );
     }
+
+    const amountPlanned = ctPayment.amountPlanned;
+
+    // (2) Retrieve the PaymentIntent from Stripe (source of truth). Fail-closed: any retrieve
+    // failure rejects the confirmation rather than trusting the client-supplied state.
+    let stripePaymentIntent: Stripe.PaymentIntent;
+    try {
+      stripePaymentIntent = await stripeApi().paymentIntents.retrieve(paymentIntentId);
+    } catch (error) {
+      log.warn('updatePaymentIntentStripeSuccessful: failed to retrieve PaymentIntent from Stripe', {
+        paymentIntentId,
+        paymentReference,
+      });
+      throw new Error('Invalid PaymentIntent: could not retrieve from Stripe');
+    }
+
+    // (3) Status allowlist — synchronous success/capture, or async settlement (processing).
+    const allowedStatuses = ['succeeded', 'requires_capture', 'processing'];
+    if (!allowedStatuses.includes(stripePaymentIntent.status)) {
+      log.warn('updatePaymentIntentStripeSuccessful: PaymentIntent status not allowed', {
+        paymentIntentId,
+        paymentReference,
+        status: stripePaymentIntent.status,
+        allowedStatuses,
+      });
+      throw new Error(`Invalid PaymentIntent: status "${stripePaymentIntent.status}" is not allowed`);
+    }
+
+    // (4) Validate amount/currency against ctPayment.amountPlanned (integer cents; currency
+    // compared case-insensitively). Stripe is the source of truth; we never recompute amounts.
+    const stripeAmount = stripePaymentIntent.amount;
+    const stripeCurrency = (stripePaymentIntent.currency ?? '').toLowerCase();
+    const expectedCentAmount = amountPlanned.centAmount;
+    const expectedCurrency = (amountPlanned.currencyCode ?? '').toLowerCase();
+    if (stripeAmount !== expectedCentAmount || stripeCurrency !== expectedCurrency) {
+      log.warn('updatePaymentIntentStripeSuccessful: amount or currency mismatch', {
+        paymentIntentId,
+        paymentReference,
+        stripeAmount,
+        stripeCurrency,
+        expectedCentAmount,
+        expectedCurrency,
+      });
+      throw new Error('Invalid PaymentIntent: amount/currency mismatch');
+    }
+
+    log.info(`PaymentIntent confirmed.`, {
+      ctCartId: ctCart.id,
+      stripePaymentIntentId: ctPayment.interfaceId,
+      amountPlanned: JSON.stringify(amountPlanned),
+    });
+
+    // (5) Async settlement (e.g. crypto/stablecoin, deferred bank debits): the PaymentIntent is
+    // still `processing`. Write a Pending authorization ONLY — never Success — guarded against a
+    // Pending/Charge-Success that the payment_intent.processing webhook may already have written.
+    // The order is created later by the payment_intent.succeeded webhook. Return PENDING so the
+    // route responds 202 and the buyer is not shown a confirmed order.
+    if (stripePaymentIntent.status === 'processing') {
+      const hasAuthPending = this.ctPaymentService.hasTransactionInState({
+        payment: ctPayment,
+        transactionType: PaymentTransactions.AUTHORIZATION,
+        states: [PaymentStatus.PENDING],
+      });
+      const hasChargeSuccess = this.ctPaymentService.hasTransactionInState({
+        payment: ctPayment,
+        transactionType: PaymentTransactions.CHARGE,
+        states: [PaymentStatus.SUCCESS],
+      });
+      if (!hasAuthPending && !hasChargeSuccess) {
+        await this.ctPaymentService.updatePayment({
+          id: ctPayment.id,
+          pspReference: paymentIntentId,
+          transaction: {
+            interactionId: paymentIntentId,
+            type: PaymentTransactions.AUTHORIZATION,
+            amount: amountPlanned,
+            state: PaymentStatus.PENDING,
+          },
+        });
+      }
+      return PaymentModificationStatus.PENDING;
+    }
+
+    // (6) Synchronous success (succeeded / requires_capture): write Authorization/Success as before.
+    await this.ctPaymentService.updatePayment({
+      id: ctPayment.id,
+      pspReference: paymentIntentId,
+      transaction: {
+        interactionId: paymentIntentId,
+        type: PaymentTransactions.AUTHORIZATION,
+        amount: amountPlanned,
+        state: convertPaymentResultCode(PaymentOutcome.AUTHORIZED as PaymentOutcome),
+      },
+    });
+
+    return PaymentModificationStatus.APPROVED;
   }
 
   /**
@@ -639,6 +716,33 @@ export class StripePaymentService extends AbstractPaymentService {
     try {
       const updateData = this.stripeEventConverter.convert(event);
 
+      // Ordering + dedup guard for async crypto settlement (payment_intent.processing).
+      // Stripe does not guarantee event order and may redeliver: skip writing the Pending
+      // authorization if the payment is already resolved (Charge/Success) or a Pending
+      // authorization already exists. Scoped to processing — other events are unaffected.
+      if (event.type === StripeEvent.PAYMENT_INTENT__PROCESSING) {
+        const payment = await this.ctPaymentService.getPayment({ id: updateData.id });
+        const hasChargeSuccess = this.ctPaymentService.hasTransactionInState({
+          payment,
+          transactionType: PaymentTransactions.CHARGE,
+          states: [PaymentStatus.SUCCESS],
+        });
+        const hasAuthPending = this.ctPaymentService.hasTransactionInState({
+          payment,
+          transactionType: PaymentTransactions.AUTHORIZATION,
+          states: [PaymentStatus.PENDING],
+        });
+        if (hasChargeSuccess || hasAuthPending) {
+          log.info('Skipping payment_intent.processing — payment already resolved or pending transaction exists', {
+            paymentId: updateData.id,
+            pspReference: updateData.pspReference,
+            hasChargeSuccess,
+            hasAuthPending,
+          });
+          return;
+        }
+      }
+
       if (updateData.transactions.length === 0 && event.type === StripeEvent.CHARGE__SUCCEEDED) {
         const updatedPayment = await this.ctPaymentService.updatePayment({
           ...updateData,
@@ -689,10 +793,51 @@ export class StripePaymentService extends AbstractPaymentService {
       await this.unfreezeCartOnPaymentCancelOrFailed(event, updateData);
 
       if (event.type === StripeEvent.PAYMENT_INTENT__SUCCEEDED) {
+        // Best-effort: transition any lingering Pending authorization (written during
+        // payment_intent.processing for async crypto settlement) to Success, so the
+        // authorization does not stay stuck in Pending after the payment completes.
+        // No-op for card payments that never went through processing. Wrapped in its own
+        // try/catch so a failure here never blocks order creation below.
+        try {
+          const payment = await this.ctPaymentService.getPayment({ id: updateData.id });
+          const hasAuthPending = this.ctPaymentService.hasTransactionInState({
+            payment,
+            transactionType: PaymentTransactions.AUTHORIZATION,
+            states: [PaymentStatus.PENDING],
+          });
+          if (hasAuthPending) {
+            await this.ctPaymentService.updatePayment({
+              id: payment.id,
+              pspReference: updateData.pspReference,
+              transaction: {
+                type: PaymentTransactions.AUTHORIZATION,
+                state: PaymentStatus.SUCCESS,
+                amount: updateData.transactions[0]?.amount ?? payment.amountPlanned,
+                interactionId: updateData.pspReference,
+              },
+            });
+            log.info('Transitioned pending authorization to Success after payment_intent.succeeded', {
+              paymentId: payment.id,
+              pspReference: updateData.pspReference,
+            });
+          }
+        } catch (authTransitionError) {
+          log.warn('Could not transition pending authorization to Success (non-blocking)', {
+            error: authTransitionError,
+            paymentId: updateData.id,
+          });
+        }
+
         await this.handlePaymentIntentSucceededFlow(event, updateData);
       }
     } catch (e) {
       log.error('Error processing notification', { error: e });
+      // For async crypto settlement, do NOT swallow write failures: re-throw so the
+      // webhook responds non-2xx and Stripe retries (avoids silent CT divergence /
+      // KI-001/002). Other event types keep the existing behavior (log and return).
+      if (event.type === StripeEvent.PAYMENT_INTENT__PROCESSING) {
+        throw e;
+      }
       return;
     }
   }

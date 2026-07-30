@@ -88,6 +88,7 @@ describe('Actions test', () => {
       const updateCall = (Stripe.prototype.webhookEndpoints.update as jest.Mock).mock.calls[0];
       const webhookConfig = updateCall[1] as { enabled_events: string[]; url: string };
       expect(webhookConfig.enabled_events).toContain('invoice.upcoming');
+      expect(webhookConfig.enabled_events).toContain('payment_intent.processing');
     });
 
     test('should throw an error when Stripe throws an error', async () => {

@@ -5,6 +5,7 @@ import {
   mockEvent__paymentIntent_canceled,
   mockEvent__paymentIntent_paymentFailed,
   mockEvent__paymentIntent_succeeded_captureMethodAutomatic,
+  mockEvent__paymentIntent_processing_crypto,
   mockEvent__charge_succeeded_notCaptured,
   mockEvent__charge_refund_notCaptured,
   mockEvent__charge_succeeded_captured,
@@ -32,6 +33,30 @@ describe('stripeEvent.converter', () => {
           interactionId: 'pi_11111',
           state: 'Success',
           type: 'Charge',
+        },
+      ],
+    });
+  });
+
+  test('convert a payment_intent.processing event returns a Pending Authorization with amount (not amount_received)', () => {
+    const result = converter.convert(mockEvent__paymentIntent_processing_crypto);
+
+    expect(result).toEqual({
+      paymentMethod: undefined,
+      id: 'pi_11111',
+      pspReference: 'pi_11111',
+      pspInteraction: {
+        response: JSON.stringify(mockEvent__paymentIntent_processing_crypto),
+      },
+      transactions: [
+        {
+          amount: {
+            centAmount: 13200,
+            currencyCode: 'MXN',
+          },
+          interactionId: 'pi_11111',
+          state: 'Pending',
+          type: 'Authorization',
         },
       ],
     });
