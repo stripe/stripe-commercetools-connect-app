@@ -150,10 +150,18 @@ export class DropinComponents implements DropinComponent {
   private async createPayment(): Promise<void> {
     const paymentRes = await this.api.getPayment(this.baseOptions.stripeConfig?.paymentIntent?.paymentMethodOptions);
     const paymentIntent = await this.stripe.confirmStripePayment(paymentRes);
-    await this.api.confirmPaymentIntent({
+    const { outcome } = await this.api.confirmPaymentIntent({
       paymentIntentId: paymentIntent.id,
       paymentReference: paymentRes.paymentReference,
     });
+
+    // Async settlement (e.g. crypto/stablecoin): the PaymentIntent is still `processing`, so the
+    // order is NOT yet confirmed. Never report success to the buyer here — the webhook on
+    // payment_intent.succeeded finalizes settlement and order creation later.
+    if (outcome === "pending") {
+      this.baseOptions.onComplete?.({ isSuccess: false });
+      return;
+    }
 
     this.baseOptions.onComplete?.({
       isSuccess: true,

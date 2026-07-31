@@ -165,6 +165,41 @@ if(paymentIntent.last_payment_error) {
 }
 ```
 
+## Stablecoin / Crypto Payments
+
+The connector supports Stripe stablecoin/crypto payments (USDC and other stablecoins via Stripe's Payment Element). These are **redirect-based** payments with **asynchronous settlement**: the PaymentIntent moves `requires_action → processing → succeeded`, and settlement can take minutes on-chain.
+
+> "Crypto" here means **stablecoins**, not Bitcoin. Stripe does not support native BTC.
+
+### Enabling crypto
+
+Crypto is enabled from the **Stripe Dashboard** (Payment methods → "Stablecoins and Crypto"), which triggers a manual review by Stripe. No `payment_method_types` change is needed — the connector uses `automatic_payment_methods` and Stripe surfaces the method automatically once enabled.
+
+### Configuration requirements (important)
+
+Because the payment method is chosen client-side after the PaymentIntent is created, Stripe **automatically filters out** methods incompatible with the PaymentIntent parameters. As a result, **crypto only appears when**:
+
+- `STRIPE_CAPTURE_METHOD` is `automatic` — crypto does **not** support manual capture.
+- Saved payment methods are **not** enabled (`STRIPE_SAVED_PAYMENT_METHODS_CONFIG` without `payment_method_save_usage`) — crypto cannot be saved for future use (`setup_future_usage`).
+
+If a merchant configures manual capture or saved payment methods, crypto is silently not offered — this is expected Stripe behavior, not a bug. No connector-side guard is needed for this.
+
+### Pending state during `processing`
+
+While a crypto payment settles, the connector reflects it as a **`Authorization` transaction in `Pending` state** on the commercetools Payment (amount taken from the PaymentIntent `amount`). When `payment_intent.succeeded` arrives, the connector writes the `Charge` / `Success` transaction as usual. This makes the "payment in progress" window visible in commercetools instead of leaving it unmodeled.
+
+The `payment_intent.processing` webhook is subscribed in `enabled_events` (`connectors/actions.ts`). Its handling:
+
+- **Order/dedup guard**: the `Pending` transaction is skipped if a `Charge/Success` already exists (Stripe does not guarantee event order — `succeeded` may arrive first) or if an `Authorization/Pending` already exists (event redelivery).
+- **No silent divergence**: unlike other events, a commercetools write failure while handling `payment_intent.processing` is **re-thrown** so the webhook responds non-2xx and Stripe retries (avoids leaving CT diverged). Other event types keep their existing behavior.
+
+### Testing locally
+
+- **Webhooks**: to process Stripe webhooks against a local processor, forward them (e.g. `stripe listen --forward-to localhost:8080/stripe/webhooks`) and set `STRIPE_WEBHOOK_SIGNING_SECRET` to the `whsec_...` printed by `stripe listen` (otherwise signature verification rejects every event). Then restart the processor.
+- **End-to-end**: crypto settlement uses a real wallet flow; test with a browser wallet (e.g. MetaMask) on a supported testnet and testnet USDC. Testnet settlement is fast (~10–20s), so validate the `processing`-state handling with unit tests rather than relying on the live timing window.
+
+> Out of scope: crypto in **subscriptions / SetupIntent** flows (crypto is only supported for one-time payments here).
+
 ## Mixed Cart Support
 
 The connector now supports mixed carts containing both subscription items and one-time items. This feature allows customers to purchase subscription products alongside regular products in a single transaction, with automatic handling of different billing scenarios.

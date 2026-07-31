@@ -55,6 +55,7 @@ Events registered in `processor/src/connectors/actions.ts` (in addition to check
 | `charge.refunded` | ✅ Always registered | Registered unconditionally; multirefund behavior |
 | `charge.captured` | ✅ Always registered | Registered unconditionally; multicapture behavior |
 | `payment_intent.requires_action` | ⚠️ Logged only | Not fully handled; no CT update |
+| `payment_intent.processing` | ✅ | **Async settlement** (crypto/stablecoin). Writes an `Authorization/Pending` CT transaction while the payment settles; resolves to `Success` on `payment_intent.succeeded` and to `Failure` on `payment_intent.payment_failed` / `payment_intent.canceled`. Guarded against out-of-order/duplicate events. The synchronous `/confirmPayments` gate also validates the real PI status and writes `Authorization/Pending` (returning `PENDING` → HTTP 202) when the PI is still `processing`, so async-settlement one-time payments are reflected even before the webhook arrives. See `workflows/process-crypto-payment.md`. |
 
 Events **declared in code but NOT registered** (Stripe does not deliver them):
 
