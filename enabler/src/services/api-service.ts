@@ -29,7 +29,7 @@ export interface ApiService {
     paymentMethodType: string
   ) => Promise<[ConfigElementResponseSchemaDTO, ConfigResponseSchemaDTO]>;
   getPayment: (paymentMethodOptions?: Record<string, Record<string, unknown>>) => Promise<PaymentResponseSchemaDTO>;
-  confirmPaymentIntent: (data: ConfirmPaymentRequestSchemaDTO) => Promise<void>;
+  confirmPaymentIntent: (data: ConfirmPaymentRequestSchemaDTO) => Promise<{ outcome: string }>;
   createSetupIntent: () => Promise<SetupIntentResponseSchemaDTO>;
   createSubscription: () => Promise<SubscriptionResponseSchemaDTO>;
   createSubscriptionFromSetupIntent: (
@@ -124,7 +124,7 @@ export const apiService = ({
   const confirmPaymentIntent = async ({
     paymentIntentId,
     paymentReference,
-  }: ConfirmPaymentRequestSchemaDTO): Promise<void> => {
+  }: ConfirmPaymentRequestSchemaDTO): Promise<{ outcome: string }> => {
     const apiUrl = `${baseApi}/confirmPayments/${paymentReference}`;
     const response = await fetch(apiUrl, {
       method: "POST",
@@ -135,6 +135,9 @@ export const apiService = ({
     if (!response.ok) {
       throw "Error in processor confirming PaymentIntent";
     }
+
+    const data = await response.json();
+    return { outcome: data.outcome };
   };
 
   const createSetupIntent = async (): Promise<SetupIntentResponseSchemaDTO> => {

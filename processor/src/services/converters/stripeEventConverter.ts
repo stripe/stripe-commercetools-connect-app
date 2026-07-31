@@ -98,6 +98,17 @@ export class StripeEventConverter {
             interactionId: paymentIntentId,
           },
         ];
+      case StripeEvent.PAYMENT_INTENT__PROCESSING: {
+        const pi = event.data.object as Stripe.PaymentIntent;
+        return [
+          {
+            type: PaymentTransactions.AUTHORIZATION,
+            state: PaymentStatus.PENDING,
+            amount: { centAmount: pi.amount, currencyCode: pi.currency.toUpperCase() },
+            interactionId: paymentIntentId,
+          },
+        ];
+      }
       default: {
         const error = `Unsupported event ${event.type}`;
         throw wrapStripeError(new Error(error));

@@ -71,6 +71,7 @@ export async function updateWebhookEndpoint(weId: string, weAppUrl: string): Pro
         'payment_intent.canceled',
         'payment_intent.payment_failed',
         'payment_intent.requires_action',
+        'payment_intent.processing',
         'invoice.paid',
         'invoice.payment_failed',
         'invoice.upcoming',

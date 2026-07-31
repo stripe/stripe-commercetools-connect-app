@@ -94,17 +94,19 @@ export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPlugi
         body: PaymentIntentConfirmRequestSchema,
         response: {
           200: PaymentIntentResponseSchema,
+          202: PaymentIntentResponseSchema,
         },
       },
     },
     async (request, reply) => {
       const { id } = request.params; // paymentReference
       try {
-        await opts.paymentService.updatePaymentIntentStripeSuccessful(request.body.paymentIntent, id);
+        const outcome = await opts.paymentService.updatePaymentIntentStripeSuccessful(request.body.paymentIntent, id);
 
-        return reply.status(200).send({ outcome: PaymentModificationStatus.APPROVED });
+        const statusCode = outcome === PaymentModificationStatus.PENDING ? 202 : 200;
+        return reply.status(statusCode).send({ outcome });
       } catch (error) {
-        return reply.status(400).send({ outcome: PaymentModificationStatus.REJECTED, error: JSON.stringify(error) });
+        return reply.status(400).send({ outcome: PaymentModificationStatus.REJECTED });
       }
     },
   );
@@ -146,6 +148,19 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
           if (!isFromSubscriptionInvoice(event)) {
             log.info(`Processing Stripe payment event: ${event.type}`);
             await opts.paymentService.processStripeEvent(event);
+          }
+          // Subscription-invoice charge/PI events are ignored on purpose:
+          // invoice.paid / invoice.payment_failed are the single source of truth for
+          // subscription payments. Stripe emits charge.succeeded + payment_intent.succeeded +
+          // invoice.paid for one subscription charge; routing the charge/PI here would create
+          // duplicate CT payments and orders. See processSubscriptionEventPaid / processSubscriptionEventFailed.
+          break;
+        case StripeEvent.PAYMENT_INTENT__PROCESSING:
+          if (!isFromSubscriptionInvoice(event)) {
+            log.info(`Processing Stripe payment event: ${event.type}`);
+            await opts.paymentService.processStripeEvent(event);
+          } else {
+            log.info(`payment_intent.processing from subscription invoice — skipped (out of scope): ${event.type}`);
           }
           // Subscription-invoice charge/PI events are ignored on purpose:
           // invoice.paid / invoice.payment_failed are the single source of truth for

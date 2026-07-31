@@ -15,6 +15,7 @@ import {
 import { IncomingHttpHeaders } from 'node:http';
 import { configElementRoutes, paymentRoutes, stripeWebhooksRoutes } from '../../src/routes/stripe-payment.route';
 import { StripePaymentService } from '../../src/services/stripe-payment.service';
+import { PaymentModificationStatus } from '../../src/dtos/operations/payment-intents.dto';
 import {
   mockEvent__paymentIntent_processing,
   mockEvent__paymentIntent_paymentFailed,
@@ -554,6 +555,30 @@ describe('Stripe Payment APIs', () => {
       expect(Logger.log.error).toHaveBeenCalled();
     });
 
+    test('it should handle a payment_intent.processing event and route it to processStripeEvent.', async () => {
+      setupMockConfig({
+        stripeSecretKey: 'stripeSecretKey',
+        stripeWebhookSigningSecret: 'stripeWebhookSigningSecret',
+        authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
+      });
+
+      Stripe.prototype.webhooks = { constructEvent: jest.fn() } as unknown as Stripe.Webhooks;
+      jest.spyOn(Stripe.prototype.webhooks, 'constructEvent').mockReturnValue(mockEvent__paymentIntent_processing);
+      jest.spyOn(StripePaymentService.prototype, 'processStripeEvent').mockReturnValue(Promise.resolve());
+
+      const response = await fastifyApp.inject({
+        method: 'POST',
+        url: `/stripe/webhooks`,
+        headers: {
+          'stripe-signature': 't=123123123,v1=gk2j34gk2j34g2k3j4',
+        },
+      });
+
+      expect(response.statusCode).toEqual(200);
+      expect(spiedPaymentService.processStripeEvent).toHaveBeenCalledTimes(1);
+      expect(spiedSubscriptionService.processSubscriptionEventCharged).not.toHaveBeenCalled();
+    });
+
     test('it should print a log when the Stripe event received is not supported.', async () => {
       setupMockConfig({
         stripeSecretKey: 'stripeSecretKey',
@@ -563,7 +588,10 @@ describe('Stripe Payment APIs', () => {
 
       // Set mocked functions to Stripe and spyOn to set the result expected
       Stripe.prototype.webhooks = { constructEvent: jest.fn() } as unknown as Stripe.Webhooks;
-      jest.spyOn(Stripe.prototype.webhooks, 'constructEvent').mockReturnValue(mockEvent__paymentIntent_processing);
+      jest.spyOn(Stripe.prototype.webhooks, 'constructEvent').mockReturnValue({
+        ...mockEvent__paymentIntent_processing,
+        type: 'account.application.deauthorized',
+      } as unknown as Stripe.Event);
 
       //When
       const response = await fastifyApp.inject({
@@ -704,9 +732,11 @@ describe('Stripe Payment APIs', () => {
   });
 
   describe('POST /confirmPayments/:id', () => {
-    test('should call /confirmPayments/:id and return valid information', async () => {
+    test('should return 200/approved when the confirmation resolves APPROVED', async () => {
       //Given
-      jest.spyOn(spiedPaymentService, 'updatePaymentIntentStripeSuccessful').mockResolvedValue();
+      jest
+        .spyOn(spiedPaymentService, 'updatePaymentIntentStripeSuccessful')
+        .mockResolvedValue(PaymentModificationStatus.APPROVED);
 
       //When
       const responseGetConfig = await fastifyApp.inject({
@@ -725,10 +755,33 @@ describe('Stripe Payment APIs', () => {
       expect(spiedPaymentService.updatePaymentIntentStripeSuccessful).toHaveBeenCalled();
     });
 
-    test('should call /confirmPayments/:id and return error information', async () => {
+    test('should return 202/pending when the confirmation resolves PENDING (async settlement)', async () => {
+      //Given
+      jest
+        .spyOn(spiedPaymentService, 'updatePaymentIntentStripeSuccessful')
+        .mockResolvedValue(PaymentModificationStatus.PENDING);
+
+      //When
+      const responseGetConfig = await fastifyApp.inject({
+        method: 'POST',
+        url: `/confirmPayments/id`,
+        headers: {
+          'x-session-id': sessionId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ paymentIntent: 'paymentId' }),
+      });
+
+      //Then
+      expect(responseGetConfig.statusCode).toEqual(202);
+      expect(responseGetConfig.body).toEqual(JSON.stringify({ outcome: 'pending' }));
+      expect(spiedPaymentService.updatePaymentIntentStripeSuccessful).toHaveBeenCalled();
+    });
+
+    test('should return 400/rejected without leaking the raw error when the confirmation throws', async () => {
       //Given
       jest.spyOn(spiedPaymentService, 'updatePaymentIntentStripeSuccessful').mockImplementation(() => {
-        throw new Error('error');
+        throw new Error('sensitive stripe detail');
       });
 
       //When
@@ -744,7 +797,8 @@ describe('Stripe Payment APIs', () => {
 
       //Then
       expect(responseGetConfig.statusCode).toEqual(400);
-      expect(responseGetConfig.body).toEqual(JSON.stringify({ outcome: 'rejected', error: JSON.stringify({}) }));
+      expect(responseGetConfig.body).toEqual(JSON.stringify({ outcome: 'rejected' }));
+      expect(responseGetConfig.body).not.toContain('sensitive stripe detail');
       expect(spiedPaymentService.updatePaymentIntentStripeSuccessful).toHaveBeenCalled();
     });
   });
