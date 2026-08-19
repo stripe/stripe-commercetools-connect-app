@@ -11,7 +11,7 @@ import {
 import { apiService, ApiService } from "../services/api-service";
 import { StripeService, stripeService } from "../services/stripe-service";
 import {ExpressCheckoutPartialAddress, ShippingRate} from "@stripe/stripe-js/dist/stripe-js/elements/express-checkout";
-import {ShippingMethodsResponseSchemaDTO} from "../dtos/mock-payment.dto.ts";
+import {PaymentResponseSchemaDTO, ShippingMethodsResponseSchemaDTO} from "../dtos/mock-payment.dto.ts";
 
 export class DropinEmbeddedBuilder implements PaymentDropinBuilder {
   public dropinHasSubmit = true;
@@ -148,7 +148,24 @@ export class DropinComponents implements DropinComponent {
   }
 
   private async createPayment(): Promise<void> {
-    const paymentRes = await this.api.getPayment(this.baseOptions.stripeConfig?.paymentIntent?.paymentMethodOptions);
+    // Branch on the PRESENCE OF THE CACHED RESPONSE, not on flowType. Under pi_first, _Setup() has
+    // already created the PaymentIntent; calling getPayment() here would create a SECOND one — and,
+    // because handleCtPaymentCreation always creates a new commercetools Payment rather than reusing
+    // the cart's, a second CT Payment too — leaving the Element confirming against a different intent
+    // than the one it was initialized with. That is why this branch and the eager fetch in _Setup
+    // cannot land as separate commits.
+    //
+    // flowType is deliberately NOT the discriminator, and must not become one. A cart can resolve to
+    // pi_first and still be opted back out by one of fetchPiFirstPayment's guards (Express Checkout,
+    // or a subscription/setup cart); such a cart carries flowType 'pi_first' with no cached response.
+    // Keying on flowType made exactly those carts throw here instead of paying — Express could never
+    // complete a payment on any cart matching a pi_first rule. One condition decided in _Setup and a
+    // different one read here is a pair that drifts apart the moment another guard is added. The cache
+    // is the question that actually matters, so a cart without one takes the deferred path, which is
+    // precisely the behaviour it had before pi_first existed.
+    const paymentRes: PaymentResponseSchemaDTO =
+      this.baseOptions.piFirstResponse ??
+      (await this.api.getPayment(this.baseOptions.stripeConfig?.paymentIntent?.paymentMethodOptions));
     const paymentIntent = await this.stripe.confirmStripePayment(paymentRes);
     const { outcome } = await this.api.confirmPaymentIntent({
       paymentIntentId: paymentIntent.id,

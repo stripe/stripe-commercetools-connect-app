@@ -57,8 +57,17 @@ For questions about the Integration as a whole (failure modes, connector selecti
 | Rules for coupon sync | `business-rules/coupon-sync.md` |
 | Universal Stripe + CT rules | `../../context/business-rules/stripe-ct-shared.md` |
 | Universal refund rules | `../../context/business-rules/refunds.md` |
+| Refund vs chargeback vs ACH revocation — who initiates what | `business-rules/refunds-and-disputes.md` |
 | Rules for authorizing caller-supplied payment references | `business-rules/payment-ownership-binding.md` |
 | Why was architectural decision X made? | `decisions/` |
+
+### "How does a bank transfer payment work?"
+
+| Question | Document |
+| --- | --- |
+| The full funding flow, step by step | `workflows/process-bank-transfer-payment.md` |
+| Why the Element needs a `clientSecret`, and why `pi_first` ships disabled | `decisions/adr-010-pi-first-elements-initialization.md` |
+| The two open defects blocking enablement | `known-issues.md` KI-044 (cart frozen at mount) and KI-047 (amount snapshot at confirm) |
 
 ---
 

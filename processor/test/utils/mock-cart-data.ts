@@ -73,6 +73,41 @@ export const mockGetCartResult = () => {
   return mockGetCartResult;
 };
 
+/**
+ * Carts shaped for the payment-behavior-resolver discriminator chain.
+ * Ported from ct-connect-stripe-checkout's mock-cart-data, with the shipping-only variant kept
+ * so it can assert the deliberate divergence: this connector must NOT resolve a rule from
+ * shippingAddress. See the comment on extractCountry in payment-behavior-resolver.ts.
+ */
+export const mockGetCartWithCountry = (country: string): Cart => ({
+  ...mockGetCartResult(),
+  country,
+  billingAddress: { country: 'US' }, // must NOT be reached
+  shippingAddress: { country: 'US' }, // must NOT be reached
+});
+
+export const mockGetCartWithBillingCountryOnly = (country: string): Cart => ({
+  ...mockGetCartResult(),
+  country: undefined,
+  billingAddress: { country },
+  shippingAddress: { country: 'US' }, // must NOT be reached
+});
+
+export const mockGetCartWithShippingCountryOnly = (country: string): Cart => ({
+  ...mockGetCartResult(),
+  country: undefined,
+  billingAddress: undefined,
+  shippingAddress: { country },
+});
+
+export const mockGetCartWithStoreKey = (storeKey: string): Cart => ({
+  ...mockGetCartResult(),
+  country: undefined,
+  billingAddress: undefined,
+  shippingAddress: undefined,
+  store: { typeId: 'store', key: storeKey },
+});
+
 export const mockGetCartWithoutCustomerIdResult = () => {
   const cartId = randomUUID();
   const mockGetCartResult: Cart = {

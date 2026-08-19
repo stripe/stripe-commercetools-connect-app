@@ -1,246 +1,924 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Vite + TS</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.0.0/dist/css/bootstrap.min.css" integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
-  <script src="https://code.jquery.com/jquery-3.2.1.slim.min.js" integrity="sha384-KJ3o2DKtIkvYIK3UENzmM7KCkRr/rE9/Qpg6aAZGJwFDMVNA/GpGFF93hXpG5KkN" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/popper.js@1.12.9/dist/umd/popper.min.js" integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.0.0/dist/js/bootstrap.min.js" integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl" crossorigin="anonymous"></script>
-  <script>
-    var __VITE_CTP_AUTH_URL__ = !'%VITE_CTP_AUTH_URL%'.startsWith('%') && '%VITE_CTP_AUTH_URL%';
-    var __VITE_CTP_API_URL__ = !'%VITE_CTP_API_URL%'.startsWith('%') && '%VITE_CTP_API_URL%';
-    var __VITE_CTP_SESSION_URL__ = !'%VITE_CTP_SESSION_URL%'.startsWith('%') && '%VITE_CTP_SESSION_URL%';
-    var __VITE_CTP_CLIENT_ID__ = !'%VITE_CTP_CLIENT_ID%'.startsWith('%') && '%VITE_CTP_CLIENT_ID%';
-    var __VITE_CTP_CLIENT_SECRET__ = !'%VITE_CTP_CLIENT_SECRET%'.startsWith('%') && '%VITE_CTP_CLIENT_SECRET%';
-    var __VITE_CTP_PROJECT_KEY__ = !'%VITE_CTP_PROJECT_KEY%'.startsWith('%') && '%VITE_CTP_PROJECT_KEY%';
-    var __VITE_PROCESSOR_URL__ = !'%VITE_PROCESSOR_URL%'.startsWith('%') && '%VITE_PROCESSOR_URL%';
-  </script>
-  <script src="../dev-utils/session.js"></script>
-</head>
-<body>
-<main role="main">
-  <section class="jumbotron text-center">
-    <div class="container">
-      <form action="/action_page.php">
-        <div class="text-center mb-4">
-          <h1 class="h3 mb-3 font-weight-normal">Dev Site</h1>
-          <p>Use this site for development purposes</p>
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dev Site · Stripe Composable Connector</title>
+    <!--
+    Self-contained styles. This page used to pull Bootstrap 4, jQuery and popper.js from a CDN and
+    used none of their JavaScript — only a handful of layout classes. The class names the dropin
+    code generates at runtime (btn btn-lg btn-primary btn-block, form-control, form-check-*) are
+    kept and styled here, so the module script below needs no changes.
+
+    Light theme only, deliberately: the Stripe Element mounted in this page renders with the
+    appearance the processor returns (STRIPE_APPEARANCE_*), which is not theme-aware, so a dark page
+    would frame a light widget.
+  -->
+    <style>
+      :root {
+        --bg: #f6f9fc;
+        --surface: #ffffff;
+        --border: #e3e8ee;
+        --border-strong: #cfd7e0;
+        --text: #0a2540;
+        --muted: #556987;
+        --accent: #635bff;
+        --accent-hover: #554cf2;
+        --accent-ring: rgba(99, 91, 255, 0.25);
+        --warn-bg: #fff7e6;
+        --warn-text: #8f5f00;
+        --warn-border: #ffd98c;
+        --radius: 10px;
+        --shadow:
+          0 2px 5px rgba(50, 50, 93, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+          Arial, sans-serif;
+        font-size: 15px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .page {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 48px 20px 80px;
+      }
+
+      .page__head {
+        margin-bottom: 24px;
+      }
+      .page__title-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .page__head h1 {
+        margin: 0;
+        font-size: 24px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .page__sub {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .chip {
+        padding: 3px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        white-space: nowrap;
+      }
+      .chip--warn {
+        background: var(--warn-bg);
+        color: var(--warn-text);
+        border: 1px solid var(--warn-border);
+      }
+
+      .card {
+        margin-bottom: 20px;
+        padding: 24px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+      }
+      .card__title {
+        margin: 0 0 16px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      .grid > .btn {
+        grid-column: 1 / -1;
+        margin-top: 4px;
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 0;
+      }
+      .field label {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--muted);
+      }
+      @media (max-width: 640px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .form-control {
+        width: 100%;
+        padding: 9px 12px;
+        font: inherit;
+        color: var(--text);
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        box-shadow: 0 1px 1px rgba(0, 0, 0, 0.02);
+        transition:
+          border-color 0.15s ease,
+          box-shadow 0.15s ease;
+        appearance: none;
+      }
+      .form-control::placeholder {
+        color: #93a1b5;
+      }
+      .form-control:hover {
+        border-color: var(--border-strong);
+      }
+      .form-control:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-ring);
+      }
+
+      select.form-control {
+        padding-right: 32px;
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path fill='none' stroke='%23556987' stroke-width='1.5' stroke-linecap='round' d='M2.5 4.5 6 8l3.5-3.5'/></svg>");
+        background-repeat: no-repeat;
+        background-position: right 10px center;
+      }
+
+      /* Also styles the buttons the dropin code creates at runtime with these same class names. */
+      .btn {
+        display: block;
+        width: 100%;
+        padding: 11px 16px;
+        font: inherit;
+        font-weight: 600;
+        color: #fff;
+        background: var(--accent);
+        border: 0;
+        border-radius: 6px;
+        cursor: pointer;
+        box-shadow: var(--shadow);
+        transition:
+          background 0.15s ease,
+          transform 0.05s ease;
+      }
+      .btn:hover {
+        background: var(--accent-hover);
+      }
+      .btn:active {
+        transform: translateY(1px);
+      }
+      .btn:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--accent-ring);
+      }
+
+      #container--external,
+      #container--internal {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      #container--internal:not(:empty) {
+        margin-top: 16px;
+      }
+
+      .check {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 20px;
+      }
+      /* display:flex beats the UA stylesheet's [hidden] { display: none }, so restate it. */
+      .check[hidden] {
+        display: none;
+      }
+      .check .form-check-input {
+        width: 16px;
+        height: 16px;
+        margin: 0;
+        accent-color: var(--accent);
+      }
+      .check .form-check-label {
+        font-size: 14px;
+      }
+
+      /*
+      No decorative ::before glyph here: this is an aria-live region, and a screen reader can end up
+      voicing pseudo-element content. The state reads from the left border and from the text itself,
+      never from colour alone.
+    */
+      .status {
+        margin: 16px 0 0;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-left: 3px solid var(--muted);
+        border-radius: 6px;
+        background: #f6f9fc;
+        color: var(--muted);
+        font-size: 13px;
+        overflow-wrap: anywhere;
+      }
+      .status[hidden] {
+        display: none;
+      }
+      .status--ok {
+        background: #ecfdf3;
+        border-color: #b9e6c8;
+        border-left-color: #17603f;
+        color: #17603f;
+      }
+      .status--error {
+        background: #fef2f2;
+        border-color: #f5c2c2;
+        border-left-color: #8f2323;
+        color: #8f2323;
+      }
+
+      /*
+      Occupies the element's space while Stripe's iframe is on its way. Skeleton rather than a spinner
+      so the page does not reflow when the real widget lands. The bars are decorative — the role and
+      label on the wrapper are what a screen reader gets.
+    */
+      .loader {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 4px 0;
+      }
+      .loader[hidden] {
+        display: none;
+      }
+      .loader__bar {
+        height: 40px;
+        border-radius: 6px;
+        background: linear-gradient(
+          90deg,
+          #eef2f7 25%,
+          #e3e8ee 37%,
+          #eef2f7 63%
+        );
+        background-size: 400% 100%;
+        animation: loader-shimmer 1.4s ease-in-out infinite;
+      }
+      .loader__bar--tabs {
+        height: 48px;
+      }
+      .loader__bar--short {
+        width: 45%;
+      }
+      @keyframes loader-shimmer {
+        0% {
+          background-position: 100% 50%;
+        }
+        100% {
+          background-position: 0 50%;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .loader__bar {
+          animation: none;
+        }
+      }
+
+      /*
+        An accordion card, so the page is three consistent surfaces instead of two cards and a loose
+        fragment. The .card padding is dropped here and re-applied to the summary and the body, which
+        is what lets the clickable row (and its hover) span the full width of the card.
+
+        Title plus subtitle, both inside the summary: the title names the genre, the subtitle says what
+        is actually in there, and the point of a disclosure label is deciding whether to open it —
+        which a caption only visible once open cannot help with. Kept short because everything in here
+        becomes the accessible name of the control.
+      */
+      .notes {
+        padding: 0;
+        overflow: hidden;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      /*
+        The header carries a permanent tint so the block reads as notes at a glance, and the body stays
+        white so the text keeps its contrast. Hover then has to go a step darker than the resting tint:
+        if resting and hover were the same grey, the row would lose its only cue that it is clickable.
+      */
+      .notes > summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 18px 24px;
+        background: var(--bg);
+        cursor: pointer;
+        list-style: none;
+        transition: background 0.15s ease;
+      }
+      .notes > summary::-webkit-details-marker {
+        display: none;
+      }
+      .notes > summary:hover {
+        background: #eef2f7;
+      }
+      .notes > summary:focus-visible {
+        outline: none;
+        box-shadow: inset 0 0 0 3px var(--accent-ring);
+      }
+      .notes__label {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .notes__title {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text);
+      }
+      .notes__sub {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      /* Two borders of a rotated square: one glyph-free chevron that animates on open. */
+      .notes__chevron {
+        flex: none;
+        width: 9px;
+        height: 9px;
+        margin-top: -4px;
+        border-right: 1.5px solid var(--muted);
+        border-bottom: 1.5px solid var(--muted);
+        transform: rotate(45deg);
+        transition: transform 0.15s ease;
+      }
+      .notes[open] .notes__chevron {
+        margin-top: 4px;
+        transform: rotate(-135deg);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .notes__chevron {
+          transition: none;
+        }
+      }
+      /*
+        line-height above the page default: at 13px across this card's width a line runs to roughly a
+        hundred characters, well past the comfortable 60-75, and extra leading is what makes that
+        readable. Shrinking the type would make it worse, not better.
+      */
+      .notes__body {
+        padding: 16px 24px 20px;
+        border-top: 1px solid var(--border);
+        background: var(--surface);
+        line-height: 1.6;
+      }
+      .notes ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+      .notes li {
+        margin: 3px 0;
+      }
+      .notes li + li {
+        margin-top: 4px;
+      }
+
+      .hint {
+        margin: 20px 0 0;
+        padding-top: 16px;
+        border-top: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 13px;
+      }
+      code {
+        padding: 1px 5px;
+        border-radius: 4px;
+        background: #eef2f7;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12px;
+      }
+    </style>
+    <script>
+      var __VITE_CTP_AUTH_URL__ =
+        !"%VITE_CTP_AUTH_URL%".startsWith("%") && "%VITE_CTP_AUTH_URL%";
+      var __VITE_CTP_API_URL__ =
+        !"%VITE_CTP_API_URL%".startsWith("%") && "%VITE_CTP_API_URL%";
+      var __VITE_CTP_SESSION_URL__ =
+        !"%VITE_CTP_SESSION_URL%".startsWith("%") && "%VITE_CTP_SESSION_URL%";
+      var __VITE_CTP_CLIENT_ID__ =
+        !"%VITE_CTP_CLIENT_ID%".startsWith("%") && "%VITE_CTP_CLIENT_ID%";
+      var __VITE_CTP_CLIENT_SECRET__ =
+        !"%VITE_CTP_CLIENT_SECRET%".startsWith("%") &&
+        "%VITE_CTP_CLIENT_SECRET%";
+      var __VITE_CTP_PROJECT_KEY__ =
+        !"%VITE_CTP_PROJECT_KEY%".startsWith("%") && "%VITE_CTP_PROJECT_KEY%";
+      var __VITE_PROCESSOR_URL__ =
+        !"%VITE_PROCESSOR_URL%".startsWith("%") && "%VITE_PROCESSOR_URL%";
+    </script>
+    <script src="../dev-utils/session.js"></script>
+  </head>
+  <body>
+    <main class="page" role="main">
+      <header class="page__head">
+        <div class="page__title-row">
+          <h1>Dev Site</h1>
+          <!--
+        Deliberately NOT "TEST MODE": this page cannot verify the mode. Whether the keys are test or
+        live is decided by the processor's STRIPE_PUBLISHABLE_KEY, and /operations/config needs a
+        session — so there is nothing to read until a cart id has been entered. A hardcoded "TEST
+        MODE" would be wrong in exactly the case where it matters, someone pointing this page at a
+        live processor.
+
+        It also does not repeat the title: "Dev Site" already says what the page is, so the chip
+        carries the constraint instead — the one thing a reader might not assume on their own.
+      -->
+          <span class="chip chip--warn">TESTING ONLY</span>
         </div>
-        <div class="row">
-          <div class="form-group col-md-6">
-            <div>
-              <label for="cartId">Cart ID:</label>
-              <input type="text" class="form-control" id="cartId" />
-            </div>
+        <p class="page__sub">
+          Stripe Payment Element · commercetools Connect · use this site for
+          development purposes
+        </p>
+      </header>
+
+      <section class="card">
+        <h2 class="card__title">Checkout</h2>
+        <form class="grid">
+          <div class="field">
+            <label for="cartId">Cart ID</label>
+            <input
+              type="text"
+              class="form-control"
+              id="cartId"
+              placeholder="15f31374-4600-45f4-bf84-c8c4615c63a2"
+              autocomplete="off"
+              spellcheck="false"
+            />
           </div>
-          <div class="form-group col-md-6">
-            <label for="paymentMethod">Payment Method:</label>
-            <select
-                    class="form-control"
-                    id="paymentMethod"
-                    required
-            ></select>
+          <div class="field">
+            <label for="paymentMethod">Payment Method</label>
+            <select class="form-control" id="paymentMethod" required></select>
           </div>
-        </div>
-        <button
-                id="createCheckout"
-                class="btn btn-lg btn-primary btn-block"
-                type="submit"
-        >
-          Create checkout
-        </button>
-      </form>
-    </div>
-  </section>
+          <button
+            id="createCheckout"
+            class="btn btn-lg btn-primary btn-block"
+            type="submit"
+          >
+            Create checkout
+          </button>
+        </form>
+      </section>
 
-  <div class="album py-5 bg-light">
-    <div class="container">
+      <!--
+      Revealed as soon as a checkout starts, showing the skeleton, and stays for whatever comes out of
+      it: the element, or the failure that replaced it. There is deliberately no second status region
+      in the Checkout card — the skeleton IS the progress indicator, and an error about the checkout
+      belongs to the surface that promised the widget.
+    -->
+      <section class="card" id="paymentCard" hidden>
+        <h2 class="card__title">Payment</h2>
 
-      <script type="module">
-        import { Enabler } from "/src/main.ts";
+        <script type="module">
+          import { Enabler } from "/src/main.ts";
 
-        document.addEventListener("DOMContentLoaded", async () => {
-          const paymentMethodSelect =
-                  document.getElementById("paymentMethod");
-          const response = await fetch("http://localhost:9002/jwt/token", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              iss: "https://issuer.com",
-              sub: "test-sub",
-              "https://issuer.com/claims/project_key": `${__VITE_CTP_PROJECT_KEY__}`,
-            }),
-          });
-
-          const accessToken = await response.json();
-
-          const res = await fetch(
-            `${__VITE_PROCESSOR_URL__}/operations/payment-components`,
-            {
-              method: "GET",
-              headers: {
-                Authorization: `Bearer ${accessToken.token}`,
-              },
-            }
-          );
-          const paymentMethods = await res.json();
-          paymentMethods.components.forEach((method) => {
-            const option = document.createElement("option");
-            option.value = method.type;
-            option.textContent = method.type;
-            paymentMethodSelect.appendChild(option);
-          });
-          paymentMethods.dropins.forEach((method) => {
-            const option = document.createElement("option");
-            option.value = `${method.type}`;
-            option.textContent = `dropin-${method.type}`;
-            paymentMethodSelect.appendChild(option);
-          });
-        });
-
-        document
-          .getElementById("createCheckout")
-          .addEventListener("click", async (event) => {
-            event.preventDefault();
-            const cartId = document.getElementById("cartId").value;
-            const sessionId = await getSessionId(cartId);
-
+          document.addEventListener("DOMContentLoaded", async () => {
             const paymentMethodSelect =
-                    document.getElementById("paymentMethod");
-            const selectedValue = paymentMethodSelect.value;
-            const selectedText = paymentMethodSelect.options[
-                    paymentMethodSelect.selectedIndex
-                    ].text;
-            const isDropin = selectedText.startsWith('dropin');
-            //temporal stripe customer id
-            const stripeCustomerId = "cus_Example";
+              document.getElementById("paymentMethod");
+            const response = await fetch("http://localhost:9002/jwt/token", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                iss: "https://issuer.com",
+                sub: "test-sub",
+                "https://issuer.com/claims/project_key": `${__VITE_CTP_PROJECT_KEY__}`,
+              }),
+            });
 
-            const enabler = new Enabler({
-              processorUrl: __VITE_PROCESSOR_URL__,
-              sessionId: sessionId,
-              currency: "EUR",
-              onComplete: ({ isSuccess, paymentReference }) => {
-                console.log("onComplete", { isSuccess, paymentReference });
+            const accessToken = await response.json();
+
+            const res = await fetch(
+              `${__VITE_PROCESSOR_URL__}/operations/payment-components`,
+              {
+                method: "GET",
+                headers: {
+                  Authorization: `Bearer ${accessToken.token}`,
+                },
               },
-              onError: (err) => {
-                console.error("onError", err);
-              },
-              paymentElementType: selectedValue,
-              stripeCustomerId,
-              stripeConfig: {
-                elements: {
-                  layout: {
-                    type: 'accordion',
-                    defaultCollapsed: false,
+            );
+            const paymentMethods = await res.json();
+            paymentMethods.components.forEach((method) => {
+              const option = document.createElement("option");
+              option.value = method.type;
+              option.textContent = method.type;
+              option.dataset.kind = "component";
+              option.dataset.componentType = method.type;
+              paymentMethodSelect.appendChild(option);
+            });
+            // Two options per dropin, because the dropin is the CONTAINER and the element type is
+            // what gets mounted inside it — separate axes, so the dropin value alone cannot say which
+            // one to build (see getPaymentElement).
+            //
+            // Labels mirror ct-connect-stripe-checkout's dev-site convention ('dropin-*', 'express-*')
+            // on purpose, but the plumbing behind them is NOT the same and must not be copied over:
+            // checkout has a separate express builder (createExpressBuilder) fed by an `express` array
+            // in /operations/payment-components. This connector has neither — express here is the SAME
+            // embedded dropin with paymentElementType 'expressCheckout', which is also what the sample
+            // site does. So both options build 'embedded' and differ only in the element type, which
+            // travels on the option itself rather than being sniffed out of its label.
+            //
+            // Nor does express need checkout's extra build options (initialAmount, the shipping
+            // callbacks): inside the embedded dropin, shipping changes are handled by the dropin
+            // against the processor.
+            //
+            // Getting the element type wrong is not cosmetic: 'embedded' used to be sent as
+            // paymentElementType, which silently disabled pi_first (fetchPiFirstPayment allow-lists
+            // 'paymentElement') and with it bank transfers and BLIK, and made the processor return the
+            // Express Checkout appearance for a Payment Element.
+            paymentMethods.dropins.forEach((method) => {
+              [
+                { prefix: "dropin", elementType: "paymentElement" },
+                { prefix: "express", elementType: "expressCheckout" },
+              ].forEach(({ prefix, elementType }) => {
+                const option = document.createElement("option");
+                option.value = `${method.type}:${elementType}`;
+                option.textContent = `${prefix}-${method.type}`;
+                option.dataset.kind = "dropin";
+                option.dataset.dropinType = method.type;
+                option.dataset.elementType = elementType;
+                paymentMethodSelect.appendChild(option);
+              });
+            });
+          });
+
+          // Progress and failures used to go to the console only. That made a failed setup look like a
+          // page that simply did nothing — including the pi_first guard that throws when /payments
+          // answers without a clientSecret, which is the one failure worth seeing immediately.
+          //
+          // ONE region, in the Payment card. Loading needs no message at all — the skeleton says it —
+          // and everything else this page reports (a checkout that could not be created, an enabler
+          // error, the outcome of a payment) is about the widget, so it belongs beside it.
+          //
+          // Writing here reveals the card: a page-load failure — the processor being down, so the
+          // /operations/payment-components fetch rejects before any click — would otherwise land in a
+          // hidden node and read as silence.
+          //
+          // role is swapped per kind, not fixed in the markup: 'alert' is assertive and interrupts a
+          // screen reader, which is right for a failure and not for an outcome line.
+          //
+          // Plain messages only: never a clientSecret, a Stripe payload or a session id.
+          const setStatus = (message, kind = "info") => {
+            const statusEl = document.getElementById("paymentStatus");
+            statusEl.textContent = message;
+            statusEl.className = `status status--${kind}`;
+            statusEl.setAttribute(
+              "role",
+              kind === "error" ? "alert" : "status",
+            );
+            statusEl.hidden = false;
+            document.getElementById("paymentCard").hidden = false;
+          };
+
+          const clearStatus = () => {
+            const statusEl = document.getElementById("paymentStatus");
+            statusEl.textContent = "";
+            statusEl.hidden = true;
+          };
+
+          const hideElementLoader = () => {
+            document.getElementById("elementLoader").hidden = true;
+          };
+
+          // mount() returns before Stripe's iframe paints, so hiding the skeleton there would leave an
+          // empty gap for exactly the interval the skeleton exists to cover. Wait for the iframe.
+          //
+          // The failure path is covered separately: onError hides the skeleton too, otherwise a setup
+          // that never produces an iframe would leave it shimmering next to an error message.
+          const hideElementLoaderOnPaint = () => {
+            const container = document.getElementById("container--external");
+            if (container.querySelector("iframe")) {
+              hideElementLoader();
+              return;
+            }
+            const observer = new MutationObserver(() => {
+              if (!container.querySelector("iframe")) return;
+              observer.disconnect();
+              hideElementLoader();
+            });
+            observer.observe(container, { childList: true, subtree: true });
+          };
+
+          // An async event listener that throws produces an unhandled rejection, which the browser
+          // reports to the console and nowhere else. Catching it here rather than wrapping the handler
+          // body keeps one error surface for everything the page can throw.
+          window.addEventListener("unhandledrejection", (event) => {
+            setStatus(event.reason?.message ?? String(event.reason), "error");
+            hideElementLoader();
+          });
+
+          document
+            .getElementById("createCheckout")
+            .addEventListener("click", async (event) => {
+              event.preventDefault();
+              // No "Creating checkout…" message: the skeleton below is the progress indicator.
+              //
+              // A previous attempt's outcome must not survive into the next one, and a second run must
+              // not stack a second widget and a second pay button under the first.
+              clearStatus();
+              document.getElementById("container--external").replaceChildren();
+              document.getElementById("container--internal").replaceChildren();
+              document.getElementById("termsRow").hidden = true;
+              // Show the card with the skeleton in it: the element's space exists from the moment the
+              // checkout starts, which is what the shopper-facing storefront would do too.
+              document.getElementById("paymentCard").hidden = false;
+              document.getElementById("elementLoader").hidden = false;
+              const cartId = document.getElementById("cartId").value;
+              const sessionId = await getSessionId(cartId);
+
+              const paymentMethodSelect =
+                document.getElementById("paymentMethod");
+              // Read both axes off the selected option's data attributes, set where the options are
+              // built. The label is display only — it used to be parsed with startsWith('dropin'),
+              // which tied behaviour to the text a human reads.
+              const selectedOption =
+                paymentMethodSelect.options[paymentMethodSelect.selectedIndex];
+              const isDropin = selectedOption.dataset.kind === "dropin";
+              // The builder type for the selected option — a dropin type or a component type. Same
+              // meaning the raw select value used to carry, now that the value itself encodes both
+              // axes and is no longer the type on its own.
+              const selectedValue = isDropin
+                ? selectedOption.dataset.dropinType
+                : selectedOption.dataset.componentType;
+              // Components carry no element type; they do not mount a Stripe Element through the
+              // dropin path. Defaulting keeps the Enabler options valid for them.
+              const paymentElementType =
+                selectedOption.dataset.elementType ?? "paymentElement";
+              //temporal stripe customer id
+              const stripeCustomerId = "cus_Example";
+
+              const enabler = new Enabler({
+                processorUrl: __VITE_PROCESSOR_URL__,
+                sessionId: sessionId,
+                currency: "EUR",
+                onComplete: ({ isSuccess, paymentReference }) => {
+                  console.log("onComplete", { isSuccess, paymentReference });
+                  setStatus(
+                    isSuccess
+                      ? `Payment completed · Commercetools Payment ID: ${paymentReference}`
+                      : `Payment failed · Commercetools Payment ID: ${paymentReference}`,
+                    isSuccess ? "ok" : "error",
+                  );
+                },
+                onError: (err) => {
+                  console.error("onError", err);
+                  // Bank transfer reaches this path on success: its confirm returns requires_action
+                  // with display_bank_transfer_instructions and Stripe.js renders nothing for it, so
+                  // the enabler surfaces it here. The full object is in the console.
+                  setStatus(
+                    err?.message ?? "Unknown error from the enabler",
+                    "error",
+                  );
+                  // Nothing is going to paint after a failure — stop the skeleton shimmering under it.
+                  hideElementLoader();
+                },
+                paymentElementType,
+                stripeCustomerId,
+                stripeConfig: {
+                  elements: {
+                    layout: {
+                      type: "accordion",
+                      defaultCollapsed: false,
+                    },
+                  },
+                  paymentIntent: {
+                    paymentMethodOptions: {
+                      pix: {
+                        expires_after_seconds: 3600,
+                      },
+                      boleto: {
+                        expires_after_days: 15,
+                      },
+                    },
                   },
                 },
-                paymentIntent: {
-                  paymentMethodOptions: {
-                    pix: {
-                      expires_after_seconds: 3600
-                    },
-                    boleto: {
-                      expires_after_days: 15
-                    }
-                  }
-                }
-              },
-            });
+              });
 
-            let builder;
+              let builder;
 
-            if(isDropin){
-              builder = await enabler.createDropinBuilder(selectedValue);
-            } else {
-              builder = await enabler.createComponentBuilder(selectedValue);
-            }
-            const component = await builder.build({
-              showPayButton: !builder.componentHasSubmit,
-              ...(builder.componentHasSubmit
-                ? {}
-                : {
-                  onPayButtonClick: async () => {
-                    // to be used for validation
-                    const termsChecked =
-                            document.getElementById("termsCheckbox").checked;
-                    if (!termsChecked) {
-                      event.preventDefault();
-                      alert(
-                              "You must agree to the terms and conditions."
-                      );
-                      return Promise.reject("error-occurred");
-                    }
-                    return Promise.resolve(); // change to true, to test payment flow
-                  },
-                }),
-            });
-            if (builder.componentHasSubmit) {
-              if (selectedValue === 'card' || selectedValue === 'purchaseorder' ) {
-                component.mount("#container--external");
+              if (isDropin) {
+                builder = await enabler.createDropinBuilder(selectedValue);
+              } else {
+                builder = await enabler.createComponentBuilder(selectedValue);
               }
-
-              const customButton = document.createElement("button");
-              customButton.textContent = "Pay with "+ selectedValue;
-              customButton.className = "btn btn-lg btn-primary btn-block";
-              customButton.addEventListener("click", () => {
-                const termsChecked =
-                        document.getElementById("termsCheckbox").checked;
-                if (!termsChecked) {
-                  event.preventDefault();
-                  alert("You must agree to the terms and conditions.");
-                  return;
-                }
-                component.submit();
+              const component = await builder.build({
+                showPayButton: !builder.componentHasSubmit,
+                ...(builder.componentHasSubmit
+                  ? {}
+                  : {
+                      onPayButtonClick: async () => {
+                        // to be used for validation
+                        const termsChecked =
+                          document.getElementById("termsCheckbox").checked;
+                        if (!termsChecked) {
+                          event.preventDefault();
+                          alert("You must agree to the terms and conditions.");
+                          return Promise.reject("error-occurred");
+                        }
+                        return Promise.resolve(); // change to true, to test payment flow
+                      },
+                    }),
               });
-              document
-                      .getElementById("container--internal")
-                      .appendChild(customButton);
-            } else{
-              component.mount("#container--external");
-              const customButton = document.createElement("button");
-              customButton.textContent = "Pay with "+ selectedValue;
-              customButton.className = "btn btn-lg btn-primary btn-block";
-              customButton.addEventListener("click", () => {
-                const termsChecked =
-                        document.getElementById("termsCheckbox").checked;
-                if (!termsChecked) {
-                  event.preventDefault();
-                  alert("You must agree to the terms and conditions.");
-                  return;
-                }
-                component.submit();
-              });
-              document
-                      .getElementById("container--external")
-                      .appendChild(customButton);
-            }
-          });
-      </script>
+              // The terms row sits between the element and the pay button: both branches below mount
+              // into #container--external and append their button into #container--internal, which
+              // comes after it.
+              //
+              // NOTE dropins never take the first branch: DropinEmbeddedBuilder exposes
+              // `dropinHasSubmit`, not `componentHasSubmit`, so this reads undefined for them.
+              document.getElementById("termsRow").hidden = false;
+              hideElementLoaderOnPaint();
 
-      <div
-        id="container--external"
-        class="d-flex flex-column gap-3"
-        style="gap: 16px"
-      ></div>
-      <div class="form-group form-check">
-        <input
-                type="checkbox"
-                class="form-check-input"
-                id="termsCheckbox"
-                required
-        />
-        <label class="form-check-label" for="termsCheckbox"
-        >I agree to the terms and conditions</label
+              if (builder.componentHasSubmit) {
+                if (
+                  selectedValue === "card" ||
+                  selectedValue === "purchaseorder"
+                ) {
+                  component.mount("#container--external");
+                }
+
+                const customButton = document.createElement("button");
+                customButton.textContent = "Pay with " + selectedValue;
+                customButton.className = "btn btn-lg btn-primary btn-block";
+                customButton.addEventListener("click", () => {
+                  const termsChecked =
+                    document.getElementById("termsCheckbox").checked;
+                  if (!termsChecked) {
+                    event.preventDefault();
+                    alert("You must agree to the terms and conditions.");
+                    return;
+                  }
+                  component.submit();
+                });
+                document
+                  .getElementById("container--internal")
+                  .appendChild(customButton);
+              } else {
+                component.mount("#container--external");
+                const customButton = document.createElement("button");
+                customButton.textContent = "Pay with " + selectedValue;
+                customButton.className = "btn btn-lg btn-primary btn-block";
+                customButton.addEventListener("click", () => {
+                  const termsChecked =
+                    document.getElementById("termsCheckbox").checked;
+                  if (!termsChecked) {
+                    event.preventDefault();
+                    alert("You must agree to the terms and conditions.");
+                    return;
+                  }
+                  component.submit();
+                });
+                // #container--internal, not --external: the button has to sit AFTER the terms row,
+                // and --external is where the element itself is mounted.
+                document
+                  .getElementById("container--internal")
+                  .appendChild(customButton);
+              }
+            });
+        </script>
+
+        <!--
+      Stands in for the element until Stripe's iframe actually paints, which is a beat after mount()
+      returns. A sibling rather than a child of the mount target, so nothing here shares a parent with
+      Stripe's own DOM.
+    -->
+        <div
+          class="loader"
+          id="elementLoader"
+          role="status"
+          aria-label="Loading the payment element"
+          hidden
         >
-      </div>
-      <div id="container--internal"></div>
-    </div>
-  </div>
-</main>
-</body>
+          <div class="loader__bar loader__bar--tabs" aria-hidden="true"></div>
+          <div class="loader__bar" aria-hidden="true"></div>
+          <div class="loader__bar loader__bar--short" aria-hidden="true"></div>
+        </div>
+        <div id="container--external"></div>
+        <!--
+      Hidden until an element is actually mounted: the terms row belongs to the widget, so on an
+      empty page it is a checkbox for a payment that does not exist yet. Revealed by the module
+      script right after mount, which is also what puts it between the element and the pay button.
+    -->
+        <div class="check" id="termsRow" hidden>
+          <input
+            type="checkbox"
+            class="form-check-input"
+            id="termsCheckbox"
+            required
+          />
+          <label class="form-check-label" for="termsCheckbox"
+            >I agree to the terms and conditions</label
+          >
+        </div>
+        <div id="container--internal"></div>
+        <!-- Payment outcome and enabler errors, adjacent to the button that produces them. -->
+        <p
+          class="status"
+          id="paymentStatus"
+          role="status"
+          aria-live="polite"
+          hidden
+        ></p>
+      </section>
+
+      <!--
+    Scoped to one question on purpose: what each payment method needs before it will show up. This is
+    a harness, not a documentation surface — anything broader belongs in the connector's docs, where it
+    has an owner.
+  -->
+      <details class="card notes">
+        <summary>
+          <span class="notes__label">
+            <span class="notes__title">Test notes</span>
+            <span class="notes__sub"
+              >What each payment method needs before it shows up</span
+            >
+          </span>
+          <span class="notes__chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="notes__body">
+          <ul>
+            <li>
+              <strong>Cards</strong> — nothing extra.
+              <code>4242 4242 4242 4242</code> succeeds,
+              <code>4000 0027 6000 3184</code> forces 3DS,
+              <code>4000 0000 0000 0002</code> is declined. Any future expiry,
+              any CVC.
+            </li>
+            <li>
+              <strong>Bank transfer</strong> —
+              <code>STRIPE_PAYMENT_FLOW=pi_first</code>; bank transfers enabled
+              in the Dashboard for a currency your account country supports; a
+              cart with a customer; automatic capture and no
+              <code>setup_future_usage</code>; a one-time (non subscription)
+              cart; and <code>dropin-embedded</code>. On submit the confirm
+              returns <code>requires_action</code> and the enabler reports it
+              through <code>onError</code>:
+              <strong>that is the success path</strong>, since Stripe.js renders
+              no UI for the funding instructions. Optional:
+              <code>STRIPE_PAYMENT_BEHAVIOR_RULES</code> with
+              <code>euBankTransferCountry</code> (<code>DE</code>,
+              <code>FR</code>, <code>IE</code>, <code>NL</code>) to pick which
+              IBAN a EUR shopper wires to.
+            </li>
+            <li>
+              <strong>BLIK</strong> — <code>pi_first</code> as well, plus a PLN
+              cart.
+            </li>
+            <li>
+              <strong>Pix / Boleto</strong> — a Brazilian account and a BRL
+              cart. This page already sends their expiry options
+              (<code>pix.expires_after_seconds</code>,
+              <code>boleto.expires_after_days</code>).
+            </li>
+            <li>
+              <strong>Apple Pay</strong> — HTTPS and a verified domain, so it
+              will not appear on a plain localhost dev server. The processor
+              serves the association file at <code>/applePayConfig</code> from
+              <code>STRIPE_APPLE_PAY_WELL_KNOWN</code>.
+            </li>
+            <li>
+              <strong>Subscriptions</strong> — a cart with a subscription
+              product. The mode becomes <code>subscription</code> or
+              <code>setup</code>, which changes the submit path; bank transfer
+              is out of scope there by decision.
+            </li>
+            <li>
+              <strong>Multicapture / multirefund</strong> —
+              <code>STRIPE_ENABLE_MULTI_OPERATIONS=true</code>, and multicapture
+              enabled on the Stripe account.
+            </li>
+          </ul>
+        </div>
+      </details>
+    </main>
+  </body>
 </html>

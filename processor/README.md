@@ -549,6 +549,40 @@ This section provides a comprehensive reference for all environment variables us
   - Values: `auto` | `never` | `if_required`
   - Default: `auto`
   - See: [Collecting Billing Address](https://docs.stripe.com/payments/payment-element#collecting-billing-address)
+- **`STRIPE_PAYMENT_FLOW`**: Stripe Elements initialization strategy
+  - Values: `deferred` | `pi_first` (case-sensitive)
+  - Default: `deferred`
+  - `deferred` creates Elements with `{ mode, amount, currency }` and the PaymentIntent at submit time.
+    `pi_first` creates the PaymentIntent **before** the Element mounts and initializes Elements with its
+    `clientSecret`, which bank transfers (`customer_balance`) and BLIK require — they cannot render in
+    the deferred flow at all.
+  - **Do not set `pi_first` yet.** Two open risks, both processor-side: opening the payment page is
+    enough to create a PaymentIntent and a commercetools Payment, and there is no deterministic
+    idempotency key, so any remount orphans the previous pair; and an unfunded bank transfer makes the
+    cart read as paid in full. See KI-044 and KI-049.
+  - An invalid value does **not** abort startup — it is reported to the deploy log and falls back to
+    `deferred`, which also silently disables bank transfers and BLIK. Check that log after changing it.
+  - Per-cart override: `flowType` in `STRIPE_PAYMENT_BEHAVIOR_RULES`.
+- **`STRIPE_PAYMENT_BEHAVIOR_RULES`**: JSON map of per-market payment behavior overrides
+  - Default: unset (no overrides — the flat variables above are always the default)
+  - Keys are a cart country (`"DE"`) or a commercetools store key (`"store-mx"`). Exceptions only; there
+    is no wildcard key.
+  - Rule fields: `flowType`, `captureMethod` (`automatic` | `automatic_async` | `manual`),
+    `setupFutureUsage` (`off_session` | `on_session` | `""` | `none` | `null` | `undefined`) and
+    `euBankTransferCountry` (`DE` | `FR` | `IE` | `NL`).
+  - Example: `{"DE":{"captureMethod":"automatic","euBankTransferCountry":"DE"},"MX":{"captureMethod":"manual"}}`
+  - **Bank transfers have no enable flag here, by design.** Whether the rail is offered at all is a
+    Stripe Dashboard setting for the whole account; whether the widget can render it is
+    `STRIPE_PAYMENT_FLOW`. This map only resolves the two conflicts the Dashboard cannot see:
+    `captureMethod`, because manual capture and an `off_session`/`on_session` mandate each remove
+    `customer_balance` from the methods Stripe resolves; and `euBankTransferCountry`, which only chooses
+    which of your IBANs a EUR shopper is told to wire to (omit it and Stripe shows an Irish IBAN, which
+    works for every eurozone shopper — SEPA is a single payment area). A market already on the default
+    automatic capture needs no entry here at all.
+  - **Two failure modes.** Malformed JSON, a non-object map or a non-object rule **abort startup** —
+    there is no per-field fallback, so the alternative is silently losing every rule at once. An unknown
+    field or an invalid **value** does not abort: it is reported to the deploy log and ignored, so that
+    one setting falls back to its default and the deployment survives a typo.
 - **`STRIPE_API_VERSION`**: Stripe API version
   - Default: `2025-12-15.clover`
   - Allows merchants to pin to specific Stripe API versions for stability

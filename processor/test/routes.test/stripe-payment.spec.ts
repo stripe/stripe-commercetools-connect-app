@@ -28,6 +28,13 @@ import {
   mockRoute__well_know__succeed,
   mockEvent__charge_succeeded_captured,
   mockEvent__charge_capture_succeeded_notCaptured,
+  mockEvent__paymentIntent_requiresAction_bankTransfer,
+  mockEvent__paymentIntent_requiresAction_3ds,
+  mockEvent__paymentIntent_requiresAction_boleto,
+  mockEvent__paymentIntent_partiallyFunded_bankTransfer,
+  mockEvent__customerCashBalanceTransaction_funded,
+  mockEvent__customerCashBalanceTransaction_fundingReversed,
+  mockEvent__customerCashBalanceTransaction_adjustedForOverdraft,
   // mockRoute__customer_session_succeed,
 } from '../utils/mock-routes-data';
 import * as Config from '../../src/config/config';
@@ -577,6 +584,158 @@ describe('Stripe Payment APIs', () => {
       expect(response.statusCode).toEqual(200);
       expect(spiedPaymentService.processStripeEvent).toHaveBeenCalledTimes(1);
       expect(spiedSubscriptionService.processSubscriptionEventCharged).not.toHaveBeenCalled();
+    });
+
+    // -----------------------------------------------------------------------
+    // Bank transfers (customer_balance) — SB3-207 Etapa 2
+    // -----------------------------------------------------------------------
+    const postWebhook = () =>
+      fastifyApp.inject({
+        method: 'POST',
+        url: `/stripe/webhooks`,
+        headers: { 'stripe-signature': 't=123123123,v1=gk2j34gk2j34g2k3j4' },
+      });
+
+    const arrangeWebhook = (event: Stripe.Event) => {
+      setupMockConfig({
+        stripeSecretKey: 'stripeSecretKey',
+        stripeWebhookSigningSecret: 'stripeWebhookSigningSecret',
+        authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
+      });
+      Stripe.prototype.webhooks = { constructEvent: jest.fn() } as unknown as Stripe.Webhooks;
+      jest.spyOn(Stripe.prototype.webhooks, 'constructEvent').mockReturnValue(event);
+      jest.spyOn(StripePaymentService.prototype, 'processStripeEvent').mockReturnValue(Promise.resolve());
+    };
+
+    // ***** RELEASE GATE *****
+    // Card 3DS emits payment_intent.requires_action too. If the next_action predicate is
+    // ever removed, every 3DS payment would get an Authorization/Pending written to
+    // commercetools. This test must fail if that happens.
+    test('RELEASE GATE: a card 3DS requires_action event is logged only and never processed', async () => {
+      arrangeWebhook(mockEvent__paymentIntent_requiresAction_3ds);
+
+      const response = await postWebhook();
+
+      expect(response.statusCode).toEqual(200);
+      expect(spiedPaymentService.processStripeEvent).not.toHaveBeenCalled();
+      expect(Logger.log.info).toHaveBeenCalledWith('Received: payment_intent.requires_action event of pi_3ds_11111');
+    });
+
+    // ***** RELEASE GATE *****
+    test('RELEASE GATE: a Boleto requires_action event is logged only and never processed', async () => {
+      arrangeWebhook(mockEvent__paymentIntent_requiresAction_boleto);
+
+      const response = await postWebhook();
+
+      expect(response.statusCode).toEqual(200);
+      expect(spiedPaymentService.processStripeEvent).not.toHaveBeenCalled();
+      expect(Logger.log.info).toHaveBeenCalledWith('Received: payment_intent.requires_action event of pi_boleto_11111');
+    });
+
+    test('a bank transfer requires_action event is routed to processStripeEvent', async () => {
+      arrangeWebhook(mockEvent__paymentIntent_requiresAction_bankTransfer);
+
+      const response = await postWebhook();
+
+      expect(response.statusCode).toEqual(200);
+      expect(spiedPaymentService.processStripeEvent).toHaveBeenCalledTimes(1);
+    });
+
+    test('a bank transfer partially_funded event is routed to processStripeEvent', async () => {
+      arrangeWebhook(mockEvent__paymentIntent_partiallyFunded_bankTransfer);
+
+      const response = await postWebhook();
+
+      expect(response.statusCode).toEqual(200);
+      expect(spiedPaymentService.processStripeEvent).toHaveBeenCalledTimes(1);
+    });
+
+    // This used to fabricate `invoice` on the PaymentIntent, and the NOTE here used to say the
+    // payload was unrepresentative because Stripe removed that field in Basil (2025-03-31) — the
+    // test passed while the guard it covered returned false in production. That gap was closed on
+    // 2026-08-05: isFromSubscriptionInvoice now reads the connector's own subscription_id metadata,
+    // and this payload carries the real shape instead of the fabricated one.
+    test('a bank transfer requires_action from a subscription invoice is skipped (out of v1 scope)', async () => {
+      arrangeWebhook({
+        ...mockEvent__paymentIntent_requiresAction_bankTransfer,
+        data: {
+          object: {
+            ...(mockEvent__paymentIntent_requiresAction_bankTransfer.data.object as Stripe.PaymentIntent),
+            metadata: { subscription_id: 'sub_1U1F83L2sIzjTVbdqn1rZSSz' },
+          },
+        },
+      } as unknown as Stripe.Event);
+
+      const response = await postWebhook();
+
+      expect(response.statusCode).toEqual(200);
+      expect(spiedPaymentService.processStripeEvent).not.toHaveBeenCalled();
+    });
+
+    test('customer_cash_balance_transaction.created with funding_reversed raises an alertable error and is never processed', async () => {
+      arrangeWebhook(mockEvent__customerCashBalanceTransaction_fundingReversed);
+
+      const response = await postWebhook();
+
+      expect(response.statusCode).toEqual(200);
+      expect(spiedPaymentService.processStripeEvent).not.toHaveBeenCalled();
+      expect(Logger.log.error).toHaveBeenCalledWith(
+        expect.stringContaining('Cash balance funds withdrawn'),
+        expect.objectContaining({
+          transactionType: 'funding_reversed',
+          cashBalanceTransactionId: 'ccsbtxn_22222',
+          customerId: 'cus_11111',
+          centAmount: -12300,
+          currencyCode: 'EUR',
+          // No PaymentIntent is correlatable on this type — that gap is the point.
+          paymentIntentId: undefined,
+        }),
+      );
+    });
+
+    test('customer_cash_balance_transaction.created with adjusted_for_overdraft is alertable and logs the linked transaction', async () => {
+      arrangeWebhook(mockEvent__customerCashBalanceTransaction_adjustedForOverdraft);
+
+      const response = await postWebhook();
+
+      expect(response.statusCode).toEqual(200);
+      expect(spiedPaymentService.processStripeEvent).not.toHaveBeenCalled();
+      expect(Logger.log.error).toHaveBeenCalledWith(
+        expect.stringContaining('Cash balance funds withdrawn'),
+        expect.objectContaining({
+          transactionType: 'adjusted_for_overdraft',
+          cashBalanceTransactionId: 'ccsbtxn_33333',
+          linkedTransactionId: 'ccsbtxn_22222',
+        }),
+      );
+    });
+
+    test('customer_cash_balance_transaction.created of any other type is logged at info', async () => {
+      arrangeWebhook(mockEvent__customerCashBalanceTransaction_funded);
+
+      const response = await postWebhook();
+
+      expect(response.statusCode).toEqual(200);
+      expect(spiedPaymentService.processStripeEvent).not.toHaveBeenCalled();
+      expect(Logger.log.error).not.toHaveBeenCalled();
+      expect(Logger.log.info).toHaveBeenCalledWith(
+        'Received customer cash balance transaction',
+        expect.objectContaining({ transactionType: 'funded' }),
+      );
+    });
+
+    // The raw payload carries sender_name, iban_last4 and bic. None of it may be logged.
+    test('the cash balance log payload carries no payer PII', async () => {
+      arrangeWebhook(mockEvent__customerCashBalanceTransaction_fundingReversed);
+
+      await postWebhook();
+
+      const errorCalls = (Logger.log.error as jest.Mock).mock.calls;
+      expect(errorCalls.length).toBeGreaterThan(0);
+      const serialized = JSON.stringify(errorCalls);
+      expect(serialized).not.toContain('Jane Shopper');
+      expect(serialized).not.toContain('iban_last4');
+      expect(serialized).not.toContain('BUKBGB22');
     });
 
     test('it should print a log when the Stripe event received is not supported.', async () => {

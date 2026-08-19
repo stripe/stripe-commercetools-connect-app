@@ -4,6 +4,7 @@ import {
   convertDateToUnixTimestamp,
   convertPaymentResultCode,
   getLocalizedString,
+  isBankTransferNextAction,
   isFromSubscriptionInvoice,
   isValidUUID,
   parseJSON,
@@ -81,7 +82,67 @@ describe('isValidUUID', () => {
 });
 
 describe('isFromSubscriptionInvoice', () => {
-  test('should return true for a payment event with an invoice', () => {
+  /**
+   * EVERY TEST HERE USED TO FABRICATE `invoice` ON THE EVENT OBJECT, and that is precisely why they
+   * stayed green while production was broken. Stripe removed `invoice` from PaymentIntent in the
+   * Basil API version (2025-03-31), and it is absent from Charge on current versions too — measured
+   * 2026-08-05 on API version 2026-06-24.dahlia against a real subscription charge, where both came
+   * back null even though the invoice genuinely owned the PaymentIntent.
+   *
+   * The payloads below marked "real shape" are copied from that measurement. The `invoice` cases are
+   * kept, relabelled as the pre-Basil path they actually test.
+   */
+  const SUBSCRIPTION_METADATA = {
+    cart_id: 'b2e74d9a-cd28-40b8-a29c-8e4e30f6b491',
+    ct_payment_id: '7ac90d5e-1a6d-4f34-b405-4908ef5dca3a',
+    subscription_id: 'sub_1U1F83L2sIzjTVbdqn1rZSSz',
+  };
+
+  test('real shape: a subscription PaymentIntent with NO invoice field is recognised by metadata', () => {
+    // The exact regression. This event previously returned false and its money was booked twice in
+    // commercetools: once from the invoice, once again from payment_intent.succeeded.
+    const event = {
+      type: 'payment_intent.succeeded',
+      data: { object: { id: 'pi_3U1F84L2sIzjTVbd1fbAG8pl', metadata: SUBSCRIPTION_METADATA } },
+    } as unknown as Stripe.Event;
+    expect(isFromSubscriptionInvoice(event)).toBe(true);
+  });
+
+  test('real shape: a subscription Charge with NO invoice field is recognised by metadata', () => {
+    const event = {
+      type: 'charge.succeeded',
+      data: { object: { id: 'py_3U1F84L2sIzjTVbd1X0Yx60R', metadata: SUBSCRIPTION_METADATA } },
+    } as unknown as Stripe.Event;
+    expect(isFromSubscriptionInvoice(event)).toBe(true);
+  });
+
+  test('real shape: an ordinary card Charge is NOT treated as a subscription', () => {
+    // Negative control, measured alongside the two above: a standalone payment carries connector
+    // metadata but no subscription_id. If this ever returns true, every normal payment stops being
+    // booked in commercetools.
+    const event = {
+      type: 'charge.succeeded',
+      data: {
+        object: {
+          id: 'ch_3U1F6cL2sIzjTVbd0hdXYeoW',
+          metadata: { cart_id: 'f9943c77-83dd-4abc-9a4e-77d3c272d713', ct_payment_id: 'abc' },
+        },
+      },
+    } as unknown as Stripe.Event;
+    expect(isFromSubscriptionInvoice(event)).toBe(false);
+  });
+
+  test('an empty subscription_id is not a subscription', () => {
+    // Stripe metadata values are strings; an empty one must not read as present.
+    const event = {
+      type: 'payment_intent.succeeded',
+      data: { object: { metadata: { subscription_id: '' } } },
+    } as unknown as Stripe.Event;
+    expect(isFromSubscriptionInvoice(event)).toBe(false);
+  });
+
+  test('pre-Basil: a payment event still carrying invoice is recognised', () => {
+    // Retained for accounts pinned to an older API version, where invoice is the authoritative link.
     const event = {
       type: 'payment_intent.succeeded',
       data: { object: { invoice: 'in_123' } },
@@ -89,7 +150,7 @@ describe('isFromSubscriptionInvoice', () => {
     expect(isFromSubscriptionInvoice(event)).toBe(true);
   });
 
-  test('should return true for a charge event with an invoice', () => {
+  test('pre-Basil: a charge event still carrying invoice is recognised', () => {
     const event = {
       type: 'charge.succeeded',
       data: { object: { invoice: 'in_123' } },
@@ -97,7 +158,7 @@ describe('isFromSubscriptionInvoice', () => {
     expect(isFromSubscriptionInvoice(event)).toBe(true);
   });
 
-  test('should return false for an event without an invoice', () => {
+  test('a payment event with neither signal is not a subscription', () => {
     const event = {
       type: 'payment_intent.succeeded',
       data: { object: {} },
@@ -105,11 +166,13 @@ describe('isFromSubscriptionInvoice', () => {
     expect(isFromSubscriptionInvoice(event)).toBe(false);
   });
 
-  test('should return false for an event without an invoice', () => {
+  test('an event that is neither payment nor charge is never a subscription invoice', () => {
+    // Guards the early return: invoice.paid carries subscription metadata of its own and must not
+    // be short-circuited by this helper.
     const event = {
       type: 'invoice.paid',
-      data: { object: {} },
-    } as Stripe.Event;
+      data: { object: { metadata: SUBSCRIPTION_METADATA } },
+    } as unknown as Stripe.Event;
     expect(isFromSubscriptionInvoice(event)).toBe(false);
   });
 });
@@ -185,5 +248,45 @@ describe('getLocalizedString', () => {
   test('should return empty string if english is not available', () => {
     const localizedString = { 'es-MX': 'Hola' };
     expect(getLocalizedString(localizedString)).toBe('');
+  });
+});
+
+describe('isBankTransferNextAction', () => {
+  const withNextAction = (nextAction: unknown): Stripe.PaymentIntent =>
+    ({ next_action: nextAction }) as Stripe.PaymentIntent;
+
+  test('returns true for a PaymentIntent awaiting a bank transfer', () => {
+    const paymentIntent = withNextAction({
+      type: 'display_bank_transfer_instructions',
+      display_bank_transfer_instructions: { reference: 'BT-REF-11111', amount_remaining: 12300 },
+    });
+    expect(isBankTransferNextAction(paymentIntent)).toBe(true);
+  });
+
+  // RELEASE GATE: card 3DS emits the same payment_intent.requires_action event.
+  test('returns false for a card 3DS PaymentIntent (use_stripe_sdk)', () => {
+    const paymentIntent = withNextAction({ type: 'use_stripe_sdk', use_stripe_sdk: {} });
+    expect(isBankTransferNextAction(paymentIntent)).toBe(false);
+  });
+
+  test('returns false for a Boleto PaymentIntent (boleto_display_details)', () => {
+    const paymentIntent = withNextAction({ type: 'boleto_display_details', boleto_display_details: {} });
+    expect(isBankTransferNextAction(paymentIntent)).toBe(false);
+  });
+
+  test('returns false for a redirect PaymentIntent', () => {
+    const paymentIntent = withNextAction({ type: 'redirect_to_url', redirect_to_url: {} });
+    expect(isBankTransferNextAction(paymentIntent)).toBe(false);
+  });
+
+  test('returns false when next_action is null or undefined', () => {
+    expect(isBankTransferNextAction(withNextAction(null))).toBe(false);
+    expect(isBankTransferNextAction({} as Stripe.PaymentIntent)).toBe(false);
+  });
+
+  // Fails closed: the type literal alone is not enough, the payload must be there.
+  test('returns false when the type matches but the instructions object is absent', () => {
+    const paymentIntent = withNextAction({ type: 'display_bank_transfer_instructions' });
+    expect(isBankTransferNextAction(paymentIntent)).toBe(false);
   });
 });
