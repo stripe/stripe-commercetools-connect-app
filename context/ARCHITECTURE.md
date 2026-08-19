@@ -7,9 +7,9 @@ Extends `ct-connect-stripe-checkout` with subscription billing, mixed carts (one
 | Capability | Checkout | Composable |
 | --- | --- | --- |
 | Payment model | One-time charges | One-time + recurring subscriptions |
-| Cart lifecycle | Active until order | **Frozen after subscription initiation** |
+| Cart lifecycle | Active until order | **Frozen at payment commitment** — confirmation for instant rails, funding-instruction issuance for bank transfer, subscription initiation for subscriptions |
 | Payment method capture | Direct via PaymentIntent | Also via SetupIntent (save now, charge later) |
-| Webhooks handled | `payment_intent.*`, `charge.*` | + `invoice.paid`, `invoice.payment_failed`, `invoice.upcoming`, `charge.refunded` (always registered), `charge.captured` (always registered), `payment_intent.requires_action` (logged only), `payment_intent.processing` (async settlement, e.g. crypto/stablecoin → `Authorization/Pending`). `charge.succeeded` for a subscription invoice is registered but deliberately **dropped** (`isFromSubscriptionInvoice()` guard) — `invoice.paid` is the sole source of truth for recurring payments, see `business-rules/recurring-billing.md` Rule 4. `customer.subscription.deleted` declared in code but NOT registered — no handler (TODO). `charge.updated` route handler exists but NOT registered in `actions.ts` enabled events. |
+| Webhooks handled | `payment_intent.*`, `charge.*` | + `invoice.paid`, `invoice.payment_failed`, `invoice.upcoming`, `charge.refunded` (always registered), `charge.captured` (always registered), `payment_intent.requires_action` (bank transfer only, gated on `next_action.type`), `payment_intent.partially_funded` (interface interaction only, no CT transaction), `customer_cash_balance_transaction.created` (observability only), `payment_intent.processing` (async settlement, e.g. crypto/stablecoin → `Authorization/Pending`). `charge.succeeded` for a subscription invoice is registered but deliberately **dropped** (`isFromSubscriptionInvoice()` guard) — `invoice.paid` is the sole source of truth for recurring payments, see `business-rules/recurring-billing.md` Rule 4. `customer.subscription.deleted` declared in code but NOT registered — no handler (TODO). `charge.updated` route handler exists but NOT registered in `actions.ts` enabled events. |
 | Order creation | Once per cart | Configurable: once or per recurring event |
 | Price management | Not applicable | CT → Stripe price sync (optional) |
 | Customer API | Session only | + Subscription management endpoints |
@@ -136,8 +136,10 @@ Events registered in `processor/src/connectors/actions.ts` (in addition to check
 | `charge.succeeded` (subscription invoice) | ⚠️ Registered, deliberately dropped | `isFromSubscriptionInvoice()` guard in `stripe-payment.route.ts` stops it before processing — `invoice.paid` is the single source of truth for recurring payments (`business-rules/recurring-billing.md` Rule 4), avoiding the duplicate CT payments/orders this used to cause |
 | `charge.refunded` | ✅ Always registered | Multi-refund behavior |
 | `charge.captured` | ✅ Always registered | Multi-capture behavior |
-| `payment_intent.requires_action` | ⚠️ Logged only | No CT update |
-| `payment_intent.processing` | ✅ Handled | Async settlement (crypto/stablecoin): writes `Authorization/Pending`; resolved by `payment_intent.succeeded` (→ Success) or `payment_intent.payment_failed`/`canceled` (→ Failure). Guarded against out-of-order/duplicate events (`hasTransactionInState`). |
+| `payment_intent.requires_action` | ✅ Handled — bank transfer only | Three-way gate in `stripe-payment.route.ts`. Subscription-invoice events log and stop. Otherwise `isBankTransferNextAction()` (`utils.ts`) decides: only a PI whose `next_action.type` is exactly `display_bank_transfer_instructions` **and** that carries the instructions object reaches `processStripeEvent`, writing one `Authorization/Pending` for the **full `pi.amount`** — never `populateAmount()`, which reads `amount_received` (0 while awaiting funds). Card 3DS (`use_stripe_sdk`, `redirect_to_url`) and Boleto (`boleto_display_details`) fail the predicate and keep their pre-existing log-only path; the predicate fails closed on a `null`/unrecognized `next_action`. Release-gate tested. |
+| `payment_intent.partially_funded` | ✅ Handled — no CT transaction | Same three-way gate as `requires_action`. Writes **zero** transactions by design (`business-rules` rationale: a second Pending breaks the dedup invariant; a partial `Charge/Success` books revenue not on the platform balance; `Charge/Pending` collides with KI-019). Persists only the interface interaction, via `ZERO_TRANSACTION_PERSIST_EVENTS` — the nested `Authorization Initial→Success` fixup in that branch stays scoped to `charge.succeeded`. Errors are swallowed and 200 returned deliberately (KI-035). |
+| `customer_cash_balance_transaction.created` | ✅ Registered — observability only | Never reaches `processStripeEvent`; `convert()` throws if it ever does. `logCustomerCashBalanceTransaction` logs a field-by-field payload — `funding_reversed` / `adjusted_for_overdraft` at `log.error`, everything else at `log.info`. The raw event is never logged: the payload carries `sender_name`, `iban_last4`, `account_number_last4` and `sort_code`. **No CT write of any kind** — see `failure-modes.md`. |
+| `payment_intent.processing` | ✅ Handled | Async settlement (crypto/stablecoin): writes `Authorization/Pending`; resolved by `payment_intent.succeeded` (→ Success) or `payment_intent.payment_failed`/`canceled` (→ Failure). Guarded against out-of-order/duplicate events (`hasTransactionInState`) — the guard is now shared with `requires_action` via `ASYNC_PENDING_EVENTS`, and both re-throw on CT write failure so Stripe retries. |
 | `customer.subscription.deleted` | ❌ NOT registered | Declared in `StripeSubscriptionEvent` enum; marked as TODO; no route handler |
 | `charge.updated` | ❌ Route handler exists, NOT registered | Must be manually added to `actions.ts` enabled events |
 
@@ -214,13 +216,79 @@ Fields are optional — B2C payments carry no Launchpad data. See `business-rule
 | `CT_CUSTOM_TYPE_SUBSCRIPTION_LINE_ITEM_KEY` | `payment-connector-subscription-line-item-type` | Custom type key for subscription line items. |
 | `CT_PRODUCT_TYPE_SUBSCRIPTION_KEY` | `payment-connector-subscription-information` | Product type key identifying subscription products. |
 | `STRIPE_ENABLE_MULTI_OPERATIONS` | `false` | When `true`, enables multicapture and multirefund. Requires multicapture enabled in Stripe account. |
-| `STRIPE_CAPTURE_METHOD` | `automatic` | `automatic` or `manual`. |
+| `STRIPE_CAPTURE_METHOD` | `automatic` | `automatic` or `manual`. Note `manual` excludes `customer_balance`, `us_bank_account` and `crypto` from the resolved payment method list (measured). |
+| `STRIPE_PAYMENT_FLOW` | `deferred` | Stripe Elements initialization strategy — `deferred` or `pi_first`, case-sensitive. See "Elements initialization strategies" below. An invalid value **aborts startup** (and the post-deploy step, which imports the same config); blank or whitespace reads as unset. Change requires redeployment. **Processor side only today — do not set `pi_first`**, see the caveat below. |
+| `STRIPE_PAYMENT_BEHAVIOR_RULES` | _(empty)_ | Optional JSON map from cart country or CT store key to per-cart overrides of `flowType`, `captureMethod`, `setupFutureUsage` and `bankTransfer`. Exceptions only — the flat variables are always the default and there is no wildcard key. Malformed JSON, an unknown field or an invalid value **aborts startup**. A matching rule's field wins over the flat variable; a rule that omits a field falls back to it. Two discriminators by trust level: policy fields (`captureMethod`, `setupFutureUsage`) resolve through `cart.country` → `cart.billingAddress.country` → `cart.store.key`; fields that change PaymentIntent parameters (`flowType` today, `bankTransfer` when it arrives) resolve through `cart.country` → `cart.store.key` only, because billing country is shopper-supplied (KI-046). A rule may not set both `flowType: 'pi_first'` and an `off_session`/`on_session` `setupFutureUsage` — that aborts startup (KI-045). |
 | `STRIPE_API_VERSION` | `2025-12-15.clover` | Stripe API version sent on all requests. |
 | `STRIPE_LAYOUT` | `{"type":"tabs","defaultCollapsed":false}` | Payment Element layout config (JSON string). |
 | `STRIPE_APPEARANCE_PAYMENT_ELEMENT` | _(empty)_ | Custom CSS appearance config for the Payment Element (JSON string). |
 | `STRIPE_APPEARANCE_EXPRESS_CHECKOUT` | _(empty)_ | Custom CSS appearance config for Express Checkout (JSON string). |
 | `STRIPE_COLLECT_BILLING_ADDRESS` | `auto` | `auto`, `never`, or `required`. |
-| `STRIPE_SAVED_PAYMENT_METHODS_CONFIG` | _(empty)_ | JSON config for saved payment method visibility. Parse errors are silently swallowed — see `known-issues.md` KI-017. |
+| `STRIPE_SAVED_PAYMENT_METHODS_CONFIG` | _(empty)_ | JSON config for saved payment method visibility. Parse errors are silently swallowed — see `known-issues.md` KI-017. Its `payment_method_save_usage` key is the value `pi_first` suppresses at the Elements level; it is **not** set in the in-repo environment, but `connect.yaml`'s own example includes it. |
+
+---
+
+## Elements Initialization Strategies
+
+`STRIPE_PAYMENT_FLOW` (or a rule's `flowType`) selects how the enabler initializes Stripe Elements.
+
+| | `deferred` — default | `pi_first` — implemented end to end |
+| --- | --- | --- |
+| `elements()` receives | `{ mode, amount, currency, appearance, captureMethod, … }`, no `clientSecret` | `{ clientSecret }` from a PaymentIntent created **before** mount |
+| PaymentIntent created | at submit, via `GET`/`POST /payments` | eagerly, before the Element renders |
+| Compatible with | every payment method currently in scope | required by methods that must bind to a PaymentIntent before rendering — bank transfers (`customer_balance`) and BLIK |
+
+**Why `pi_first` exists.** Stripe's bank transfer documentation requires Elements initialized with a
+`clientSecret` and states the deferred flow is unsupported. Measured on a developer account: a
+PaymentIntent created with `automatic_payment_methods` **and** a customer does include
+`customer_balance`, yet the deferred Element shows no bank-transfer tab even with an authenticated
+cart, a resolved Stripe Customer, `capture_method: automatic` and `setup_future_usage` unset. The
+initialization flow is the cause, not the PaymentIntent configuration.
+
+### `pi_first` is implemented end to end — and ships disabled
+
+Both sides exist: the processor resolves `flowType` and creates the PaymentIntent before mount
+(`139b685`), and the enabler reads it from `/config-element` and initialises Elements with the
+`clientSecret` (`3120046`). Verified live on 2026-08-06 — a German EUR cart rendered the bank transfer
+tab and Stripe returned a German IBAN for a connector-supplied
+`eu_bank_transfer: {country: "DE"}`.
+
+**It is still off by default**, and enabling it should be a deliberate decision rather than a side
+effect of deploying. `STRIPE_PAYMENT_FLOW` is unset in `connect.yaml` and an unset value means
+`deferred`.
+
+**Two consequences of moving PaymentIntent creation to mount**, both since resolved, are worth knowing
+because they explain code that would otherwise look arbitrary:
+
+- **The cart is no longer frozen at PaymentIntent creation.** Under `deferred` the PaymentIntent was
+  created at submit, so freezing there was harmless. Under `pi_first` it is created at mount, which
+  froze the cart before the shopper chose anything and left no way back — KI-044, resolved. Each rail
+  now freezes at its own commitment point: instant rails in `updatePaymentIntentStripeSuccessful`, bank
+  transfer in the `payment_intent.requires_action` handler. The split is forced rather than chosen —
+  a bank transfer confirm returns `requires_action`, which the confirm gate's status allowlist rejects,
+  and the enabler does not call that endpoint on this path.
+- **Confirmation validates the cart's live total**, not the amount snapshot taken at creation. Under
+  `deferred` the snapshot was milliseconds old; under `pi_first` it can be as old as the page, and the
+  shipping-methods endpoints can move the total inside that window — KI-047, resolved. This is what
+  makes the freeze change safe, and the two must not be reverted separately.
+
+**Still open:** the PaymentIntent and commercetools Payment created at mount are orphaned when a
+shopper abandons the page. Carts are no longer affected; the Stripe-side litter needs a deterministic
+idempotency key at creation.
+
+### Response shape
+
+`GET /config-element/:payment` returns `flowType` unconditionally. The field is declared on
+`ConfigElementResponseSchema`, which is the Fastify 200 response schema for that route — Fastify strips
+properties a response schema does not declare, so without the declaration the service would return the
+field and the wire would silently drop it. The TypeScript type alone is not sufficient; both come from
+the same object, and only the schema registration puts the field on the wire.
+
+The subscription path cannot reach the suppression on the PaymentIntent: `StripeSubscriptionService`
+never calls `resolvePaymentBehavior` and does not touch `setup_future_usage` at all (verified by grep).
+It runs its own SetupIntent flow with `usage: off_session | on_session`, a distinct parameter on a
+distinct object. `initializeCartPayment` **does** serve subscription carts, but what it suppresses there
+is the widget's save-for-future-use hint, not the mandate that establishes the recurring charge.
 
 ---
 

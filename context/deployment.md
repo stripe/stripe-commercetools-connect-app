@@ -67,6 +67,40 @@ Complete these steps before deploying the connector. Skipping any will cause sil
 | `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING` | No | `createOrder` | `createOrder` \| `addPaymentToOrder` |
 | `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED` | No | `false` | `true` \| `false` |
 | `STRIPE_ENABLE_MULTI_OPERATIONS` | No | `false` | `true` \| `false` — requires Stripe account config |
+| `STRIPE_PAYMENT_FLOW` | No | `deferred` | `deferred` \| `pi_first` (case-sensitive). Required by bank transfers and BLIK — **do not set `pi_first` yet**, see below |
+| `STRIPE_PAYMENT_BEHAVIOR_RULES` | No | — | JSON map of cart country or CT store key to per-market overrides. See below |
+
+**`STRIPE_PAYMENT_FLOW`** selects how the enabler initializes Stripe Elements. `deferred` creates Elements
+with `{ mode, amount, currency }` and the PaymentIntent at submit. `pi_first` creates the PaymentIntent
+before the Element mounts and initializes Elements with its `clientSecret`, which bank transfers
+(`customer_balance`) and BLIK require — they cannot render in the deferred flow at all.
+
+> **Do not set `pi_first` yet.** Two open processor-side risks: mounting the payment page alone creates a
+> PaymentIntent and a commercetools Payment with no deterministic idempotency key, so any remount orphans
+> the previous pair (KI-044); and an unfunded bank transfer makes the cart read as paid in full (KI-049).
+> An invalid value does **not** abort startup — it is reported to the deploy log and falls back to
+> `deferred`, which silently disables bank transfers and BLIK. Check that log after changing it.
+
+**`STRIPE_PAYMENT_BEHAVIOR_RULES`** contains exceptions only — the flat variables above are always the
+default, and there is no wildcard key. Keys are a cart country (`"DE"`) or a CT store key (`"store-mx"`).
+Rule fields: `flowType`, `captureMethod` (`automatic` \| `automatic_async` \| `manual`), `setupFutureUsage`
+(`off_session` \| `on_session` \| `""` \| `none` \| `null` \| `undefined`) and `euBankTransferCountry`
+(`DE` \| `FR` \| `IE` \| `NL`).
+
+Example: `{"DE":{"captureMethod":"automatic","euBankTransferCountry":"DE"},"MX":{"captureMethod":"manual"}}`
+
+Bank transfers have **no enable flag here, by design**. Whether the rail is offered at all is a Stripe
+Dashboard setting for the whole account; whether the widget can render it is `STRIPE_PAYMENT_FLOW`. This
+map resolves only the two conflicts the Dashboard cannot see: `captureMethod`, because manual capture and
+an `off_session`/`on_session` mandate each remove `customer_balance` from the methods Stripe resolves; and
+`euBankTransferCountry`, which only chooses which of your IBANs a EUR shopper is told to wire to — omit it
+and Stripe shows an Irish IBAN, valid for every eurozone shopper since SEPA is a single payment area. A
+market already on the default automatic capture needs no entry at all.
+
+Two failure modes: malformed JSON, a non-object map or a non-object rule **abort startup** (no per-field
+fallback exists, so the alternative is silently losing every rule at once). An unknown field or an invalid
+**value** does not abort — it is reported to the deploy log and ignored, so that one setting falls back to
+its default and the deployment survives a typo.
 
 ### Secured configuration (encrypted by CT Connect)
 
@@ -93,12 +127,28 @@ Runs `processor/src/connectors/post-deploy.ts`. Executed automatically by CT Con
    - `charge.captured`
    - `payment_intent.succeeded`
    - `charge.refunded`
+   - `refund.updated`
+   - `refund.failed`
    - `payment_intent.canceled`
    - `payment_intent.payment_failed`
    - `payment_intent.requires_action`
+   - `payment_intent.processing`
+   - `payment_intent.partially_funded`
+   - `customer_cash_balance_transaction.created`
    - `invoice.paid`
    - `invoice.payment_failed`
    - `invoice.upcoming`
+
+   > **Verify this list after every deploy** — `stripe webhook_endpoints list --project-name=<profile>`.
+   > `updateWebhookEndpoint` replaces `enabled_events` wholesale inside a `try/catch` that logs and does
+   > not re-throw, so a failed call leaves the deploy reporting success while the events are never
+   > delivered. Observed on a developer account, where two endpoints were missing `invoice.upcoming`
+   > despite it being present in the code. What a failed update costs is refund correctness and
+   > observability — `refund.updated`/`refund.failed` correct a refund Stripe later rejects,
+   > `payment_intent.partially_funded` is the underpayment audit trail, and
+   > `customer_cash_balance_transaction.created` is the only clawback signal. The core bank transfer
+   > flow rides on `payment_intent.requires_action` and `payment_intent.succeeded`, which predate this
+   > work. See KI-042.
 3. **Create subscription product type** — creates or updates `payment-connector-subscription-information` product type with all `stripeConnector_*` attributes.
 4. **Create line item custom type** — creates or updates `payment-connector-subscription-line-item-type` with fields: `stripeConnector_productSubscriptionId`, `stripeConnector_stripeSubscriptionId`, `stripeConnector_stripeSubscriptionError`.
 5. **Create customer custom type** — creates or updates `payment-connector-stripe-customer-id` with field `stripeConnector_stripeCustomerId`.

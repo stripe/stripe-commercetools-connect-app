@@ -71,6 +71,20 @@ export const ConfigElementResponseSchema = Type.Object({
   layout: Type.String(),
   collectBillingAddress: Type.Enum(CollectBillingAddressOptions),
   paymentMode: Type.Union([Type.Literal('subscription'), Type.Literal('setup'), Type.Literal('payment')]),
+  /**
+   * Elements initialization strategy — see config.stripePaymentFlow.
+   *
+   * Declared here because this schema IS the Fastify 200 response schema for
+   * GET /config-element/:payment (stripe-payment.route.ts:289), and Fastify strips properties the
+   * schema does not declare. Without this line initializeCartPayment would return flowType and the
+   * wire would silently drop it — the enabler would see no flowType and fall back to deferred, and
+   * the symptom would be "I configured pi_first and the enabler ignores it". Do not delete this line
+   * as redundant with the service's return type: the type is not what puts the field on the wire.
+   *
+   * Optional so existing ConfigElementResponseSchemaDTO literals stay valid; the service always
+   * populates it.
+   */
+  flowType: Type.Optional(Type.Union([Type.Literal('deferred'), Type.Literal('pi_first')])),
 });
 
 export const CtPaymentSchema = Type.Object({

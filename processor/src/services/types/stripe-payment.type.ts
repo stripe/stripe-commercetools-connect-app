@@ -38,7 +38,25 @@ export enum StripeEvent {
   PAYMENT_INTENT__REQUIRED_ACTION = 'payment_intent.requires_action',
   PAYMENT_INTENT__PROCESSING = 'payment_intent.processing',
   PAYMENT_INTENT__PAYMENT_FAILED = 'payment_intent.payment_failed',
+  PAYMENT_INTENT__PARTIALLY_FUNDED = 'payment_intent.partially_funded',
+  CUSTOMER_CASH_BALANCE_TRANSACTION__CREATED = 'customer_cash_balance_transaction.created',
   CHARGE__REFUNDED = 'charge.refunded',
+  /**
+   * Terminal outcome of a refund, and the ONLY place some rails report it.
+   *
+   * `charge.refunded` fires when the Refund object is CREATED, which for an instant rail is also when
+   * it succeeds — so treating the two as one thing worked for cards and hid a hole everywhere else.
+   * Measured 2026-08-05: refunding a bank-transfer PaymentIntent returns `status: 'pending'`, because
+   * the money has to travel back over the banking network. The connector wrote Refund/Success at that
+   * moment and had no path to ever correct it, so a refund that later failed stayed recorded as
+   * successful forever.
+   *
+   * refund.updated carries the transition out of pending (to succeeded, failed or canceled);
+   * refund.failed fires specifically on failure. Both are registered because Stripe emits failure on
+   * both channels and the redundancy is free — the handler is idempotent on refund id + status.
+   */
+  REFUND__UPDATED = 'refund.updated',
+  REFUND__FAILED = 'refund.failed',
   CHARGE__CAPTURED = 'charge.captured',
   CHARGE__SUCCEEDED = 'charge.succeeded',
   CHARGE__UPDATED = 'charge.updated',

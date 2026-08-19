@@ -68,8 +68,40 @@ Deploy `ct-connect-stripe-composable` through the CT Connect marketplace. The po
 | --- | --- | --- |
 | `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING` | No | `createOrder` (default) or `addPaymentToOrder` — controls how recurring invoices create records in CT |
 | `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED` | No | `true` to sync CT prices to Stripe on `invoice.upcoming`. Use with caution — see prerequisite note above |
+| `STRIPE_PAYMENT_FLOW` | No | `deferred` (default) or `pi_first`. Required by bank transfers and BLIK — **do not set `pi_first` yet**, see below |
+| `STRIPE_PAYMENT_BEHAVIOR_RULES` | No | JSON map of per-market overrides, keyed by cart country or CT store key. Exceptions only; the flat variables above are always the default |
 
 > **After first deploy:** copy `STRIPE_WEBHOOK_SIGNING_SECRET` from Stripe Dashboard → Developers → Webhooks → your endpoint. Redeploy.
+
+### Bank transfers (`customer_balance`)
+
+Bank transfers ship **disabled**. Nothing changes for your deployment unless you set
+`STRIPE_PAYMENT_FLOW=pi_first`, and that variable plus the Bank transfers toggle in your Stripe Dashboard
+is the whole configuration for a merchant on default settings.
+
+Unlike a card, the shopper is shown account details and a reference, transfers the funds themselves, and
+the money arrives hours or days later. The order is created only when it arrives.
+
+**Four independent gates decide whether the method appears.** All four must hold:
+
+1. Bank transfers enabled in the Stripe Dashboard, with a supported currency for your account country
+2. `STRIPE_PAYMENT_FLOW=pi_first` — Elements must be initialized with a `clientSecret`
+3. An authenticated shopper with a Stripe Customer — guests cannot use this rail, a Stripe constraint
+4. Automatic capture and no `setup_future_usage` mandate — either one removes `customer_balance` from
+   the methods Stripe resolves
+
+Gate 4 is what `STRIPE_PAYMENT_BEHAVIOR_RULES` is for: a merchant running manual capture globally enables
+bank transfer in one market with `{"DE":{"captureMethod":"automatic"}}`. There is deliberately no enable
+flag — the rail itself is a Dashboard setting. The optional `euBankTransferCountry` field (`DE`, `FR`,
+`IE`, `NL`) only chooses which of your IBANs a EUR shopper is told to wire to; omit it and Stripe shows an
+Irish IBAN, which works for every eurozone shopper since SEPA is a single payment area.
+
+> **Not yet ready to enable.** `pi_first` has two open processor-side risks: opening the payment page
+> alone creates a PaymentIntent and a CT Payment with no deterministic idempotency key, so a remount
+> orphans the previous pair (KI-044); and an unfunded bank transfer makes the cart read as paid in full,
+> so a shopper reloading the page sees an error rather than an "awaiting your transfer" state (KI-049).
+> Subscriptions are out of scope by decision — a renewal debits a cash balance the shopper must keep
+> pre-funded, which needs a top-up flow this connector does not provide.
 
 ### Step 3 — Verify post-deploy resources
 

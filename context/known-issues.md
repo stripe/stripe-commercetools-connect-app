@@ -291,3 +291,232 @@ Connector-specific limitations, code defects, and operational gotchas. Cross-cut
 **Root cause:** `processor/src/services/stripe-payment.service.ts` — `retrieve()` failure is intentionally fail-closed (D1 decision, mirrors the checkout connector); the anti-duplicate guard is best-effort, not transactional.
 **Rule:** Accepted trade-offs, documented for operational awareness. The webhook remains the source of truth for order creation; the Pending dedup guard + SDK retry keep the final CT state coherent. If checkout-layer re-attempts become a problem, gate the re-attempt on the existing PI rather than creating a new one.
 **Implementation note:** Fail-closed path at the `retrieve()` try/catch; dedup guard via `hasTransactionInState` (`Authorization/Pending` + `Charge/Success`) before the Pending write. Introduced with the sync-gate fix (commit `a09b963`); identity binding rationale in `decisions/adr-009-sync-confirmation-identity-binding.md`.
+
+---
+
+## KI-035: `partially_funded` returns HTTP 200 after a CT write failure — deliberate, but it contradicts the letter of the never-do rule
+
+**Problem:** When the interface-interaction write for `payment_intent.partially_funded` fails, the catch in `processStripeEvent` logs and returns, so the connector answers Stripe with 200 and the event is never redelivered. Read against the connector's own never-do rule ("never catch a Stripe or CT error inside a webhook handler and return HTTP 200 anyway", KI-002/KI-003), this looks like a violation.
+**Root cause:** `processor/src/services/stripe-payment.service.ts` — `partially_funded` is deliberately excluded from `ASYNC_PENDING_EVENTS`, the set whose members re-throw so Stripe retries.
+**Rule:** Accepted trade-off, not a defect. The event writes **no** CT transaction, so losing it costs one audit line, not state correctness — the damage the never-do rule exists to prevent (silent CT divergence) is not in play. Re-throwing would instead cause a retry storm on an event that fires on every partial funding. `requires_action`, which *does* write a transaction, is in the set and does re-throw.
+**Implementation note:** `ASYNC_PENDING_EVENTS` covers `payment_intent.processing` and `payment_intent.requires_action` only. Introduced with the bank transfer event routing (commit `4b59124`, SB3-207).
+
+---
+
+## KI-036: `client_secret` redaction is keyed on payload shape, not on the PaymentIntent being open
+
+**Problem:** `buildPspInteractionResponse` nulls `client_secret` (and strips `financial_addresses` / `hosted_instructions_url`) only inside the branch that detects `next_action.display_bank_transfer_instructions`. Any event for a still-open PaymentIntent whose payload lacks that object takes the early return and persists a **live, usable** `client_secret` into the commercetools interface interaction — the exact exposure the redaction exists to prevent. This is the first code path that persists a PI while it is still open, so unlike the settled-PI precedent the secret is valid for the whole funding window.
+**Root cause:** `processor/src/services/converters/stripeEventConverter.ts` — the redaction predicate is the presence of the instructions object; the correct key is the PaymentIntent's `status` (`requires_action` / `partially_funded`).
+**Rule:** Re-key the redaction on PI status rather than payload shape. Do not widen the early return without re-checking this.
+**Measured 2026-07-31 — the exposure is latent, not active.** A real `payment_intent.partially_funded` payload from the dev Stripe account (`evt_3TzJOPL2sIzjTVbd1DcCXQ7P`) does carry `client_secret`, **and** it carries `next_action.display_bank_transfer_instructions` — so the redaction branch does fire, and no live secret is written today for either routed event. But the two properties are independent: the redaction is correct only *because* the predicate happens to hold (see KI-040). Nothing enforces the coupling, so a payload change on Stripe's side would silently turn this into a real exposure.
+**Implementation note:** Early return at the top of `buildPspInteractionResponse`; `client_secret` nulled only in the branch below it. Found by the module read of commit `4b59124` (SB3-207).
+
+---
+
+## KI-037: The async dedup guard skips before persisting the interface interaction, losing the audit trail it justifies elsewhere
+
+**Problem:** When the dedup guard in `processStripeEvent` decides an async-pending event is a duplicate or arrives out of order, it returns before any `updatePayment` call — including the interface-interaction-only write. A redelivered `payment_intent.requires_action` therefore leaves no trace at all. This contradicts the rationale used two blocks later to justify persisting `partially_funded`'s interaction: that an event should leave an audit trail rather than be silently discarded.
+**Root cause:** `processor/src/services/stripe-payment.service.ts` — the guard's early return precedes the persistence branch instead of falling through to an interaction-only write.
+**Rule:** The two paths should agree. Either both persist the interaction on a no-op, or neither does. Prefer persisting: a redelivery is exactly the event support wants a timestamp for.
+**Implementation note:** Dedup guard in `processStripeEvent`, gated on `ASYNC_PENDING_EVENTS`. Found by the module read of commit `4b59124` (SB3-207).
+
+---
+
+## KI-038: `getCtPaymentId` is typed `string` but can return `undefined` at runtime
+
+**Problem:** `getCtPaymentId` declares a `string` return, but it reads `metadata['ct_payment_id']` from the Stripe SDK's index signature, which is `string | undefined` at runtime. The compiler cannot see the gap. Commit `4b59124` added a guard at one call site, but every other consumer of `StripeEventUpdatePayment.id` still trusts a type that can be `undefined`.
+**Root cause:** `processor/src/services/converters/stripeEventConverter.ts` — the declared return type is wider than what the metadata lookup can guarantee.
+**Rule:** Narrow the return type to `string | undefined` and make each caller handle the absence explicitly, rather than guarding case by case as new paths appear.
+**Implementation note:** Guarded call site added in `processStripeEvent`; other consumers unchanged. Found by the module read of commit `4b59124` (SB3-207).
+
+---
+
+## KI-039: A PaymentIntent that carries no `ct_payment_id` is now dropped instead of retried — including on the crypto settlement path
+
+**Problem:** `processStripeEvent` returns early with a `log.warn` and HTTP 200 when `metadata.ct_payment_id` is absent. This is correct for the case it was written for — retrying cannot make metadata appear — but the guard is not scoped to bank transfers. It changes `payment_intent.processing` (crypto/stablecoin settlement) from "throw → 500 → Stripe retries for three days" to "warn → 200 → dropped permanently". Any transient cause of an unreadable metadata field is now unrecoverable.
+**Root cause:** `processor/src/services/stripe-payment.service.ts` — the guard sits before the event-type dispatch, so it applies to every event.
+**Rule:** Deliberate: the prior behavior risked Stripe disabling the whole webhook endpoint after three days of 500s, which would silence every event for every flow. Documented because it is a behavior change to an unrelated flow, and it must be called out in the PR rather than discovered later.
+**Implementation note:** Early return in `processStripeEvent`, before the dedup guard. Introduced by commit `4b59124` (SB3-207).
+
+---
+
+## KI-040: `partially_funded` routing depends on a `requires_action`-shaped payload
+
+**Problem:** The route gates `payment_intent.partially_funded` on `isBankTransferNextAction`, which requires `next_action.display_bank_transfer_instructions`. Only PaymentIntents using `customer_balance` emit this event at all, so the gate cannot admit anything it should reject — but if Stripe ever emits it with `next_action: null`, the event silently becomes log-only, and both the converter's `PARTIALLY_FUNDED` case and its `ZERO_TRANSACTION_PERSIST_EVENTS` entry become dead code.
+**Root cause:** `processor/src/routes/stripe-payment.route.ts` — `requires_action` and `partially_funded` share one `case` and therefore one predicate.
+**Measured 2026-07-31 — the shape holds on a real payload.** `evt_3TzJOPL2sIzjTVbd1DcCXQ7P` on the dev Stripe account, a genuine `partially_funded` from a `us_bank_transfer` funded at 2000 of 5000: `status: requires_action`, `next_action.type: display_bank_transfer_instructions`, instructions object present, `amount_remaining: 3000`. So the shared predicate does admit the event, and the `PARTIALLY_FUNDED` converter case is reachable. This supersedes the original note that the only evidence was a hand-written fixture.
+**Rule:** Downgraded from speculative failure to residual risk — one observed payload is evidence, not a contract, and the failure mode is silent. Do not split the cases on this basis (splitting duplicates the subscription-invoice guard for no measured gain). Do re-check if Stripe changes the `customer_balance` payload, because KI-036's redaction correctness depends on this same property.
+**Implementation note:** Shared `case` in the webhook switch. Introduced by commit `4b59124` (SB3-207).
+
+---
+
+## KI-041: Cash-balance clawbacks are logged and never reconciled
+
+**Problem:** `funding_reversed` and `adjusted_for_overdraft` mean Stripe withdrew funds **after** the connector wrote `Charge/Success` and created the CT order. The connector's only response is a `log.error`: no CT transaction, no alert channel, no remediation path. commercetools and Stripe silently diverge on real money, and the divergence does not surface as a dispute. USD funding can be reversed for up to five days.
+**Root cause:** `processor/src/routes/stripe-payment.route.ts` — the event is observability-only by design in v1; modelling the reversal in CT is a separate design (the event object is customer-scoped and carries no `ct_payment_id`).
+**Rule:** Treat the `log.error` as an alertable signal and wire it to monitoring — it is the only detection available. Full CT modelling is deferred to v1.1. Do not assume a completed bank transfer is final until the reversal window has passed.
+**Implementation note:** `logCustomerCashBalanceTransaction` branches on `event.data.object.type`. Introduced by commit `4b59124` (SB3-207). See `failure-modes.md`.
+
+---
+
+## KI-042: Adding events to `actions.ts` does not register them on an existing webhook endpoint
+
+**Problem:** `updateWebhookEndpoint` replaces the endpoint's `enabled_events` array wholesale, inside a `try/catch` that logs and does **not** re-throw (KI-004). If the call fails during post-deploy, the deploy still reports success while the new events are never delivered. Verified empirically on 2026-07-31: both webhook endpoints on the dev Stripe account are missing `invoice.upcoming`, which *is* present in the code's array.
+**Root cause:** `processor/src/connectors/actions.ts` — swallowed error.
+
+**What is actually lost — corrected 2026-08-18.** An earlier version of this entry said registration was "the single gate for the whole bank transfer feature" and that without it "bank transfers *appear* to work at checkout and never complete". **That is wrong and is retracted.** Comparing the `enabled_events` array at `137b8f2` against HEAD: `payment_intent.requires_action` and `payment_intent.succeeded` were **already registered** before SB3-207. Those two carry the core flow — the cart freeze at `requires_action` and the order creation at `succeeded` — so a failed update does not stop a bank transfer from completing.
+
+SB3-207 adds exactly four events, and these are what a failed update costs:
+
+| Event | What is lost |
+| --- | --- |
+| `refund.updated`, `refund.failed` | A refund Stripe later rejects keeps reading as successful in commercetools — the exact gap this work set out to close |
+| `payment_intent.partially_funded` | No audit trail on an underpayment |
+| `customer_cash_balance_transaction.created` | No alerting when funds are clawed back (`funding_reversed`) |
+
+So the failure mode is degraded **refund correctness and observability**, not a broken checkout. Narrower than first recorded, and different in kind.
+
+**Rule:** After every deploy, verify the endpoint's `enabled_events` contains all four events in the table above — `stripe webhook_endpoints list --project-name=<profile>`. Verifying only `payment_intent.partially_funded` and `customer_cash_balance_transaction.created`, as this entry previously instructed, checks the two least consequential of the four and skips the refund pair entirely.
+**Implementation note:** Called from `processor/src/connectors/post-deploy.ts`. Cross-reference KI-004. Surfaced by commit `4b59124` (SB3-207). The swallowed-error question — whether a failed webhook update should abort the deploy — is left open here deliberately: it is a deploy-behaviour decision, not a bank transfer one, and KI-004 owns it.
+
+---
+
+## KI-043 (RESOLVED — commit `04b02d5`): `isFromSubscriptionInvoice` read a PaymentIntent field Stripe removed in Basil — the duplicate-payment guard was dead
+
+**Problem:** `isFromSubscriptionInvoice` reads `paymentIntent.invoice` through an intersection cast, so the compiler cannot see that **Stripe removed that field in the Basil API version (`2025-03-31.basil`)**; `stripe@20.4.1` does not type it on `PaymentIntent` or `Charge`, and the invoice→payment link moved to `invoice.payments`. Where the webhook endpoint's `api_version` is Basil or later, the guard returns `false` for every event. That guard is what stops `payment_intent.succeeded`, `canceled`, `payment_failed`, `charge.succeeded` and `processing` from being processed for subscription invoices — its stated purpose is preventing **duplicate commercetools payments and orders** for recurring charges, with `invoice.paid` as the single source of truth (`business-rules/recurring-billing.md` Rule 4).
+
+**Not a regional issue.** The 2026-08-04 team sync minutes record this as a "Brazil subscription conflict" — that is a transcription of *Basil* as *Brasil*. It is an API-version issue and applies to every account and region whose endpoint runs Basil or later.
+
+**Root cause:** `processor/src/utils.ts` — the intersection cast hides the missing field. `connectors/actions.ts` never sets `api_version` when creating the webhook endpoint, so the endpoint inherits the Stripe account default; accounts created recently default to a post-Basil version.
+
+**Measured 2026-07-31:** both webhook endpoints on the dev Stripe account report `api_version: 2026-06-24.dahlia`, well past Basil. On that account the guard is dead. `stripe listen` independently reports the same version.
+
+**Rule:** Do not assume the subscription-invoice guard is active. Verify per environment before relying on it:
+
+```
+stripe webhook_endpoints list --project-name=<profile>
+# api_version >= 2025-03-31.basil  →  the guard is dead; rewrite it against invoice.payments
+```
+
+Staging and production were **not** verified — only a maintainer with access to those Stripe accounts can run the check. Deferred by the team lead on 2026-08-04 as "document it, address it if it causes real problems"; that decision was taken while the finding was understood as a regional edge case, so it is worth re-confirming with the corrected framing.
+
+**Implementation note:** Surfaced while implementing bank transfer event routing (SB3-207), which adds two more consumers of the same guard. Independent of bank transfers: the exposure predates it and affects subscriptions on their own.
+
+**Resolution:** Confirmed dead rather than merely suspected — measured 2026-08-05 on API version `2026-06-24.dahlia`, where a real subscription charge returned `null` for BOTH `paymentIntent.invoice` and `charge.invoice` while the invoice genuinely owned the PaymentIntent. The consequence was live: one 359.15 USD mixed-cart charge produced THREE commercetools transactions — Authorization and Charge from the invoice, plus a duplicate Charge from `payment_intent.succeeded`. Now keyed on the connector's own `subscription_id` metadata, sharing `METADATA_SUBSCRIPTION_ID_FIELD` with the code that writes it; the `invoice` reads are kept as a fallback for accounts pinned pre-Basil. Every existing test fabricated the removed field, which is why the suite stayed green throughout — rewritten against measured payloads with a negative control. Residual risk documented at the function: the metadata is written by an update-after-create, so the signal is no longer atomic.
+
+---
+
+## KI-044 (RESOLVED — commits `b22e657`, `b7bcf4e`): A cart frozen by an abandoned async payment got emptied on the shopper's next attempt
+
+**Problem:** Creating a PaymentIntent freezes the commercetools cart (`freezeCart` inside `createPaymentIntent`). If the shopper never completes an async payment — a bank transfer that is never wired, a crypto payment abandoned at the redirect — the cart stays `Frozen` until the merchant cancels the PaymentIntent in the Stripe Dashboard, because nothing in the connector expires it (B8, no scheduler). On the shopper's next visit the sample site's checkout sees `cartState !== 'Active'` and calls `clearCart()`: **the shopper loses their items.**
+**Observed 2026-08-03**, not inferred: a crypto payment froze cart `c6e6f33d-…`; signing in migrated `customerId` onto that same frozen cart; adding an item succeeded and `/cart` rendered it; opening `/checkout` emptied it. Verified by API — `cartState: Frozen` with 1 line item.
+**Root cause:** two independent behaviors compounding. The connector freezes on PaymentIntent creation and has no unfreeze-on-abandonment path; the sample site treats any non-`Active` cart as unrecoverable.
+**Rule:** With bank transfers the funding window is **days**, so this is the normal path, not an edge case — and it degrades the `/pending` page directly: a shopper who lands there, leaves, and comes back finds an empty cart. Do not treat the frozen cart as a rare state. Any expiry design (B8) has to decide whether abandonment unfreezes, and the storefront has to distinguish "frozen, payment in flight" from "unusable".
+**Escalated by `pi_first`:** under `pi_first` the PaymentIntent is created at **Element mount** rather than at submit, so merely *opening* the payment page would freeze the cart. That is why `pi_first` ships disabled — see `decisions/adr-010-pi-first-elements-initialization.md`, where it is one of the two Consequences blocking enablement. The remaining product decision (freeze at confirm instead of mount, add unfreeze-on-abandonment, or accept it per rule) is still open.
+**Implementation note:** `processor/src/services/stripe-payment.service.ts` — `freezeCart` in `createPaymentIntent`; `unfreezeCartOnPaymentCancelOrFailed` only covers `canceled`/`payment_failed`. Storefront side: `CheckoutComposable`'s cart-state effect. Cross-reference KI-008 (freeze failures) and B8.
+
+**Resolution:** Two changes, one per side. **Connector** (`b22e657`): the cart is no longer frozen in `createPaymentIntent`. Each rail freezes at its own commitment point instead — instant rails in `updatePaymentIntentStripeSuccessful`, bank transfer in the `payment_intent.requires_action` handler, since its confirm returns `requires_action` and never reaches the confirm endpoint (verified 2026-08-06). Verified live: two of two confirmations froze, zero mount-time freezes. **Sample site** (`b7bcf4e`): the `Cart` type's `cartState` union omitted `'Frozen'` entirely, so no recovery branch existed; recovery now re-reads the cart and decides on its actual state rather than matching commercetools' error wording, which only covered the `Ordered` case. **Not resolved by this:** the PaymentIntent and commercetools Payment created at mount are still orphaned when a shopper abandons. Carts stop being collateral damage; the Stripe-side litter needs a deterministic idempotency key at creation.
+
+---
+
+## KI-045 (RESOLVED — commit `90110ef`): A rule combining `flowType: 'pi_first'` with `setupFutureUsage` passed startup validation and then silently discarded the mandate
+
+**Problem:** `validateBehaviorRule` checks each rule field independently, so `STRIPE_PAYMENT_BEHAVIOR_RULES={"DE":{"flowType":"pi_first","setupFutureUsage":"off_session"}}` is accepted at boot. At request time `applyPiFirstOverride` discards `setup_future_usage` for any cart resolving to `pi_first` — including a value the rule itself supplied. The merchant configured an off-session mandate, startup reported no problem, and the PaymentIntent goes to Stripe without it. The only trace is a `log.info`.
+**Root cause:** `processor/src/config/config.ts` — field-level validation exists, cross-field validation does not. `processor/src/services/stripe-payment.service.ts` — `applyPiFirstOverride` cannot distinguish "no value configured" from "value configured and being dropped" in its return, only in its log.
+**Rule:** This is the same failure mode the boot validation was written to prevent: config that looks configured and is not. Reject the combination at boot, or downgrade it to a startup warning that names the offending rule key — either moves a silent per-request loss of a payment mandate to deploy time. Until then, do not set both fields on one rule.
+**Resolution:** `validateBehaviorRule` now rejects the combination at boot. Tested against the mandate values (`off_session`/`on_session`) only — `setupFutureUsage` is stored canonicalized, so the disabling spellings are present as their own strings and ask for exactly what `pi_first` produces; rejecting those would fail a harmless config.
+**Implementation note:** Introduced by commit `139b685` (P1), resolved in `90110ef`. Kept on record because the shape of the bug — field-level validation passing a self-defeating field *combination* — will recur as the rule schema grows.
+
+---
+
+## KI-046 (RESOLVED — commit `90110ef`): `flowType` was reachable from a shopper-typed billing country, and since P1 it had a financial effect
+
+**Problem:** `extractCountry` resolves `cart.country ?? cart.billingAddress?.country`. On a cart with no top-level `country`, the billing country — which the merchant's storefront collects from the shopper — selects which behavior rule applies. When P1 made `flowType` live, that became a financially relevant choice: `flowType: 'pi_first'` strips `setup_future_usage` from the PaymentIntent (KI-045). So on a country-less cart, a shopper who enters a billing country matching a `pi_first` rule suppresses a merchant-configured mandate for their own cart.
+**Root cause:** `processor/src/services/payment-behavior-resolver.ts` — the "third category" rationale added for `flowType` argues it is safe to resolve through `extractCountry` because it "moves no money, enables no payment rail, and chooses no destination for funds". That was assessed against what `flowType` does to the *initialization flow*; it did not account for `applyPiFirstOverride`, which arrived in the same commit and does change PaymentIntent parameters. The comment defers re-evaluation to "the enabler port", but the coupling is already here.
+**Rule:** Anything that changes PaymentIntent parameters should read `cart.country` only — the same rule already applied to `bankTransfer` eligibility and `eu_bank_transfer.country`. Narrowing costs nothing measurable: real carts from the sample site carry `country: 'US'` at the top level (measured 2026-08-03), and `billingAddress` was **empty** on a completed checkout cart, so the fallback is not doing the work the comment credits it with.
+**Scope:** Narrow. Requires a cart with no `cart.country`, a merchant rule keyed to the country the shopper types, and the merchant to have configured `payment_method_save_usage` or a rule-level `setupFutureUsage` for there to be anything to lose. No funds move and no destination changes. But it is shopper input defeating merchant configuration, which the resolver's own reasoning set out to prevent.
+**Resolution:** Added `extractTrustedDiscriminator` and `resolveTrustedPaymentBehavior` — the same lookup without the billing fallback. `flowType` resolves through them at both call sites, kept identical so the `/config-element` response and the PaymentIntent can never disagree about which flow a cart is on. `captureMethod` and `setupFutureUsage` keep the wider discriminator. **The justification recorded here at the time — "they select policy, not PaymentIntent parameters" — was wrong and is retracted: both ARE PaymentIntent parameters.** The decision to keep them on the wider discriminator still stands, but on different grounds; see KI-048, which restates it and records the residual. **`bankTransfer` eligibility and `eu_bank_transfer.country` must use the trusted resolver when they arrive (P3).** The retracted reasoning was replaced rather than deleted, so the next reader comparing the two resolvers does not "restore parity" and reopen the hole.
+**Implementation note:** Introduced by commit `139b685` (P1), resolved in `90110ef`.
+
+---
+
+## KI-047 (RESOLVED — commits `b22e657`, `a867e51`): The confirm gate validated the amount against a snapshot, not the current cart
+
+**Problem:** `updatePaymentIntentStripeSuccessful` fetches the cart but uses it only for a log field. Its amount comparison reads `ctPayment.amountPlanned` — the value captured when the PaymentIntent was created — never the cart's current total. Under `deferred` that snapshot is milliseconds old, because the PaymentIntent is created at submit and confirmed immediately after. Under `pi_first` the PaymentIntent is created at Element **mount**, so the snapshot can be as old as the page.
+
+`POST /shipping-methods/update` unfreezes the cart, changes the shipping rate and refreezes it. So:
+
+```
+mount           → PaymentIntent created for X, ctPayment.amountPlanned = X
+shopper changes shipping → cart total becomes Y > X
+confirm         → gate compares PI amount (X) against amountPlanned (X) → passes
+result          → Authorization/Success for X on a cart worth Y
+```
+
+**Underpayment, undetected.** commercetools records the order as authorized for less than it is worth, and nothing flags the divergence.
+
+**Excluding Express Checkout does not close it.** `/shipping-methods/update` and `/shipping-methods/remove` are HTTP endpoints with session auth, reachable from a Payment Element page in `pi_first` — not only from the express flow whose `shippingaddresschange` handler calls them.
+
+**Root cause:** `processor/src/services/stripe-payment.service.ts` — the gate treats `amountPlanned` as authoritative for the cart's value. It is authoritative for *the payment*, which is a different thing once the two can drift.
+
+**Rule:** Re-validate against the current cart total at confirm, not against the payment's snapshot — or refuse to confirm a PaymentIntent whose amount no longer matches the cart. Until then, **do not enable `pi_first`**: this is the second of the two open reasons recorded in `connect.yaml` and in `decisions/adr-010-pi-first-elements-initialization.md`, alongside KI-044.
+
+**Reframes the open P0 decision.** P0 was scoped as a UX question — the frozen cart, the shopper who loses their items. With this it is also a financial-correctness question, which changes what is being decided and who should decide it.
+
+**Implementation note:** Found while scoping the enabler port (P2, commit `3120046`); the defect itself predates it and exists under `deferred` too, with a window too narrow to exploit. Not introduced by P2 and not fixed by it.
+
+**Resolution:** The gate now compares against the cart's own current total — `taxedPrice.totalGross` when tax has been calculated, `totalPrice` otherwise. This shipped together with the KI-044 freeze change and must not be reverted separately: the mount-time freeze was what prevented the divergence, so removing it without this would have traded a stuck cart for an underpayment window. **A first attempt used `ctCartService.getPaymentAmount` and was wrong** — that function also validates that the cart is still payable and throws `InvalidOperation` once it is fully paid, and this endpoint races the `payment_intent.succeeded` webhook, so when the webhook wins the cart already is. Observed live with `cartAmount` and `paidAmount` both 12300: the payment succeeded, the order was created, and only the browser's confirmation call returned 400 — which the storefront rendered as a spinner that never stopped. The `confirmPayments` catch now also logs its rejection reason; it previously swallowed the error entirely, which is why diagnosing this needed a second reproduction.
+
+---
+
+## KI-048: `captureMethod` is reachable from a shopper-typed billing country, and it does decide whether the rail exists
+
+**Problem:** `captureMethod` and `setupFutureUsage` resolve through `resolvePaymentBehavior`, whose discriminator is `cart.country ?? cart.billingAddress?.country ?? store.key`. The billing country is data the merchant's storefront collects from the shopper. Because manual capture and an `off_session`/`on_session` mandate each remove `customer_balance` from the methods Stripe resolves, a shopper on a cart with no top-level `country` can turn bank transfer on or off for their own checkout by entering a billing country that matches a rule key. Same mechanism as KI-046, which was closed for `flowType`.
+
+**Root cause:** `processor/src/services/stripe-payment.service.ts:493` and `:502` read the untrusted `behaviorRule`, while `flowType` and `euBankTransferCountry` (`:483`, `:536`) read `trustedRule`. The categorisation the resolver documented — "financially directive" fields go through the trusted lookup — does not match this split: `capture_method` and `setup_future_usage` are PaymentIntent parameters like the other two, so by the stated criterion they belong on the trusted side. KI-046's resolution note justified the split as "they select policy, not PaymentIntent parameters", which is false; `connect.yaml`'s own `STRIPE_PAYMENT_BEHAVIOR_RULES` description documents `captureMethod` as the bank-transfer enable switch.
+
+**Why it is accepted rather than fixed:** three reasons, all recorded so the decision can be re-opened knowingly.
+1. **Bounded choice.** The shopper can only select among rules the merchant authored; every reachable value is one the merchant already approved for a market of their own. They cannot introduce a value, only pick which merchant policy applies to them. This is the criterion that actually separates the two categories, and it is now the one written in `extractCountry`.
+2. **Parity with `ct-connect-stripe-checkout`**, which resolves `captureMethod` from the same untrusted discriminator. Narrowing it here alone makes the two connectors behave differently for the same rules map, which is the property the port exists to preserve.
+3. **The precondition does not hold today.** Real sample-site carts carry `country: 'US'` at the top level (measured 2026-08-03), so the billing fallback is not reached.
+
+**Scope:** Narrow. Requires a cart with no `cart.country`, a merchant rule keyed to a country the shopper can type, and a rule value that differs from the flat env var. No funds move to a new destination and no banking data is chosen — that remains `euBankTransferCountry`'s exclusive risk, and it resolves through the trusted lookup.
+
+**Rule:** If this is ever closed, move **both** `:493` and `:502` to `trustedRule` in the same change, and decide explicitly to diverge from checkout. Closing only one leaves the PaymentIntent with its capture policy and its save mandate resolved by different trust criteria, which is harder to reason about than either end state. The tests that currently pin the behaviour (`'resolves rule via billingAddress.country when cart.country is absent'`, `'a rule reached via store.key overrides capture_method'`) must be updated in the same commit.
+
+**Implementation note:** Not introduced by SB3-207 — `captureMethod` predates it. Surfaced during review of the bank transfer work, when `connect.yaml` began documenting `captureMethod` as the enable switch for a payment rail, which is what made the previously-recorded justification false. Cross-reference KI-046.
+
+---
+
+## KI-049: "Awaiting funds" and "paid" are the same state to commercetools — a bank transfer counts as paid in full the moment instructions are issued
+
+**Problem:** `payment_intent.requires_action` writes an `Authorization/Pending` for the full PaymentIntent amount, which is the correct choice (see below). But the connect-payments-sdk counts a `Pending` `Authorization` as an approved payment:
+
+```js
+// ct-cart.service.js — isPaymentApproved
+(transaction.state === 'Success' || transaction.state === 'Pending') &&
+(transaction.type === 'Authorization' || transaction.type === 'Charge')
+```
+
+`calculatePaymentAmount` then credits the **full** `amountPlanned`. So from the instant Stripe issues funding instructions — before a single cent has moved — `calculateTotalPaidAmount` reports the cart as paid in full, and `getPaymentAmount` throws `ErrorInvalidOperation('The cart has already been paid in full')`.
+
+That method is on the hot path twice: `createPaymentIntent` (`stripe-payment.service.ts:504`) and `initializeCartPayment` (`:1139`), the latter being the `/config-element` endpoint. A shopper who reloads the payment page while waiting to make their transfer therefore receives an error instead of the widget — there is no frozen-cart guard ahead of it.
+
+**Root cause:** Not a connector defect. commercetools' transaction model, as the SDK reads it, has no state between "authorized" and "paid": `Pending` and `Success` carry identical weight. The chain is real and was verified end to end — `handleCtPaymentCreation` links the CT Payment to `cart.paymentInfo` via `addCtPayment` (`ct-payment-creation.service.ts:86`), the payment starts at `Authorization/INITIAL` (which correctly does **not** count), and the `requires_action` webhook transitions it `INITIAL → Pending` through the SDK's own state machine.
+
+**Scope — what this does NOT do,** stated explicitly because the mechanism reads worse than the impact:
+- No money is lost and no amount is miscalculated.
+- No double charge. The effect is to *prevent* a second payment against the same cart, which is protective rather than harmful.
+- The order is correct once funds arrive: `payment_intent.succeeded` writes `Charge/Success` and the order is created normally.
+- The `Authorization` simply stays `Pending` forever; `payment_intent.succeeded` writes only a `Charge`, and the `charge.succeeded` fixup promotes only from `INITIAL`, never from `PENDING`.
+
+The user-visible symptom is an error on reload where a designed "awaiting your transfer" state belongs. That is UX and state modelling, not financial correctness.
+
+**Why it is accepted rather than fixed:**
+1. **The alternative is worse.** Writing `Charge/Success` at `requires_action` would book revenue that is not on the platform balance. The converter already documents why it does not reuse `populateAmount` there. Of the two available options, the current one is right.
+2. **The identical mechanism is already in production.** `payment_intent.processing` (crypto/stablecoin, commit `84e3bb4`) writes the same `Authorization/Pending`, and that commit is an ancestor of `origin/composable`. SB3-207 does not introduce this; it makes it more frequent. Note the events do differ in meaning — `processing` means the shopper already sent funds, `requires_action` only means instructions were displayed and they may never transfer — so bank transfer stretches the same mechanism over a weaker signal.
+3. Bank transfer ships disabled, so nothing reaches this path without `STRIPE_PAYMENT_FLOW=pi_first`.
+
+**Rule:** Treat this as a **prerequisite for enabling `pi_first`**, alongside the orphaned-PaymentIntent gap already recorded in the CHANGELOG — it is the more concrete of the two. Closing it is a data-model decision (how "awaiting funds" is represented in commercetools), not a patch: do not "fix" it by changing the transaction type or state at `requires_action` without deciding that question first. This is also the concrete answer to the open product question of whether commercetools supports partial payment states — it does not distinguish them.
+
+**Implementation note:** Surfaced during review of SB3-207. Pre-existing behaviour, shared with the crypto settlement path. Cross-reference KI-044 (abandoned carts) and KI-035.

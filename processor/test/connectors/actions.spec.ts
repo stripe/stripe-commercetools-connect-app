@@ -89,6 +89,15 @@ describe('Actions test', () => {
       const webhookConfig = updateCall[1] as { enabled_events: string[]; url: string };
       expect(webhookConfig.enabled_events).toContain('invoice.upcoming');
       expect(webhookConfig.enabled_events).toContain('payment_intent.processing');
+      // SB3-207 Etapa 2: both new events must be registered here AND dispatched in the
+      // route switch. Registering one without the other is KI-009 (see charge.updated).
+      expect(webhookConfig.enabled_events).toContain('payment_intent.partially_funded');
+      expect(webhookConfig.enabled_events).toContain('customer_cash_balance_transaction.created');
+      // Refund lifecycle. charge.refunded only reports that a Refund was CREATED — measured on a bank
+      // transfer, that is status 'pending'. Without these the connector could never learn that a
+      // refund failed, and the payment kept claiming money had been returned.
+      expect(webhookConfig.enabled_events).toContain('refund.updated');
+      expect(webhookConfig.enabled_events).toContain('refund.failed');
     });
 
     test('should throw an error when Stripe throws an error', async () => {

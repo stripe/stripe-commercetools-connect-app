@@ -51,6 +51,20 @@ export const ConfigElementResponseSchema = Type.Object({
   layout: Type.String(),
   collectBillingAddress: Type.Union([Type.Literal('auto'), Type.Literal('never'), Type.Literal('if_required')]),
   paymentMode: Type.Union([Type.Literal('payment'), Type.Literal('subscription'), Type.Literal('setup')]),
+  /**
+   * Elements initialization strategy, resolved per cart by the processor from merchant configuration.
+   *
+   * Closed union and not Type.String(), mirroring processor/src/dtos/stripe-payment.dto.ts. Note what
+   * this does and does not buy: these schemas are COMPILE-TIME ONLY on this side. The enabler never
+   * validates the response at runtime — api-service.ts returns a bare response.json() — so an
+   * unexpected wire value is not rejected, it simply fails the `!== 'pi_first'` check and falls through
+   * to deferred. The union's value is that it keeps the two accepted spellings in one place and makes a
+   * typo in enabler code a type error rather than a silent deferred fallback.
+   *
+   * Optional because the field is absent from every /config-element response older than this port, and
+   * the enabler can be pointed at an older processor deployment.
+   */
+  flowType: Type.Optional(Type.Union([Type.Literal('deferred'), Type.Literal('pi_first')])),
 });
 
 export const ConfigResponseSchema = Type.Object({

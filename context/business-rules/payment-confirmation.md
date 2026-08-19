@@ -42,4 +42,4 @@ Invariants enforced by the one-time synchronous confirmation endpoint (`POST /co
 **Invariant:** No CT write occurs when the PaymentIntent status could not be retrieved.
 **Implementation:** `processor/src/services/stripe-payment.service.ts` — the `retrieve()` try/catch rethrows.
 **Closure criterion:** the `catch` around `retrieve()` throws rather than proceeding to `updatePayment`.
-**What breaks if violated:** a CT transaction written on unverified status. Operational trade-off (buyer sees an error while the webhook may still create the order) documented in `known-issues.md` KI-023.
+**What breaks if violated:** a CT transaction written on unverified status. Operational trade-off (buyer sees an error while the webhook may still create the order) documented in `known-issues.md` KI-034.

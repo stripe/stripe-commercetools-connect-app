@@ -8,6 +8,15 @@ import { METADATA_PAYMENT_ID_FIELD } from '../../constants';
 
 export class StripeEventConverter {
   public convert(opts: Stripe.Event): StripeEventUpdatePayment {
+    // customer_cash_balance_transaction.created is observability-only: the event object is
+    // customer-scoped, carries no ct_payment_id, and has no commercetools transaction model
+    // in v1. The route must never send it here. Rejecting it explicitly makes that invariant
+    // self-enforcing instead of relying on the route switch alone, and produces a readable
+    // error instead of the cast failure it would otherwise hit below.
+    if (opts.type === StripeEvent.CUSTOMER_CASH_BALANCE_TRANSACTION__CREATED) {
+      throw wrapStripeError(new Error(`Event ${opts.type} is observability-only and must not be converted`));
+    }
+
     let data, paymentIntentId, paymentMethod;
     if (opts.type.startsWith('payment')) {
       data = opts.data.object as Stripe.PaymentIntent;
@@ -23,10 +32,53 @@ export class StripeEventConverter {
       pspReference: paymentIntentId,
       paymentMethod: paymentMethod,
       pspInteraction: {
-        response: JSON.stringify(opts),
+        response: this.buildPspInteractionResponse(opts),
       },
       transactions: this.populateTransactions(opts, paymentIntentId),
     };
+  }
+
+  /**
+   * Serializes the event for the commercetools interface interaction, stripping bank
+   * transfer account details.
+   *
+   * A `display_bank_transfer_instructions` payload carries the merchant's virtual account —
+   * full IBAN, sort code, routing number — plus `hosted_instructions_url`, an unauthenticated
+   * customer-facing link. Persisted verbatim, all of it becomes readable to every Merchant
+   * Center user with payment read access. `reference` and `amount_remaining` are kept: those
+   * are the fields support actually needs to trace a transfer.
+   *
+   * `client_secret` is nulled for the same reason. This is the first path that persists a
+   * PaymentIntent while it is still open (`requires_action` / `partially_funded`), so unlike
+   * the settled-PI precedent that secret is live and usable against Stripe's public client
+   * API for the whole funding window. The nulling is scoped to this branch so that card,
+   * crypto, Boleto and subscription interactions keep a byte-identical shape.
+   *
+   * This lives here, as a private method, rather than as a shared helper in utils.ts on
+   * purpose. The converter is the only thing that builds `pspInteraction`, so a private
+   * method is a choke point that cannot be bypassed. A public helper inverts the failure
+   * mode: someone adds a persistence path and forgets to call it. Promoting this to utils.ts
+   * later is trivial; discovering that a caller skipped it is not. Please do not "simplify"
+   * it into a shared export.
+   */
+  private buildPspInteractionResponse(event: Stripe.Event): string {
+    const instructions = (event.data.object as Stripe.PaymentIntent)?.next_action?.display_bank_transfer_instructions;
+    if (!instructions) {
+      // No bank transfer instructions in this payload: serialize exactly as before, so card,
+      // crypto, Boleto and subscription interactions keep a byte-identical shape.
+      return JSON.stringify(event);
+    }
+
+    const redacted = JSON.parse(JSON.stringify(event)) as Stripe.Event;
+    const redactedPaymentIntent = redacted.data.object as Stripe.PaymentIntent;
+    const target = redactedPaymentIntent.next_action?.display_bank_transfer_instructions;
+    if (target) {
+      delete target.financial_addresses;
+      // Typed `string | null` by the SDK, so these are nulled rather than deleted to preserve shape.
+      target.hosted_instructions_url = null;
+    }
+    redactedPaymentIntent.client_secret = null;
+    return JSON.stringify(redacted);
   }
 
   private populateTransactions(event: Stripe.Event, paymentIntentId: string): TransactionData[] {
@@ -109,6 +161,29 @@ export class StripeEventConverter {
           },
         ];
       }
+      case StripeEvent.PAYMENT_INTENT__REQUIRED_ACTION: {
+        // Bank transfer awaiting funds. populateAmount() must NOT be reused here: it reads
+        // `amount_received`, which is 0 until the wire lands, so it would book a 0-cent
+        // authorization. `pi.amount` is the full intended amount, taken verbatim as integer
+        // cents from Stripe — no arithmetic is performed on this value.
+        const pi = event.data.object as Stripe.PaymentIntent;
+        return [
+          {
+            type: PaymentTransactions.AUTHORIZATION,
+            state: PaymentStatus.PENDING,
+            amount: { centAmount: pi.amount, currencyCode: pi.currency.toUpperCase() },
+            interactionId: paymentIntentId,
+          },
+        ];
+      }
+      case StripeEvent.PAYMENT_INTENT__PARTIALLY_FUNDED:
+        // No commercetools transaction, on purpose. A second Authorization/Pending breaks the
+        // dedup invariant (a three-instalment top-up would book 3x the order value); a partial
+        // Charge/Success books revenue that is not on the platform balance, since the funds sit
+        // in the customer's cash balance; and Charge/Pending already means something else in
+        // the subscription flows (KI-019). The PaymentIntent state has not changed and neither
+        // has the commercetools state — only the pspInteraction is persisted, as an audit trail.
+        return [];
       default: {
         const error = `Unsupported event ${event.type}`;
         throw wrapStripeError(new Error(error));

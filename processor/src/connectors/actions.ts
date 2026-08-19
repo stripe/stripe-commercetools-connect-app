@@ -68,10 +68,18 @@ export async function updateWebhookEndpoint(weId: string, weAppUrl: string): Pro
         'charge.captured',
         'payment_intent.succeeded',
         'charge.refunded',
+        // Terminal outcome of a refund. charge.refunded only reports that a Refund was CREATED, which
+        // on a delayed rail is not the same as succeeded — a bank transfer refund is created 'pending'
+        // (measured 2026-08-05) and resolves minutes to days later. Without these two the connector
+        // recorded every refund as successful at creation and could never correct one that failed.
+        'refund.updated',
+        'refund.failed',
         'payment_intent.canceled',
         'payment_intent.payment_failed',
         'payment_intent.requires_action',
         'payment_intent.processing',
+        'payment_intent.partially_funded',
+        'customer_cash_balance_transaction.created',
         'invoice.paid',
         'invoice.payment_failed',
         'invoice.upcoming',
