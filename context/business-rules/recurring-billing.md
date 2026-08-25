@@ -75,3 +75,31 @@ After the initial subscription is created, Stripe generates invoices automatical
 **Implementation:** `stripe-subscription.service.ts:2256-2287` (`buildLineItemAction()`, recurring path); `:1069` (`getVariantByPosition()`, used only by the separate merchant-update path at `:983`).
 
 **What breaks if violated (i.e., what the original intent was guarding against):** If a product's variant list is modified between billing cycles (e.g., a variant is deleted or reindexed) such that the stored `variantId` no longer resolves on the current product, cart reconstruction for that recurring cycle would fail or produce a stale/wrong variant — the recurring path currently has no mitigation for this.
+
+---
+
+## Rule 6: An asynchronous recurring payment is `Charge/Pending` until `invoice.paid`, never `Success` at confirm
+
+**What:** `confirmSubscriptionPayment()` retrieves the real PaymentIntent status instead of assuming a synchronous card. `succeeded` / `requires_capture` write `Charge/Success`; `processing` — an ACH `us_bank_account` debit in flight — sets `isAsyncProcessing` and writes `Charge/Pending`; any other status (e.g. `requires_action` micro-deposit verification) throws as out of scope. The Pending charge becomes `Success` only when `invoice.paid` confirms real settlement, and `Failure` on `invoice.payment_failed`. `send_invoice` and trial modes are Pending by type and skip the status check entirely.
+
+**Why:** The confirm previously wrote `Charge/Success` unconditionally, so an ACH subscription order was marked paid before any money had moved — a divergence from Stripe that lasts for the whole ~2–4 business day settlement window and becomes permanent if the debit fails. Reproduced live. See `decisions/adr-013-async-ach-charge-pending.md`.
+
+**Invariant:** No `Charge/Success` exists on a subscription payment whose PaymentIntent is still `processing`. The transition out of `Pending` is owned by `invoice.paid` / `invoice.payment_failed`, never by the confirm endpoint.
+
+**Implementation:** `stripe-subscription.service.ts` → `confirmSubscriptionPayment()` (`isAsyncProcessing` branch); settlement in `processSubscriptionEventPaid()` / `processSubscriptionEventFailed()`.
+
+**What breaks if violated:** commercetools claims a subscription payment is captured while the funds are in flight. If the debit then fails, the order stays paid against money that never arrived, and nothing reconciles it.
+
+---
+
+## Rule 7: A transient commercetools write failure rethrows so Stripe redelivers — a permanent one does not
+
+**What:** `processSubscriptionEventPaid()` / `processSubscriptionEventFailed()` rethrow only errors matching a transient pattern (`ConcurrentModification | 409 | 429 | 502 | 503 | ETIMEDOUT | ECONNRESET`). A rethrow makes the webhook respond non-2xx, which is what triggers Stripe's own redelivery. Every other error keeps the previous behavior: logged and swallowed, webhook returns 200.
+
+**Why:** The handlers previously caught everything and returned 200, so a version conflict or a timeout left Stripe updated and commercetools not, with nothing to bring them back into sync. Rethrowing *all* errors was tried first and rejected — it turned a permanent failure (bad credentials, missing customer) into a days-long redelivery storm. See `decisions/adr-015-redeliver-transient-ct-errors.md`.
+
+**Invariant:** A transient CT-write failure never ends in a 200. A permanent one never triggers a retry.
+
+**Implementation:** `stripe-subscription.service.ts` → the retryable-error check in `processSubscriptionEventPaid()` / `processSubscriptionEventFailed()`.
+
+**What breaks if violated:** Swallowing transient errors reintroduces silent divergence with no recovery path. Rethrowing permanent ones poisons the webhook endpoint with retries that can never succeed. The split is a regex on error text, so an unrecognised transient error is still swallowed — the known residual.

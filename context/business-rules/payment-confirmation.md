@@ -43,3 +43,14 @@ Invariants enforced by the one-time synchronous confirmation endpoint (`POST /co
 **Implementation:** `processor/src/services/stripe-payment.service.ts` — the `retrieve()` try/catch rethrows.
 **Closure criterion:** the `catch` around `retrieve()` throws rather than proceeding to `updatePayment`.
 **What breaks if violated:** a CT transaction written on unverified status. Operational trade-off (buyer sees an error while the webhook may still create the order) documented in `known-issues.md` KI-034.
+
+---
+
+## Rule 5: The async order-creation webhook re-validates amount before creating the order
+
+**What:** `handlePaymentIntentSucceededFlow` (the `payment_intent.succeeded` webhook path) must not create the CT order unless the paid amount matches the cart's **current** total: `PI.amount === (taxedPrice?.totalGross ?? totalPrice).centAmount`, `PI.amount_received === PI.amount`, and currencies match (case-insensitive). It also skips cleanly when the cart is already `Ordered` (idempotency).
+**Why:** Rule 2 enforces provider-is-source-of-truth synchronously, but async rails (ACH micro-deposits, boleto, OXXO, …) confirm to `requires_action` and never reach that gate; their PaymentIntent is created at one amount and settles days later, during which the cart can be edited. Without this backstop an order is created for the current (larger) total while only the original amount was paid (KI-050).
+**Invariant:** No CT order is created on `payment_intent.succeeded` when `PI.amount`/`amount_received`/currency diverge from the current cart total.
+**Implementation:** `processor/src/services/stripe-payment.service.ts` — `handlePaymentIntentSucceededFlow` (amount/currency guard + `cartState === 'Ordered'` guard before `createOrder`). See ADR-016.
+**Closure criterion:** the method returns (logging `error`, no `createOrder`) when amount/currency mismatch, and returns (logging `info`) when the cart is already `Ordered`.
+**What breaks if violated:** an order is fulfilled for more than was collected (over-order / underpayment). On a blocked order the `Charge/Success` is already recorded, so the outcome is a paid-without-order state surfaced for manual reconciliation — never auto-corrected (hub rule).

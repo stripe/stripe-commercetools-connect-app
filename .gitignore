@@ -23,18 +23,16 @@ scripts/.env.dev.*
 docs/context7-libraries
 context7-config.json
 
-# Internal security documents (not for public repo)
-docs/security-findings.md
-
 # Test coverage
 coverage/
 
 # Connect CLI generated files
 .connect
 
-#Calude and Ralph pipelines
-.claude
-CLAUDE.md
-ralph.sh
-*_prd.json
-*_progress.txt
+# Claude Code — personal/local only (this repo tracks .claude/ in full otherwise)
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/ct-mcp.cmd
+
+# Workspace activity (ephemeral — journals, tasks, research)
+workspace/

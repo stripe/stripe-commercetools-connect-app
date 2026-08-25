@@ -18,6 +18,15 @@ Stripe webhook events for subscriptions update CT:
 - `invoice.payment_failed` → adds `AUTHORIZATION` (Failure) transaction
 - `customer.subscription.deleted` → **not yet implemented** (TODO); event is declared in `StripeSubscriptionEvent` enum (`services/types/stripe-payment.type.ts:49`) but is **not registered** in `actions.ts` enabled events and has no route handler — Stripe will not send this event to the connector
 
+> **Update (2026-08-25):** the `customer.subscription.deleted` line above no longer describes the code. The
+> event is registered and handled — `processSubscriptionEventDeleted` unfreezes the subscription's cart on
+> terminal cancellation, without touching payment or order state (KI-009 resolved). The decision itself is
+> unchanged; only that TODO went stale. Two later ADRs extend this one for asynchronous rails:
+> ADR-013 (an unsettled ACH payment is `CHARGE/Pending`, not `Success`) and ADR-014 (a post-settlement ACH
+> reversal is flagged on the CT payment, never auto-reconciled — which is this ADR's principle applied to a
+> reversal: commercetools stays the source of truth for order state, so the connector does not rewrite it
+> from a PSP event).
+
 ## Consequences
 
 - See checkout ADR-003 for base consequences

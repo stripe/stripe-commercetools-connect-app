@@ -75,6 +75,15 @@ describe('stripe-subscription.service.business-logic', () => {
       retrieve: jest.fn(),
       search: jest.fn(),
     } as unknown as Stripe.ProductsResource;
+
+    // confirmSubscriptionPayment (S02) retrieves the PaymentIntent status to decide sync vs async
+    // (ACH) settlement. Default to a settled 'succeeded' so a direct (non-send_invoice) confirm is
+    // treated as a synchronous success, matching these tests' expectations.
+    Stripe.prototype.paymentIntents = {
+      retrieve: jest.fn<() => Promise<Stripe.Response<Stripe.PaymentIntent>>>().mockResolvedValue({
+        status: 'succeeded',
+      } as Stripe.Response<Stripe.PaymentIntent>),
+    } as unknown as Stripe.PaymentIntentsResource;
   });
 
   afterEach(() => {

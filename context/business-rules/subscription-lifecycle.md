@@ -24,11 +24,11 @@
 
 **Why:** The connector does not currently implement cart-level recovery on invoice failure. Stripe handles payment retries automatically via its Smart Retries / Dunning logic (`invoice.payment_failed` can fire multiple times before the subscription is canceled). Unfreezing the cart on every retry would complicate the billing state.
 
-**Invariant:** `unfreezeCart()` is NOT called from `processSubscriptionEventFailed()`. Cart unfreeze for subscriptions only happens temporarily during Express Checkout address updates (see Rule 6).
+**Invariant:** `unfreezeCart()` is NOT called from `processSubscriptionEventFailed()` — a transient invoice failure keeps the cart frozen (Stripe may still retry). Cart unfreeze for subscriptions happens in exactly two cases: temporarily during Express Checkout address updates (Rule 6), and permanently on final cancellation via `customer.subscription.deleted` (see Note).
 
 **Implementation:** `stripe-subscription.service.ts` → `processSubscriptionEventFailed()` → updates CT Payment only, no cart unfreeze.
 
-**Note — limitation:** If a subscription is ultimately cancelled due to failed payment (`customer.subscription.deleted`), the cart remains frozen. Recovery requires the merchant to manually unfreeze or create a new cart. This is a known gap — if cart-level retry UX is needed, `unfreezeCart()` must be added to `handleFailedEventOrder()` in the subscription service.
+**Note — cancellation unfreezes the cart:** When a subscription ends via `customer.subscription.deleted` (merchant cancel, Stripe Dashboard cancel, or Dunning exhaustion), `processSubscriptionEventDeleted()` unfreezes the cart so it is reusable — this closes the former KI-009 gap. It is distinct from Rule 2's main statement: the cart is unfrozen only on **final cancellation**, never on a transient `invoice.payment_failed`. See `workflows/process-subscription-management.md`.
 
 ---
 
@@ -85,3 +85,31 @@
 **Implementation:** `stripe-shipping.service.ts` → address update handler.
 
 **What breaks if violated:** A failed address update could leave the subscription cart unfrozen, allowing unintended cart modifications that diverge from the subscription.
+
+---
+
+## Rule 7: Async payment methods (ACH) confirm as Charge/Pending, never premature Success
+
+**What:** For an asynchronous payment method (ACH Direct Debit, `us_bank_account`), the money does not move at confirm time — the PaymentIntent is `processing` and settles ~2–4 business days later. On confirm, the CT Payment charge is written **Pending**, not Success. It transitions to Success only when `invoice.paid` confirms real settlement (see `workflows/process-recurring-payment.md`).
+
+**Why:** commercetools must never claim a subscription payment is captured while the funds are still in flight and could still fail or be returned. Financial provider settlement is the source of truth for the amount and its finality.
+
+**Invariant:** `confirmSubscriptionPayment()` retrieves the PaymentIntent status; a `processing` status sets `isAsyncProcessing`, which forces the charge transaction to Pending. A status that is neither settled (`succeeded`/`requires_capture`) nor `processing` (e.g. `requires_action` micro-deposit verification) throws — it is out of scope.
+
+**Implementation:** `stripe-subscription.service.ts` → `confirmSubscriptionPayment()` (async-aware status branch).
+
+**What breaks if violated:** A synchronous `Charge/Success` on an ACH confirm marks an order paid before the money settles — a premature "paid" that diverges from Stripe if the debit later fails.
+
+---
+
+## Rule 8: A post-settlement ACH reversal (late return) is flagged, not reversed automatically
+
+**What:** An ACH debit can be reversed by the customer's bank **after** it has settled (up to ~60 days). Stripe fires `payment_intent.payment_failed` / `charge.failed` for this — but does **not** re-fire `invoice.payment_failed`. The connector detects it (`processSubscriptionEventLateReturn()`) and flags the CT Payment via the native `paymentStatus` interface (`interfaceCode = ach_late_return`) **without** changing any transaction or the order state.
+
+**Why:** commercetools is the source of truth for order state; a late reversal is not auto-reconciled. The flag surfaces the divergence for a human to handle in the Stripe Dashboard (per the disputes/reversals product decision — reversals stay with the PSP).
+
+**Invariant:** The handler acts only when the payment already has a `Charge/Success` (`wasSettled`) — a still-`Pending` charge is an ordinary failure handled by `invoice.payment_failed`, not a late return. It is best-effort and never throws.
+
+**Implementation:** `stripe-subscription.service.ts` → `processSubscriptionEventLateReturn()`; routed from a subscription-invoice `payment_intent.payment_failed` in `routes/stripe-payment.route.ts`.
+
+**What breaks if violated:** A late ACH return goes unnoticed — commercetools keeps an order marked paid while Stripe has already clawed back the funds.

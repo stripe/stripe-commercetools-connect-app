@@ -5,6 +5,7 @@ import {
   convertPaymentResultCode,
   getLocalizedString,
   isBankTransferNextAction,
+  isMicrodepositNextAction,
   isFromSubscriptionInvoice,
   isValidUUID,
   parseJSON,
@@ -175,6 +176,22 @@ describe('isFromSubscriptionInvoice', () => {
     } as unknown as Stripe.Event;
     expect(isFromSubscriptionInvoice(event)).toBe(false);
   });
+
+  test('should return true for a Clover-shaped PI failure with subscription_id metadata and no invoice', () => {
+    const event = {
+      type: 'payment_intent.payment_failed',
+      data: { object: { metadata: { subscription_id: 'sub_123' } } },
+    } as unknown as Stripe.Event;
+    expect(isFromSubscriptionInvoice(event)).toBe(true);
+  });
+
+  test('should return false for an ordinary charge with unrelated metadata and no invoice', () => {
+    const event = {
+      type: 'charge.succeeded',
+      data: { object: { metadata: { order_id: '1042' } } },
+    } as unknown as Stripe.Event;
+    expect(isFromSubscriptionInvoice(event)).toBe(false);
+  });
 });
 
 describe('transformVariantAttributes', () => {
@@ -288,5 +305,62 @@ describe('isBankTransferNextAction', () => {
   test('returns false when the type matches but the instructions object is absent', () => {
     const paymentIntent = withNextAction({ type: 'display_bank_transfer_instructions' });
     expect(isBankTransferNextAction(paymentIntent)).toBe(false);
+  });
+
+  // RELEASE GATE: micro-deposits is a distinct rail with its own predicate — this one must NOT match
+  // it, or the two predicates would overlap.
+  test('returns false for a micro-deposit PaymentIntent (verify_with_microdeposits)', () => {
+    const paymentIntent = withNextAction({
+      type: 'verify_with_microdeposits',
+      verify_with_microdeposits: { hosted_verification_url: 'https://example.test/md' },
+    });
+    expect(isBankTransferNextAction(paymentIntent)).toBe(false);
+  });
+});
+
+describe('isMicrodepositNextAction', () => {
+  const withNextAction = (nextAction: unknown): Stripe.PaymentIntent =>
+    ({ next_action: nextAction }) as Stripe.PaymentIntent;
+
+  test('returns true for a PaymentIntent awaiting ACH micro-deposit verification', () => {
+    const paymentIntent = withNextAction({
+      type: 'verify_with_microdeposits',
+      verify_with_microdeposits: {
+        arrival_date: 123,
+        hosted_verification_url: 'https://example.test/md',
+        microdeposit_type: 'descriptor_code',
+      },
+    });
+    expect(isMicrodepositNextAction(paymentIntent)).toBe(true);
+  });
+
+  // RELEASE GATE: card 3DS and Boleto emit requires_action too — freezing on them would be a
+  // severe regression, so this predicate must stay disjoint.
+  test('returns false for a card 3DS PaymentIntent (use_stripe_sdk)', () => {
+    expect(isMicrodepositNextAction(withNextAction({ type: 'use_stripe_sdk', use_stripe_sdk: {} }))).toBe(false);
+  });
+
+  test('returns false for a Boleto PaymentIntent (boleto_display_details)', () => {
+    expect(isMicrodepositNextAction(withNextAction({ type: 'boleto_display_details', boleto_display_details: {} }))).toBe(
+      false,
+    );
+  });
+
+  test('returns false for a bank transfer PaymentIntent (display_bank_transfer_instructions)', () => {
+    const paymentIntent = withNextAction({
+      type: 'display_bank_transfer_instructions',
+      display_bank_transfer_instructions: { reference: 'BT-REF-11111' },
+    });
+    expect(isMicrodepositNextAction(paymentIntent)).toBe(false);
+  });
+
+  test('returns false when next_action is null or undefined', () => {
+    expect(isMicrodepositNextAction(withNextAction(null))).toBe(false);
+    expect(isMicrodepositNextAction({} as Stripe.PaymentIntent)).toBe(false);
+  });
+
+  // Fails closed: the type literal alone is not enough, the payload must be present.
+  test('returns false when the type matches but the verification object is absent', () => {
+    expect(isMicrodepositNextAction(withNextAction({ type: 'verify_with_microdeposits' }))).toBe(false);
   });
 });

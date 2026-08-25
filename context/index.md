@@ -2,7 +2,7 @@
 
 **What this connector covers:** Stripe Payment Element + subscriptions + mixed carts for commercetools. Extends ct-connect-stripe-checkout with recurring billing, coupon sync, price sync, and Launchpad B2B integration.
 
-**What this connector does NOT cover:** Subscription pause, free trials without a payment method, `customer.subscription.deleted` webhook handling. See `feature-scope.md → Out of Scope` for the full list.
+**What this connector does NOT cover:** Subscription pause, free trials without a payment method, ACH micro-deposit verification on a subscription cart, bank transfer on subscriptions. See `feature-scope.md → Out of Scope` for the full list.
 
 For questions about the Integration as a whole (failure modes, connector selection, shared payment rules), see `../../context/index.md`.
 
@@ -20,6 +20,8 @@ For questions about the Integration as a whole (failure modes, connector selecti
 | Can I sync CT prices to Stripe? | `feature-scope.md` + `business-rules/price-sync.md` |
 | Can I sync CT coupons/discounts to Stripe? | `business-rules/coupon-sync.md` |
 | Can I pause a subscription? | `feature-scope.md → Out of Scope` — answer is no |
+| Can a shopper pay a subscription by ACH? | Yes — `decisions/adr-013-async-ach-charge-pending.md`. Micro-deposit verification on a subscription cart is **not** supported |
+| Can a shopper pay by bank transfer? | `adopter-guide.md → Bank transfers` — yes, but it ships disabled behind `STRIPE_PAYMENT_FLOW=pi_first`, and not on subscriptions |
 | Does this connector handle Launchpad B2B purchase orders? | `business-rules/launchpad-integration.md` |
 
 ### "How does X work?"
@@ -46,6 +48,9 @@ For questions about the Integration as a whole (failure modes, connector selecti
 | What happens when CT is down? | `../../context/failure-modes.md` |
 | What are the known technical gotchas? | `known-issues.md` |
 | What happens when a subscription invoice fails? | `business-rules/recurring-billing.md` |
+| What happens when an ACH debit is reversed after it settled? | `failure-modes.md → Stripe ACH — Late return` + `decisions/adr-014-ach-late-return-flag.md` |
+| What happens when a commercetools write fails inside a subscription webhook? | `decisions/adr-015-redeliver-transient-ct-errors.md` — transient errors redeliver, permanent ones are swallowed |
+| What happens when the cart is edited while an async payment settles? | `known-issues.md` KI-050 + `business-rules/payment-confirmation.md` |
 
 ### "What are the rules for X?"
 
@@ -59,15 +64,24 @@ For questions about the Integration as a whole (failure modes, connector selecti
 | Universal refund rules | `../../context/business-rules/refunds.md` |
 | Refund vs chargeback vs ACH revocation — who initiates what | `business-rules/refunds-and-disputes.md` |
 | Rules for authorizing caller-supplied payment references | `business-rules/payment-ownership-binding.md` |
+| Rules for confirming a payment and creating the order (amount gates, cart freeze) | `business-rules/payment-confirmation.md` |
 | Why was architectural decision X made? | `decisions/` |
 
-### "How does a bank transfer payment work?"
+### "How do the asynchronous rails work?"
+
+Bank transfer, ACH and crypto share one problem: the money arrives days after the shopper leaves. Start
+here rather than in the card-shaped documents.
 
 | Question | Document |
 | --- | --- |
-| The full funding flow, step by step | `workflows/process-bank-transfer-payment.md` |
+| The full bank transfer funding flow, step by step | `workflows/process-bank-transfer-payment.md` |
 | Why the Element needs a `clientSecret`, and why `pi_first` ships disabled | `decisions/adr-010-pi-first-elements-initialization.md` |
-| The two open defects blocking enablement | `known-issues.md` KI-044 (cart frozen at mount) and KI-047 (amount snapshot at confirm) |
+| What still blocks enabling bank transfers | `known-issues.md` KI-049, plus the orphaned-PaymentIntent gap in `CHANGELOG.md → Known gaps`. KI-044 and KI-047 are resolved and no longer block it |
+| Why an ACH subscription payment is `Charge/Pending`, not `Success` | `decisions/adr-013-async-ach-charge-pending.md` + `business-rules/subscription-lifecycle.md` |
+| What happens when a settled ACH debit is reversed weeks later | `decisions/adr-014-ach-late-return-flag.md` + `failure-modes.md → Stripe ACH — Late return` |
+| Why an order can be refused after the money was captured | `decisions/adr-016-ach-microdeposit-underpayment-backstop.md` + `business-rules/payment-confirmation.md` |
+| Which rails freeze the cart, and when | `business-rules/payment-confirmation.md` + `known-issues.md` KI-050 |
+| How crypto/stablecoin settlement is modelled | `workflows/process-crypto-payment.md` |
 
 ---
 

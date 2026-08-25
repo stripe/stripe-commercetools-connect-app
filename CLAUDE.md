@@ -21,14 +21,21 @@ ct-connect-stripe-composable/
     workflows/        # Detailed process flows
     decisions/        # Key decisions and their rationale (ADRs)
     reference/        # External API/SDK reference docs
+  workspace/          # Gitignored, ephemeral — subdirectories are created on first use, not present in a fresh checkout
+    journal/          # Session logs (auto-generated)
+    research/         # Research documents
+    tasks/            # Task plans, prd.json, progress
+    changes/          # Change traceability
 ```
 
 ## Before Every Task
 
-1. Read `context/ARCHITECTURE.md` — components, flows, and boundaries (subscriptions, mixed carts, price/coupon sync)
-2. Read `context/known-issues.md` — known bugs and active restrictions, referenced as `KI-###` throughout this file
-3. Read `context/failure-modes.md` — how the connector degrades when Stripe or commercetools misbehaves
-4. Read the relevant `context/business-rules/` file for the domain being touched
+1. Read hub `CLAUDE.md` — global rules, hub boundary
+2. Read `../../context/known-issues.md` — hub-level cross-cutting gotchas
+3. Read `../ct-connect-stripe-checkout/context/ARCHITECTURE.md` — this connector extends checkout; read it first
+4. Read `context/ARCHITECTURE.md` — composable-specific additions (subscriptions, mixed carts, price/coupon sync)
+5. Read `context/known-issues.md` — connector-specific bugs (51 issues as of 2026-08-25)
+6. Read the relevant `context/business-rules/` file for the domain being touched
 
 ## Commands
 
@@ -107,7 +114,7 @@ cd processor && npm run start:dev
 ## What Claude Must Never Do
 
 - Catch a Stripe or CT error inside `processSubscriptionEventPaid/Charged/Failed` (or any webhook handler) and return HTTP 200 anyway (KI-002, KI-003)
-- Register a new subscription webhook event without also adding its route dispatcher case — `customer.subscription.deleted` (declared in the enum, not registered, no route handler) and `charge.updated` (route handler exists, not registered in `actions.ts`) are already broken examples to fix, not patterns to copy (KI-009)
+- Register a new subscription webhook event without keeping `enabled_events` (`actions.ts`) and the route dispatcher case in sync — the two must always match. `charge.updated` is a live example of the mismatch (route handler exists, but it is **not** registered in `actions.ts`), a bug to fix, not a pattern to copy. (`customer.subscription.deleted` was the same kind of gap and is now **fixed** — registered + handled; see KI-009 RESOLVED / the KI-010 residual.)
 - Resolve "the" refund from a list call (`refunds.list(limit: 2)[0]`) without correlating to the actual webhook event's own refund object — near-simultaneous refunds can misattribute amount/ID (KI-023)
 - Add a new payment method to `createComponentBuilder` without fixing the hardcoded empty `supportedMethods` map first (KI-025)
 - Call `cancelSubscription()` and assume CT is updated afterward — today it only cancels in Stripe; CT stays frozen with a stale subscription ID until this is fixed (KI-010)
@@ -124,3 +131,4 @@ See @../.claude/SKILLS-REFERENCE.md
 - **Decisions:** `context/decisions/`
 - **Known issues:** `context/known-issues.md`
 - **Failure modes:** `context/failure-modes.md`
+- **Workspace:** `workspace/` (journal, research, tasks, changes)

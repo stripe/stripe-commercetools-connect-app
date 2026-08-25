@@ -98,10 +98,38 @@ Irish IBAN, which works for every eurozone shopper since SEPA is a single paymen
 
 > **Not yet ready to enable.** `pi_first` has two open processor-side risks: opening the payment page
 > alone creates a PaymentIntent and a CT Payment with no deterministic idempotency key, so a remount
-> orphans the previous pair (KI-044); and an unfunded bank transfer makes the cart read as paid in full,
-> so a shopper reloading the page sees an error rather than an "awaiting your transfer" state (KI-049).
-> Subscriptions are out of scope by decision — a renewal debits a cash balance the shopper must keep
-> pre-funded, which needs a top-up flow this connector does not provide.
+> orphans the previous pair (no KI of its own — recorded in `CHANGELOG.md → Known gaps` and in the
+> resolution note of KI-044, which is itself resolved and no longer a blocker); and an unfunded bank
+> transfer makes the cart read as paid in full, so a shopper reloading the page sees an error rather than
+> an "awaiting your transfer" state (KI-049). Subscriptions are out of scope by decision — a renewal
+> debits a cash balance the shopper must keep pre-funded, which needs a top-up flow this connector does
+> not provide.
+
+### ACH Direct Debit (`us_bank_account`)
+
+ACH needs **no connector configuration** — it is a toggle in your Stripe Dashboard, and none of the
+behavior below is behind a flag. What it does need is an operational decision, because the money moves
+days after the shopper leaves.
+
+- **A subscription payment is `Charge/Pending` for ~2–4 business days.** The confirm no longer writes
+  `Charge/Success` for a rail that has not settled. If anything downstream of you treats a commercetools
+  `Charge` as "money received" regardless of state — fulfillment triggers, reporting, an OMS export — it
+  will now see a Pending charge with no order, and must wait for the transition. `invoice.paid` promotes
+  it to `Success`; `invoice.payment_failed` turns it into `Failure`.
+- **Micro-deposit verification is supported for one-time payments only.** On a subscription cart the
+  confirm throws — the rail is not offered. On a one-time cart the shopper's cart is frozen for the
+  verification window, and the order is created only if the amount collected still matches the cart.
+- **An order can be refused after the money was captured.** If the cart changed between payment and
+  settlement, order creation is blocked and the payment is left as a `Charge/Success` with no order, for
+  a human to reconcile. By hub rule the connector never auto-refunds. Watch your processor logs for this;
+  it is logged at `error`.
+- **Wire `ach_late_return` to an alert.** A settled ACH debit can be reversed by the shopper's bank for
+  up to ~60 days. Stripe does not re-fire `invoice.payment_failed`, so the connector flags the CT payment
+  with the native `paymentStatus.interfaceCode = 'ach_late_return'` and stops there — no transaction,
+  order or refund is written, and the correction happens in your Stripe Dashboard. The write is
+  best-effort and never throws, so **this flag is your only in-connector signal that money was clawed
+  back.** The same applies to `customer_cash_balance_transaction.created` with type `funding_reversed`,
+  the equivalent signal on the bank-transfer rail.
 
 ### Step 3 — Verify post-deploy resources
 
@@ -223,7 +251,7 @@ These behaviors are not bugs in your configuration — they are known limitation
 | Gap | What happens | Workaround |
 | --- | --- | --- |
 | Subscription cancellation does not update CT | `cancelSubscription()` cancels in Stripe but CT cart remains Frozen | Manually unfreeze via CT API: `changeCartState → Active`; clear `stripeConnector_stripeSubscriptionId` on the line item |
-| `customer.subscription.deleted` webhook not registered | Stripe sends this event on dunning/cancellation but the connector does not subscribe | No automatic recovery — monitor Stripe Dashboard for canceled subscriptions and unfreeze carts manually |
+| Stale subscription ID left on the line item after cancellation | `customer.subscription.deleted` now unfreezes the cart automatically, but does not clear `stripeConnector_stripeSubscriptionId` | Clear the custom field manually if you rely on it to detect an active subscription; otherwise check Stripe directly |
 | Cart freeze failure silently swallowed | If cart freeze fails after subscription creation, cart stays modifiable | Check processor logs for freeze errors; manually freeze: `changeCartState → Frozen` |
 
 ---
@@ -235,7 +263,10 @@ These behaviors are not bugs in your configuration — they are known limitation
 | Stripe webhook events show HTTP 400 | `STRIPE_WEBHOOK_SIGNING_SECRET` wrong or not set | Copy from Stripe Dashboard webhook endpoint; redeploy |
 | Payment succeeds in Stripe but CT not updated | Webhook signing secret mismatch | Same as above |
 | Subscription created but CT cart still Active (not Frozen) | Cart freeze failed silently | Check processor logs; manually freeze cart via CT API |
-| CT cart remains Frozen after subscription canceled | `customer.subscription.deleted` not registered (known gap) | Manually unfreeze cart and clear subscription ID on line item |
-| Recurring invoice paid but no CT order created | Subscription event processing error swallowed (connector returns 200 regardless) | Check processor logs around the `invoice.paid` event timestamp |
+| CT cart remains Frozen after subscription canceled | The cancellation was merchant-initiated via `cancelSubscription()`, which cancels in Stripe only. Terminal cancellation *from Stripe* now unfreezes the cart via `customer.subscription.deleted` | Manually unfreeze cart and clear subscription ID on line item |
+| CT cart remains Frozen while dunning retries | Expected — the cart is released only on terminal cancellation, not during the Smart Retry window | Wait for retries to be exhausted, or cancel the subscription in Stripe |
+| Recurring invoice paid but no CT order created | A permanent error during subscription event processing is logged and swallowed (webhook returns 200). Transient errors are retried by Stripe instead | Check processor logs around the `invoice.paid` event timestamp |
+| Subscription order stuck in `Charge/Pending` for days | Expected on ACH — the debit has not settled yet. `invoice.paid` promotes it to `Success` | Wait for settlement; if it never arrives, check the PaymentIntent in the Stripe Dashboard |
+| Payment captured in Stripe but no CT order exists | The order-creation amount gate refused: the cart total, `pi.amount` or `pi.amount_received` diverged | Reconcile manually — the connector never auto-refunds. Search the processor logs for the amount-mismatch error |
 | Price sync changes live subscription prices unexpectedly | `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true` with misconfigured prices | Disable price sync; audit Stripe prices against CT product attributes |
 | All payments fail at startup with auth errors | Placeholder credentials still in env vars | Set all required env vars with real values |

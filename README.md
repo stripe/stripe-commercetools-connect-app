@@ -159,7 +159,7 @@ The payment processing system has been significantly enhanced with advanced mult
 - **Prerequisites**:
   - Multicapture must be enabled in your Stripe account
   - Set `STRIPE_CAPTURE_METHOD=manual`
-  - Webhook endpoint must include `charge.updated` and `charge.refunded` events
+  - Webhook endpoint must include `charge.updated` and `charge.refunded` events. `charge.refunded` is registered by post-deploy; **`charge.updated` is not** — add it to the endpoint by hand in the Stripe Dashboard, or multicapture events never arrive
 - **Default Behavior**: When disabled, webhook events are gracefully skipped with logging
 - **Backward Compatible**: Existing merchants experience no disruption
 
@@ -250,18 +250,63 @@ For enabler and payment service improvements, see the [Enabler Improvements Guid
 
 # Webhooks
 
-The following webhooks are currently supported, and the payment transactions in commercetools are:
+The following webhooks are registered by the post-deploy script (`processor/src/connectors/actions.ts`,
+`enabled_events`) and routed in `processor/src/routes/stripe-payment.route.ts`. This list must stay in
+sync with `enabled_events` — a handler that exists without its event registered never fires.
+
+**One-time payments**
+
+- **payment_intent.succeeded**: Creates a payment transaction Charge: Success, and creates the commercetools order. Order creation is refused unless the PaymentIntent's `amount` matches the cart's *current* total, `amount_received` equals `amount`, and the currency matches — the backstop against a cart edited while an async payment settled (see ACH below). On a mismatch it logs an error and returns; the Charge: Success already written leaves a paid-without-order state for manual reconciliation. An already-`Ordered` cart is skipped idempotently.
 - **payment_intent.canceled**: Modified the payment transaction Authorization to Failure and create a payment transaction CancelAuthorization: Success
-- **payment_intent.succeeded**: Creates a payment transaction Charge: Success.
-- **payment_intent.requires_action**: Logs the information in the connector app inside the Processor logs.
-- **payment_intent.payment_failed**: Modify the payment transaction Authorization to Failure.
-- **charge.refunded**: Creates payment transactions Refund: Success and Chargeback: Success with accurate refund amounts fetched from Stripe API. **Note**: Only processed when `STRIPE_ENABLE_MULTI_OPERATIONS=true`; gracefully skipped when disabled.
-- **charge.succeeded**: Create the payment transaction to 'Authorization:Success' if charge is not captured, and update the payment method type that was used to pay. **Note (subscriptions):** when the charge belongs to a subscription invoice it is ignored (`isFromSubscriptionInvoice`); recurring subscription payments are recorded solely from `invoice.paid` to avoid duplicate commercetools payments/orders.
+- **payment_intent.payment_failed**: Modify the payment transaction Authorization to Failure. **Note (subscriptions):** on a subscription-invoice PaymentIntent that had *already* settled this is an ACH late return and is routed instead to `processSubscriptionEventLateReturn` — see below.
+- **payment_intent.requires_action**: Behavior depends on the rail, via a three-way gate. A **bank transfer** (`next_action.type = display_bank_transfer_instructions`) writes one Authorization: Pending for the full PaymentIntent amount and freezes the cart; the order is created only when funds arrive. An **ACH micro-deposit** (`next_action.type = verify_with_microdeposits`) freezes the cart so it cannot be edited during the multi-day verification window, and writes no transaction. Everything else — card 3DS, Boleto — keeps the log-only path. A subscription-invoice event logs and stops.
+- **payment_intent.processing**: Asynchronous settlement (crypto/stablecoin). Writes an Authorization: Pending while the payment settles, resolving to Success on `payment_intent.succeeded` and Failure on `payment_intent.payment_failed` / `payment_intent.canceled`. Guarded against out-of-order and duplicate events.
+- **payment_intent.partially_funded**: The shopper wired part of a bank transfer amount. Deliberately writes **no** commercetools transaction — only the interface interaction — so the single Authorization: Pending for the full amount stays the truth.
+- **charge.succeeded**: Create the payment transaction to 'Authorization:Success' if charge is not captured, and update the payment method type that was used to pay. **Note (subscriptions):** when the charge belongs to a subscription invoice it is ignored (`isFromSubscriptionInvoice`, keyed on the connector's own `subscription_id` metadata); recurring subscription payments are recorded solely from `invoice.paid` to avoid duplicate commercetools payments/orders.
 - **charge.captured**: Logs the information in the connector app inside the Processor logs.
-- **charge.updated**: Handles multicapture scenarios by creating Charge: Success transactions with incremental captured amounts. **Note**: Only processed when `STRIPE_ENABLE_MULTI_OPERATIONS=true`; gracefully skipped when disabled.
-- **invoice.paid**: Single source of truth for subscription-cycle payments. If payment charge is pending, we update the payment transaction to Charge:Success. If charge is not pending, we update the payment transaction to Authorization:Success and create a payment transaction Charge:Success. Transactions are keyed by the Stripe invoice id (`in_…`).
+- **charge.updated**: **The route handler exists but the event is NOT in `enabled_events`**, so Stripe never delivers it and the handler does not currently run. When wired, it handles multicapture scenarios by creating Charge: Success transactions with incremental captured amounts, and only when `STRIPE_ENABLE_MULTI_OPERATIONS=true`. Registering it is an open item — see `context/known-issues.md`.
+
+**Refunds**
+
+- **charge.refunded**: Creates payment transactions Refund: Success and Chargeback: Success with accurate refund amounts fetched from Stripe API. **Note**: Only processed when `STRIPE_ENABLE_MULTI_OPERATIONS=true`; gracefully skipped when disabled.
+- **refund.updated** / **refund.failed**: `charge.refunded` fires when the Refund object is *created*, which on a delayed rail is not the same as succeeded — a bank-transfer refund is created `pending`. These two events write a correcting Refund: Failure when Stripe later rejects the refund, which previously stayed recorded as successful forever.
+
+**Bank transfer cash balance**
+
+- **customer_cash_balance_transaction.created**: Observability only — never writes to commercetools. Logs a field-by-field payload, at `error` level for `funding_reversed` and `adjusted_for_overdraft` and at `info` otherwise. The raw event is never logged: it carries `sender_name`, `iban_last4`, `account_number_last4` and `sort_code`. This is the **only** signal for a bank-transfer clawback; wire it to an alerting channel.
+
+**Subscriptions**
+
+- **invoice.paid**: Single source of truth for subscription-cycle payments. If payment charge is pending, we update the payment transaction to Charge:Success. If charge is not pending, we update the payment transaction to Authorization:Success and create a payment transaction Charge:Success. Transactions are keyed by the Stripe invoice id (`in_…`). This is also what settles an ACH Charge: Pending written at confirm.
 - **invoice.payment_failed**: If payment charge is pending, we update the payment transaction to Charge:Failure. If charge is not pending, we update the payment transaction to Authorization:Failure and create a payment transaction Charge:Failure.
 - **invoice.upcoming**: Handles upcoming invoice events for subscription payments, supporting the new subscription payment handling strategy.
+- **customer.subscription.deleted**: Terminal cancellation — unfreezes the subscription's cart, resolved from the subscription's `ct_payment_id` metadata. Idempotent, skips a cart that is not frozen, and changes no payment or order state (retrying with another method happens in Stripe). The cart stays frozen through the Smart Retry window; only this event releases it.
+
+> On `invoice.paid` and `invoice.payment_failed`, a commercetools write that fails with a **transient**
+> error (`ConcurrentModification`/409, 429, 502, 503, `ETIMEDOUT`, `ECONNRESET`) is rethrown so the webhook
+> responds non-2xx and Stripe redelivers. Permanent errors are logged and swallowed, so a bad credential
+> does not turn into a days-long retry storm.
+
+## ACH Direct Debit (`us_bank_account`)
+
+ACH is enabled from the **Stripe Dashboard**; there is no connector configuration for it. It is
+**asynchronous** — the debit settles in ~2–4 business days and can still fail afterwards — which is what
+drives the webhook behavior above.
+
+- **On subscriptions**, `POST /subscription/confirm` reads the real PaymentIntent status rather than
+  assuming a card: `succeeded`/`requires_capture` writes Charge: Success, and `processing` writes
+  **Charge: Pending**, which `invoice.paid` later promotes to Success and `invoice.payment_failed` turns
+  into Failure. A subscription can therefore sit in Charge: Pending for days with no order yet —
+  consumers of the commercetools payment must handle that state. Micro-deposit verification
+  (`requires_action`) is **not supported on subscriptions**: the confirm throws.
+- **On one-time payments**, micro-deposit verification is supported. The cart is frozen when Stripe
+  returns `requires_action`, and order creation is gated on the amount actually collected.
+- **Late returns.** A settled ACH debit can be reversed by the shopper's bank for up to ~60 days. Stripe
+  signals this with `payment_intent.payment_failed` but does **not** re-fire `invoice.payment_failed`, so
+  the connector flags the commercetools payment with the native `paymentStatus.interfaceCode =
+  'ach_late_return'` and leaves the financial correction to the Stripe Dashboard — no transaction, order
+  or custom-field change. The flag is best-effort and never throws, so **it is the only in-connector
+  signal that money was clawed back; wire it to an alerting channel.**
 
 
 ## Prerequisite

@@ -24,6 +24,16 @@ Operational failure scenarios specific to this connector. Scenarios shared ident
 
 ---
 
+## Stripe ACH — Late return on a subscription payment after settlement
+
+**Trigger:** `payment_intent.payment_failed` arrives for a subscription-invoice PaymentIntent that had *already* settled (an existing `Charge/Success` exists). This is an ACH late return — the bank reverses an already-settled debit, up to ~60 days later. Stripe does **not** re-fire `invoice.payment_failed`, so the invoice-driven handlers never see it; the event is routed to `processSubscriptionEventLateReturn`.
+**Current behavior on failure:** By design the handler only sets the native `paymentStatus.interfaceCode='ach_late_return'` on the CT payment (via `setPaymentStatusInterface`) — no transaction, order-state, or custom-field change. It is best-effort and **never throws**: if `setPaymentStatusInterface` fails, the error is caught and `log.error`'d, the webhook returns 200, and Stripe does not redeliver. The flag is then silently absent.
+**Blast radius:** commercetools and Stripe diverge on real money. The `Charge/Success` transaction and the order stay Paid even though the funds were clawed back; goods may already have shipped. When the flag write itself fails, even the human-facing signal is lost — detection depends entirely on the Stripe Dashboard / bank reconciliation. Per the product decision the reversal is corrected in the Stripe Dashboard (like a dispute), not in CT.
+**File:** `processor/src/services/stripe-subscription.service.ts` — `processSubscriptionEventLateReturn` (~:1694); write via `processor/src/services/commerce-tools/payment-client.ts` — `setPaymentStatusInterface`.
+**Recommendation:** Wire the `ach_late_return` flag (and the `log.warn`/`log.error` on write failure) to an alerting channel — it is the only in-connector signal. Modelling the return as a CT reversal transaction is deferred.
+
+---
+
 ## CT Platform API — Interface interaction write for `partially_funded`
 
 **Trigger:** `payment_intent.partially_funded` arrives (shopper wired part of the amount) and the `updatePayment` call that persists the interface interaction fails.

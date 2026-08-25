@@ -105,6 +105,26 @@ export const isBankTransferNextAction = (paymentIntent: Stripe.PaymentIntent): b
   return nextAction?.type === BANK_TRANSFER_NEXT_ACTION_TYPE && !!nextAction.display_bank_transfer_instructions;
 };
 
+export const MICRODEPOSIT_NEXT_ACTION_TYPE = 'verify_with_microdeposits';
+
+/**
+ * Narrow predicate: true only for a PaymentIntent awaiting ACH micro-deposit verification.
+ *
+ * Kept SEPARATE from `isBankTransferNextAction` on purpose. Micro-deposits (`us_bank_account`) and
+ * bank transfer (`customer_balance`) are distinct rails with distinct `next_action` types; broadening
+ * a single predicate would risk re-opening the card-3DS/Boleto path that the release-gate tests
+ * guard. `verify_with_microdeposits` is exclusive to `us_bank_account` (SEPA debit does NOT use
+ * micro-deposits) and disjoint from `use_stripe_sdk`/`redirect_to_url` (3DS) and
+ * `boleto_display_details` (Boleto), so freezing on it cannot affect those rails.
+ *
+ * Strict equality on the literal plus presence of the instructions object, so an unexpected Stripe
+ * payload fails closed.
+ */
+export const isMicrodepositNextAction = (paymentIntent: Stripe.PaymentIntent): boolean => {
+  const nextAction = paymentIntent.next_action;
+  return nextAction?.type === MICRODEPOSIT_NEXT_ACTION_TYPE && !!nextAction.verify_with_microdeposits;
+};
+
 export const isEventRefund = (event: Stripe.Event): boolean => {
   return event.type === StripeEvent.CHARGE__REFUNDED;
 };

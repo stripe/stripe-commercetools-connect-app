@@ -19,7 +19,7 @@ so today there is no write path for it.
 Two origination models were evaluated. (A fuller local analysis existed as ephemeral `workspace/`
 research during drafting; it was never committed and is not present in this checkout — this ADR is
 the durable record of that evaluation.) This ADR records the recommended model; it is **Proposed**
-pending product/Vishnu confirmation of what "standalone" must mean, and pending the implementation
+pending client product confirmation of what "standalone" must mean, and pending the implementation
 gate (example site published + Pooch & Mutt near resolution).
 
 ## Decision
