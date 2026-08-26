@@ -1,6 +1,49 @@
 # Changelog
 
+> **Also maintained at `CHANGELOG.md` in the repository root.** ACH Direct Debit (SB3-206) and bank
+> transfers (SB3-207) are recorded in both, with identical content, as the start of converging the two.
+> Keep new entries in sync.
+
 ## Latest
+
+### ACH Direct Debit on Subscriptions — SB3-206
+
+Adds ACH Direct Debit (`us_bank_account`) as a subscription payment method, and the async-rail safety work
+around it. **No configuration**: ACH is a Stripe Dashboard toggle, and none of this is behind a flag.
+
+**Added:**
+
+- **ACH Direct Debit on subscriptions**: `POST /subscription/confirm` now retrieves the real PaymentIntent status instead of assuming a synchronous card. `succeeded`/`requires_capture` → `Charge/Success`; `processing` (the ACH debit is in flight, ~2–4 business days) → `Charge/Pending`, resolved later by `invoice.paid` (→ `Success`) or `invoice.payment_failed` (→ `Failure`). Any other status throws as out of scope. Previously the confirm wrote `Charge/Success` unconditionally, marking a subscription order paid before any money had moved — reproduced live. A subscription can now sit in `Charge/Pending` for days with no order yet; consumers must handle that state. (ADR-013)
+- **ACH late-return flagging**: a subscription-invoice `payment_intent.payment_failed` arriving *after* the invoice was already paid is a post-settlement bank reversal, possible for ~60 days. Stripe does **not** re-fire `invoice.payment_failed`, so the invoice-driven subscription handlers never saw it and the commercetools order stayed paid while the funds were clawed back. `processSubscriptionEventLateReturn` now sets the native `paymentStatus.interfaceCode='ach_late_return'` (plus a human-readable `interfaceText`) — but only when an existing `Charge/Success` proves the money had settled; a still-`Pending` charge is an ordinary failure owned by `invoice.payment_failed`. No transaction, order-state or custom-field change: resolution stays in the Stripe Dashboard, like a dispute. The handler is best-effort and never throws, so **the flag is the only in-connector signal and should be wired to an alerting channel.** (ADR-014)
+- **`customer.subscription.deleted` is now registered and handled**: it was declared in the event enum but never subscribed, so a subscription cart stayed `Frozen` forever once a cancellation exhausted its retries and the shopper could neither edit it nor retry with another method. `processSubscriptionEventDeleted` resolves the cart from the subscription's `ct_payment_id` metadata and unfreezes it — idempotent, skips a cart that is not frozen, and touches no payment or order state. The cart still stays frozen through the Smart Retry window; only terminal cancellation releases it. (KI-009)
+
+**Changed:**
+
+- **A transient commercetools write failure in a subscription handler now makes Stripe redeliver.** `processSubscriptionEventPaid` / `processSubscriptionEventFailed` caught every error and returned 200, so a version conflict, a timeout or a 5xx silently left Stripe updated and commercetools not, with nothing to bring them back into sync. Errors matching a transient pattern (`ConcurrentModification | 409 | 429 | 502 | 503 | ETIMEDOUT | ECONNRESET`) are now rethrown, which responds non-2xx and lets Stripe's own redelivery recover. Permanent errors — bad credentials, a missing customer — keep the previous logged-and-swallowed behaviour, deliberately: rethrowing everything was tried first and turned a permanent failure into a days-long redelivery storm. The split is a regex on error text, so an unrecognised transient error is still swallowed. (ADR-015, KI-003)
+
+**Fixed:**
+
+- **An ACH micro-deposit payment created the order at the cart's *mutated* total, not the amount collected.** Micro-deposit verification confirms to `requires_action` (`next_action.type = verify_with_microdeposits`) and settles days later, and three separate protections all missed that rail: the confirm gate's amount validation only runs for `succeeded`/`requires_capture`/`processing`; the `requires_action` freeze covered only bank transfer, so the cart stayed editable; and `handlePaymentIntentSucceededFlow` logged an `amountMismatch` warning and created the order anyway. Reproduced live on 2026-08-21: pay $6.99, return and add $4000 of items, and on settlement the order was created `Ordered` at $4000 against $6.99 collected. Fixed in two layers — a **universal backstop** (order creation now requires `pi.amount === currentCartTotal`, `pi.amount_received === pi.amount` and a currency match, comparing integer minor units so JPY is correct; on mismatch it logs an error and returns, plus an idempotency guard that skips an already `Ordered` cart) and a **freeze on the micro-deposit rail** (new `isMicrodepositNextAction`, kept separate from `isBankTransferNextAction` so the 3DS/Boleto release gates stay green). (KI-050, ADR-016)
+- **The subscription-invoice guard is now keyed on the connector's own metadata, not a removed Stripe field.** Extending the KI-043 fix recorded under SB3-207 below: `isFromSubscriptionInvoice` read `paymentIntent.invoice` / `charge.invoice`, absent on Clover as it was on Basil, so subscription `payment_intent.*` and `charge.*` events leaked into the one-time `processStripeEvent` — writing a duplicate `Charge` and, on failure, wrongly unfreezing the cart. Now keyed on `METADATA_SUBSCRIPTION_ID_FIELD`, with the invoice reads kept as a fallback for accounts pinned to a pre-Basil version. This also closes the double-handling on `payment_intent.processing` and `payment_intent.payment_failed`, not just the `succeeded` cases. (KI-041, KI-043)
+
+**Documentation:**
+
+- Four decisions: `context/decisions/adr-013-async-ach-charge-pending.md`, `adr-014-ach-late-return-flag.md`, `adr-015-redeliver-transient-ct-errors.md`, `adr-016-ach-microdeposit-underpayment-backstop.md`. These were renumbered 010–012 → 013–015 when the SB3-207 branch merged first and claimed those numbers; no document still cites the old numbering.
+- `context/failure-modes.md` gains the ACH late-return scenario, `context/business-rules/payment-confirmation.md` the underpayment backstop rule, and `context/business-rules/subscription-lifecycle.md` the async `Charge/Pending` states. KI-050 added; KI-009 and KI-050 resolved.
+
+**Known gaps:**
+
+- An abandoned ACH micro-deposit cart stays `Frozen` with no unfreeze-on-abandonment. The freeze added for that rail inherits the residual the KI-044 fix left behind, which the bank-transfer rail shares.
+- The micro-deposit freeze covers only ACH. Boleto, OXXO, konbini and multibanco share the same mutated-cart exposure and rely on the universal order-creation backstop alone; generalising the freeze is a follow-up.
+- A blocked underpayment leaves a **paid-without-order** state: the `Charge/Success` has already persisted upstream, and by hub rule the divergence is surfaced for manual reconciliation, never auto-corrected. There is no auto-refund.
+- The `ach_late_return` flag is best-effort. If the commercetools write fails, the error is logged, the webhook still returns 200, Stripe does not redeliver, and the flag is simply absent — with no other signal that a settled subscription payment was reversed.
+
+**Out of scope, by decision:**
+
+- **ACH micro-deposit verification on subscriptions.** `confirmSubscriptionPayment` throws on `requires_action`, so the rail is not offered for a subscription cart. The one-time path handles micro-deposits and is protected by the underpayment backstop; extending it to subscriptions is separate work. (ADR-013)
+- **Modelling an ACH late return as a commercetools reversal.** Auto-reconciling a PSP reversal would make the connector the source of truth for order state, which it is not. Reversals stay with Stripe, in line with the same decision already taken for disputes and chargebacks. (ADR-014)
+
+---
 
 ### Bank Transfers (`customer_balance`) — SB3-207
 
@@ -34,7 +77,7 @@ entire configuration, alongside the Bank transfers toggle they already control i
 
 - `context/business-rules/refunds-and-disputes.md` separates refunds, card chargebacks and ACH revocations, with sources. Records that disputes stay in the Stripe Dashboard for every connector, and that a bank transfer has no dispute object at all: reversal is possible only in USD and CAD, within five days, and surfaces as a `customer_cash_balance_transaction` of type `funding_reversed`.
 - `context/workflows/process-bank-transfer-payment.md`, `context/decisions/adr-010-pi-first-elements-initialization.md`.
-- KI-035 through KI-049 added; KI-043, KI-044, KI-045, KI-046 and KI-047 resolved.
+- KI-035 through KI-049 added; KI-043, KI-044, KI-045, KI-046 and KI-047 resolved. (KI-050, from SB3-206 above, was added and resolved after this.)
 - Two previously recorded justifications were found to be false during review and were retracted in place rather than deleted. KI-046 claimed `captureMethod` and `setupFutureUsage` "select policy, not PaymentIntent parameters" — both *are* PaymentIntent parameters; the decision to leave them on the wider discriminator stands, but on bounded-choice grounds now recorded in KI-048. KI-042 claimed a failed webhook registration meant bank transfers "never complete" — `payment_intent.requires_action` and `payment_intent.succeeded` were already registered before this work, so what a failed update actually costs is refund correctness and observability, not checkout.
 
 **Known gaps:**

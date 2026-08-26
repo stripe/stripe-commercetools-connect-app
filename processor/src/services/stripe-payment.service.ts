@@ -1463,22 +1463,52 @@ export class StripePaymentService extends AbstractPaymentService {
   ): Promise<void> {
     const ctCart = await this.ctCartService.getCartByPaymentId({ paymentId: updateData.id });
     const paymentIntent = event.data.object as Stripe.PaymentIntent;
-    const wasFrozen = isCartFrozen(ctCart);
 
-    if (!wasFrozen) {
-      log.warn(
-        'Processing payment_intent.succeeded for unfrozen cart — PaymentIntent may not have originated from this connector.',
+    // Idempotency: payment_intent.succeeded can be redelivered. Once the order exists the cart is
+    // Ordered, and a second createOrderFromCart would have commercetools reject it — an error the
+    // outer catch in processStripeEvent swallows as noise. Skip cleanly instead. Mirrors the
+    // subscription path's cartState === 'Ordered' guard (stripe-subscription.service.ts).
+    if (ctCart.cartState === 'Ordered') {
+      log.info('payment_intent.succeeded for an already-ordered cart — skipping duplicate order creation.', {
+        ctCartId: ctCart.id,
+        paymentId: updateData.id,
+      });
+      return;
+    }
+
+    // Underpayment guard (backstop). The confirm gate validates the amount against the CURRENT cart
+    // total for the instant rails, but async rails (ACH micro-deposits, boleto, ...) confirm to
+    // requires_action and never reach it — their PaymentIntent is created at one amount and settles
+    // days later, during which the cart can still be edited. Without this guard an order would be
+    // created for the current (larger) cart total while only the original amount was actually paid.
+    // See KI-044 / KI-047 and business-rules/payment-confirmation.md Rule 2.
+    //
+    // Integer comparison in the currency's minor unit, NOT divided by 100: commercetools `centAmount`
+    // already respects the currency's fractionDigits and so does Stripe's `amount`, so this is correct
+    // for USD and for zero-decimal currencies (JPY). `amount_received === amount` additionally rejects
+    // incomplete settlement (robust against manual/partial capture on other rails); on ACH it always
+    // holds at succeeded. A mismatch never creates the order: the Charge/Success transaction was
+    // already persisted upstream, so the outcome is a paid-without-order state surfaced for manual
+    // reconciliation — the hub rule forbids auto-correction, so there is no auto-refund here.
+    const currentCartTotal = ctCart.taxedPrice?.totalGross ?? ctCart.totalPrice;
+    const amountMatches =
+      paymentIntent.amount === currentCartTotal.centAmount && paymentIntent.amount_received === paymentIntent.amount;
+    const currencyMatches = paymentIntent.currency.toLowerCase() === currentCartTotal.currencyCode.toLowerCase();
+    if (!amountMatches || !currencyMatches) {
+      log.error(
+        'payment_intent.succeeded: paid amount/currency does not match the current cart total — order NOT created (underpayment guard).',
         {
           ctCartId: ctCart.id,
           paymentId: updateData.id,
           pspReference: updateData.pspReference,
-          cartTotalCentAmount: ctCart.totalPrice?.centAmount,
-          cartCurrency: ctCart.totalPrice?.currencyCode,
+          stripeAmount: paymentIntent.amount,
           stripeAmountReceived: paymentIntent.amount_received,
           stripeCurrency: paymentIntent.currency,
-          amountMismatch: paymentIntent.amount_received !== ctCart.totalPrice?.centAmount,
+          cartTotalCentAmount: currentCartTotal.centAmount,
+          cartCurrency: currentCartTotal.currencyCode,
         },
       );
+      return;
     }
 
     const { latest_charge } = paymentIntent;
@@ -1555,13 +1585,15 @@ export class StripePaymentService extends AbstractPaymentService {
    * it is logged and skipped rather than guessed at.
    */
   /**
-   * Freezes the cart when Stripe issues bank transfer funding instructions.
+   * Freezes the cart when an async-settlement PaymentIntent goes pending — bank transfer (funding
+   * instructions issued) or ACH micro-deposits (debit in flight). Method name kept for a minimal diff;
+   * it now serves both rails, routed here by the two predicates in the webhook handler.
    *
-   * This is the commitment point for the bank transfer rail, and it exists because the instant-rail
-   * one cannot serve it: confirming a bank transfer returns `requires_action`, which is not in
+   * This is the commitment point for those rails, and it exists because the instant-rail one cannot
+   * serve them: confirming returns `requires_action`, which is not in
    * updatePaymentIntentStripeSuccessful's status allowlist, and the enabler does not call that
    * endpoint on this path at all. Verified on 2026-08-06 — the two /confirmPayments calls in that run
-   * belonged to instant checkouts; the bank transfer never reached the gate.
+   * belonged to instant checkouts; the async payment never reached the gate.
    *
    * The freeze matters more here than anywhere else. Funds take hours to days to arrive, and the order
    * is created only when they do. A cart edited during that window would produce an order that does
@@ -1578,7 +1610,7 @@ export class StripePaymentService extends AbstractPaymentService {
     const cartId = paymentIntent.metadata?.[METADATA_CART_ID_FIELD];
 
     if (!cartId) {
-      log.warn('Bank transfer instructions issued but the PaymentIntent carries no cart id — cart not frozen.', {
+      log.warn('Async payment pending but the PaymentIntent carries no cart id — cart not frozen.', {
         stripePaymentIntentId: paymentIntent.id,
       });
       return;
@@ -1587,16 +1619,16 @@ export class StripePaymentService extends AbstractPaymentService {
     try {
       const cart = await this.ctCartService.getCart({ id: cartId });
       if (isCartFrozen(cart)) {
-        log.info('Cart already frozen for this bank transfer — nothing to do.', { ctCartId: cartId });
+        log.info('Cart already frozen for this async payment — nothing to do.', { ctCartId: cartId });
         return;
       }
       await freezeCart(cart);
-      log.info('Cart frozen while awaiting bank transfer funds.', {
+      log.info('Cart frozen while awaiting async payment settlement.', {
         ctCartId: cartId,
         stripePaymentIntentId: paymentIntent.id,
       });
     } catch (error) {
-      log.error('Error freezing cart while awaiting bank transfer funds.', {
+      log.error('Error freezing cart while awaiting async payment settlement.', {
         error,
         ctCartId: cartId,
         stripePaymentIntentId: paymentIntent.id,

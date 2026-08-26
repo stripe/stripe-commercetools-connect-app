@@ -249,6 +249,10 @@ describe('stripe-subscription.service', () => {
       jest
         .spyOn(StripeSubscriptionService.prototype, 'getCurrentPayment')
         .mockResolvedValue(mockPayment__subscription_success); // interfaceId: 'pi_123'
+      // Card (synchronous) confirm: the PaymentIntent is already `succeeded`, so isPending stays false.
+      jest
+        .spyOn(Stripe.prototype.paymentIntents, 'retrieve')
+        .mockResolvedValue({ status: 'succeeded' } as unknown as Stripe.Response<Stripe.PaymentIntent>);
       const updateSpy = spyUpdate();
 
       const result = await stripeSubscriptionService.confirmSubscriptionPayment({
@@ -260,6 +264,49 @@ describe('stripe-subscription.service', () => {
       expect(result).toBeUndefined();
       expect(updateSpy).toHaveBeenCalledTimes(1);
       expect(updateSpy).toHaveBeenCalledWith(expect.objectContaining({ isPending: false }));
+    });
+
+    test('ACH async — PaymentIntent processing => Charge/Pending (isPending true)', async () => {
+      jest.spyOn(CartClient, 'getCartExpanded').mockResolvedValue(mockGetSubscriptionCartWithVariant(1));
+      jest.spyOn(StripeSubscriptionService.prototype, 'getSubscriptionTypes').mockReturnValue(types());
+      jest.spyOn(StripeSubscriptionService.prototype, 'getInvoiceFromSubscription').mockResolvedValue(mockInvoice);
+      jest
+        .spyOn(StripeSubscriptionService.prototype, 'getCurrentPayment')
+        .mockResolvedValue(mockPayment__subscription_success);
+      jest
+        .spyOn(Stripe.prototype.paymentIntents, 'retrieve')
+        .mockResolvedValue({ status: 'processing' } as unknown as Stripe.Response<Stripe.PaymentIntent>);
+      const updateSpy = spyUpdate();
+
+      await stripeSubscriptionService.confirmSubscriptionPayment({
+        paymentReference: ownedPaymentReference,
+        subscriptionId: 'sub_123',
+        paymentIntentId: 'pi_123',
+      });
+
+      expect(updateSpy).toHaveBeenCalledWith(expect.objectContaining({ isPending: true }));
+    });
+
+    test('ACH requires_action (microdeposits, out of scope) => rejects, never marks paid', async () => {
+      jest.spyOn(CartClient, 'getCartExpanded').mockResolvedValue(mockGetSubscriptionCartWithVariant(1));
+      jest.spyOn(StripeSubscriptionService.prototype, 'getSubscriptionTypes').mockReturnValue(types());
+      jest.spyOn(StripeSubscriptionService.prototype, 'getInvoiceFromSubscription').mockResolvedValue(mockInvoice);
+      jest
+        .spyOn(StripeSubscriptionService.prototype, 'getCurrentPayment')
+        .mockResolvedValue(mockPayment__subscription_success);
+      jest
+        .spyOn(Stripe.prototype.paymentIntents, 'retrieve')
+        .mockResolvedValue({ status: 'requires_action' } as unknown as Stripe.Response<Stripe.PaymentIntent>);
+      const updateSpy = spyUpdate();
+
+      await expect(
+        stripeSubscriptionService.confirmSubscriptionPayment({
+          paymentReference: ownedPaymentReference,
+          subscriptionId: 'sub_123',
+          paymentIntentId: 'pi_123',
+        }),
+      ).rejects.toThrow();
+      expect(updateSpy).not.toHaveBeenCalled();
     });
 
     test('happy path — setup-intent mode (trial-backed setup, pending authorization)', async () => {

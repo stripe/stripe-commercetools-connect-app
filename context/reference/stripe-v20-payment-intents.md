@@ -48,11 +48,16 @@ await stripe.subscriptions.create({
 
 | Event | CT Action |
 |---|---|
-| `invoice.paid` | Add `CHARGE` transaction (recurring) |
-| `invoice.payment_failed` | Add `AUTHORIZATION` (Failure) |
+| `invoice.paid` | Add `CHARGE` transaction (recurring). Also promotes an async `CHARGE/Pending` — written at confirm for an ACH `us_bank_account` debit still `processing` — to `Success` |
+| `invoice.payment_failed` | Add `AUTHORIZATION` (Failure), or turn an async `CHARGE/Pending` into `Failure` |
 | `invoice.upcoming` | Trigger price sync (if `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true`) |
-| `customer.subscription.deleted` | **Not yet implemented** — event declared in enum only; not registered in `actions.ts` enabled events, Stripe will not send it to this connector (TODO) |
-| `charge.succeeded` | Supplement for first invoice charge confirmation |
+| `customer.subscription.deleted` | Registered and handled. Terminal cancellation unfreezes the subscription's cart, resolved via `ct_payment_id` metadata. No payment or order change |
+| `charge.succeeded` | Registered, but **dropped** when it originates from a subscription invoice (`isFromSubscriptionInvoice()`) — `invoice.paid` is the single source of truth for recurring payments |
+| `payment_intent.payment_failed` | On a subscription invoice that had **already** settled, this is an ACH late return: flags the CT payment with `paymentStatus.interfaceCode='ach_late_return'`. No transaction or order change |
+
+> A commercetools write that fails with a transient error inside `invoice.paid` / `invoice.payment_failed`
+> is rethrown so Stripe redelivers; a permanent one is logged and swallowed. See
+> `../decisions/adr-015-redeliver-transient-ct-errors.md`.
 
 ## Subscription Product Attribute Mapping
 

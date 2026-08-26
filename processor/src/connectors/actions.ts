@@ -82,6 +82,7 @@ export async function updateWebhookEndpoint(weId: string, weAppUrl: string): Pro
         'customer_cash_balance_transaction.created',
         'invoice.paid',
         'invoice.payment_failed',
+        'customer.subscription.deleted',
         'invoice.upcoming',
       ],
       url: weAppUrl,

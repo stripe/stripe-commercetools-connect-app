@@ -119,8 +119,12 @@ Browser                    Enabler                 Processor               Strip
 
 ### POST /subscription/confirm key operations
 1. Retrieve subscription from Stripe
-2. Branch on subscription type (`hasNoInvoice`, `isSendInvoice`, `hasTrial`) to determine payment transaction handling — no explicit status validation
-3. Update CT Payment to AUTHORIZED state
+2. Branch on subscription type (`hasNoInvoice`, `isSendInvoice`, `hasTrial`) to determine payment transaction handling
+3. For a direct charge (not `send_invoice`, not trial), **retrieve the PaymentIntent status and validate it** (`confirmSubscriptionPayment()`, `stripe-subscription.service.ts`):
+   - `succeeded` / `requires_capture` → settled synchronously (e.g. card) → charge written **Success**
+   - `processing` → **async settlement (e.g. ACH `us_bank_account`)** → set `isAsyncProcessing`; the money is in flight, so the charge is written **Pending**, not Success. It flips to Success later when `invoice.paid` arrives (see `process-recurring-payment.md`)
+   - any other status (e.g. `requires_action` micro-deposit verification) → **throws** — out of scope
+4. Update the CT Payment: `isPending` is true when `send_invoice`, trial, **or** async processing → the Charge transaction is written **Pending**; otherwise **Success**.
 
 > **Note:** The CT line item custom field `stripeConnector_stripeSubscriptionId` is set during `POST /subscription` (inside `createSubscription()` → `saveSubscriptionId()`), not during confirm.
 

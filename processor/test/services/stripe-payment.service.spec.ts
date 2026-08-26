@@ -811,41 +811,6 @@ describe('stripe-payment.service', () => {
       ).rejects.toThrow('Cart retrieval failed');
       expect(getCartMock).toHaveBeenCalled();
     });
-
-    test('should reject before calling Stripe when paymentIntentId does not match CT payment interfaceId', async () => {
-      jest.spyOn(DefaultCartService.prototype, 'getCart').mockReturnValue(Promise.resolve(mockGetCartResult()));
-      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
-      const retrieveMock = jest.spyOn(Stripe.prototype.paymentIntents, 'retrieve');
-      const updatePaymentMock = jest
-        .spyOn(DefaultPaymentService.prototype, 'updatePayment')
-        .mockReturnValue(Promise.resolve(mockGetPaymentResult));
-
-      await expect(
-        stripePaymentService.updatePaymentIntentStripeSuccessful('paymentId', 'paymentReference'),
-      ).rejects.toThrow(/PaymentIntent mismatch/);
-
-      expect(retrieveMock).not.toHaveBeenCalled();
-      expect(updatePaymentMock).not.toHaveBeenCalled();
-      expect(Logger.log.error).toHaveBeenCalledWith(
-        'PaymentIntent ID does not match CT Payment interfaceId — rejecting update to avoid wrong PI to wrong CT payment.',
-        expect.objectContaining({
-          paymentReference: 'paymentReference',
-          requestPaymentIntentId: 'paymentId',
-          ctPaymentInterfaceId: mockGetPaymentResult.interfaceId,
-        }),
-      );
-    });
-
-    test('should propagate errors from cart retrieval', async () => {
-      const getCartMock = jest.spyOn(DefaultCartService.prototype, 'getCart').mockImplementation(() => {
-        throw new Error('Cart retrieval failed');
-      });
-
-      await expect(
-        stripePaymentService.updatePaymentIntentStripeSuccessful('paymentId', 'paymentReference'),
-      ).rejects.toThrow('Cart retrieval failed');
-      expect(getCartMock).toHaveBeenCalled();
-    });
   });
 
   describe('method createPaymentIntentStripe', () => {
@@ -1844,7 +1809,7 @@ describe('stripe-payment.service', () => {
       expect(Logger.log.info).toHaveBeenCalledWith('Payment information updated', expect.any(Object));
     });
 
-    test('should process payment_intent.succeeded as happy path when cart is frozen and create order', async () => {
+    test('should process payment_intent.succeeded as happy path when cart total matches and create order', async () => {
       const mockEvent: Stripe.Event = mockEvent__paymentIntent_succeeded_captureMethodManual;
 
       const test = {
@@ -1853,10 +1818,12 @@ describe('stripe-payment.service', () => {
         paymentMethod: 'payment',
         transactions: [],
       };
+      // Fixture PI: amount = amount_received = 13200, currency 'mxn'. Cart total matches → order created.
       const mockCart = {
         id: 'mock-cart-id',
         version: 1,
         cartState: 'Frozen',
+        totalPrice: { centAmount: 13200, currencyCode: 'mxn' },
       } as Cart;
 
       const mockStripeEventConverter = jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(test);
@@ -1873,13 +1840,79 @@ describe('stripe-payment.service', () => {
           paymentIntentId: 'paymentIntentId',
         }),
       );
-      expect(Logger.log.warn).not.toHaveBeenCalledWith(
-        'Processing payment_intent.succeeded for unfrozen cart — PaymentIntent may not have originated from this connector.',
+      expect(Logger.log.error).not.toHaveBeenCalledWith(
+        expect.stringContaining('underpayment guard'),
         expect.any(Object),
       );
     });
 
-    test('should log warning when processing payment_intent.succeeded for unfrozen cart', async () => {
+    test('should use taxedPrice.totalGross over totalPrice when validating the succeeded amount', async () => {
+      const mockEvent: Stripe.Event = mockEvent__paymentIntent_succeeded_captureMethodManual;
+
+      const test = {
+        id: 'paymentId',
+        pspReference: 'paymentIntentId',
+        paymentMethod: 'payment',
+        transactions: [],
+      };
+      // totalPrice would mismatch (999), but taxedPrice.totalGross matches the PI (13200) → order created.
+      const mockCart = {
+        id: 'mock-cart-id',
+        version: 1,
+        cartState: 'Frozen',
+        totalPrice: { centAmount: 999, currencyCode: 'mxn' },
+        taxedPrice: { totalGross: { centAmount: 13200, currencyCode: 'mxn' } },
+      } as Cart;
+
+      jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(test);
+      jest.spyOn(DefaultCartService.prototype, 'getCartByPaymentId').mockResolvedValue(mockCart);
+      jest.spyOn(Stripe.prototype.charges, 'retrieve').mockResolvedValue({} as Stripe.Response<Stripe.Charge>);
+      const createOrderSpy = jest.spyOn(StripePaymentService.prototype, 'createOrder').mockResolvedValue();
+
+      await stripePaymentService.processStripeEvent(mockEvent);
+
+      expect(createOrderSpy).toHaveBeenCalled();
+    });
+
+    test('should NOT create an order when the paid amount does not match the current cart total (underpayment guard)', async () => {
+      const mockEvent: Stripe.Event = mockEvent__paymentIntent_succeeded_captureMethodManual;
+
+      const test = {
+        id: 'paymentId',
+        pspReference: 'paymentIntentId',
+        paymentMethod: 'payment',
+        transactions: [],
+      };
+      // Cart was mutated to a larger total (99900) after the PI was created at 13200 → underpayment.
+      const mockCart = {
+        id: 'mock-cart-id',
+        version: 1,
+        cartState: 'Active',
+        totalPrice: { centAmount: 99900, currencyCode: 'mxn' },
+      } as Cart;
+
+      jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(test);
+      jest.spyOn(DefaultCartService.prototype, 'getCartByPaymentId').mockResolvedValue(mockCart);
+      const chargesRetrieveSpy = jest
+        .spyOn(Stripe.prototype.charges, 'retrieve')
+        .mockResolvedValue({} as Stripe.Response<Stripe.Charge>);
+      const createOrderSpy = jest.spyOn(StripePaymentService.prototype, 'createOrder').mockResolvedValue();
+
+      await stripePaymentService.processStripeEvent(mockEvent);
+
+      expect(createOrderSpy).not.toHaveBeenCalled();
+      expect(chargesRetrieveSpy).not.toHaveBeenCalled();
+      expect(Logger.log.error).toHaveBeenCalledWith(
+        'payment_intent.succeeded: paid amount/currency does not match the current cart total — order NOT created (underpayment guard).',
+        expect.objectContaining({
+          ctCartId: 'mock-cart-id',
+          stripeAmount: 13200,
+          cartTotalCentAmount: 99900,
+        }),
+      );
+    });
+
+    test('should skip order creation on payment_intent.succeeded when the cart is already Ordered (idempotency)', async () => {
       const mockEvent: Stripe.Event = mockEvent__paymentIntent_succeeded_captureMethodManual;
 
       const test = {
@@ -1891,29 +1924,24 @@ describe('stripe-payment.service', () => {
       const mockCart = {
         id: 'mock-cart-id',
         version: 1,
+        cartState: 'Ordered',
         totalPrice: { centAmount: 13200, currencyCode: 'mxn' },
       } as Cart;
 
-      const mockStripeEventConverter = jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(test);
+      jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(test);
       jest.spyOn(DefaultCartService.prototype, 'getCartByPaymentId').mockResolvedValue(mockCart);
-      jest.spyOn(Stripe.prototype.charges, 'retrieve').mockResolvedValue({} as Stripe.Response<Stripe.Charge>);
-      jest.spyOn(StripePaymentService.prototype, 'createOrder').mockResolvedValue();
+      const createOrderSpy = jest.spyOn(StripePaymentService.prototype, 'createOrder').mockResolvedValue();
 
       await stripePaymentService.processStripeEvent(mockEvent);
 
-      expect(mockStripeEventConverter).toHaveBeenCalled();
-      expect(Logger.log.warn).toHaveBeenCalledWith(
-        'Processing payment_intent.succeeded for unfrozen cart — PaymentIntent may not have originated from this connector.',
-        expect.objectContaining({
-          ctCartId: 'mock-cart-id',
-          paymentId: 'paymentId',
-          pspReference: 'paymentIntentId',
-          cartTotalCentAmount: 13200,
-          cartCurrency: 'mxn',
-          stripeAmountReceived: 13200,
-          stripeCurrency: 'mxn',
-          amountMismatch: false,
-        }),
+      expect(createOrderSpy).not.toHaveBeenCalled();
+      expect(Logger.log.info).toHaveBeenCalledWith(
+        'payment_intent.succeeded for an already-ordered cart — skipping duplicate order creation.',
+        expect.objectContaining({ ctCartId: 'mock-cart-id', paymentId: 'paymentId' }),
+      );
+      expect(Logger.log.error).not.toHaveBeenCalledWith(
+        expect.stringContaining('underpayment guard'),
+        expect.any(Object),
       );
     });
 

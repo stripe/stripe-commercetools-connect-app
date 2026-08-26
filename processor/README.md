@@ -200,6 +200,87 @@ The `payment_intent.processing` webhook is subscribed in `enabled_events` (`conn
 
 > Out of scope: crypto in **subscriptions / SetupIntent** flows (crypto is only supported for one-time payments here).
 
+## ACH Direct Debit (`us_bank_account`)
+
+The connector supports ACH Direct Debit on **one-time payments and subscriptions**. Like crypto it is an
+**asynchronous** rail, but on a much longer clock: the debit settles in ~2–4 business days, and — unlike
+every other method here — it can still be reversed by the shopper's bank *after* it has settled.
+
+### Enabling ACH
+
+ACH is enabled from the **Stripe Dashboard** (Payment methods → ACH Direct Debit). There is **no connector
+configuration**: no environment variable, no feature flag, and it works under either `STRIPE_PAYMENT_FLOW`
+value. The connector uses `automatic_payment_methods`, so Stripe surfaces the method once it is enabled.
+
+### Pending state on subscriptions
+
+`POST /subscription/confirm` was originally written for synchronous cards and wrote `Charge/Success`
+unconditionally — which marked a subscription order paid before any money had moved. It now retrieves the
+real PaymentIntent status and branches:
+
+| PaymentIntent status | CT transaction written |
+| --- | --- |
+| `succeeded` / `requires_capture` | `Charge` / `Success` (synchronous, e.g. card) |
+| `processing` (ACH in flight) | `Charge` / **`Pending`** (`isAsyncProcessing`) |
+| anything else (e.g. `requires_action`) | throws — out of scope on this path |
+
+The Pending charge becomes `Success` only when `invoice.paid` confirms real settlement, and `Failure` on
+`invoice.payment_failed`. **A subscription can therefore sit in `Charge/Pending` for days with no order
+yet** — anything downstream that reads a `Charge` as "money received" regardless of state must handle it.
+
+`send_invoice` and trial modes are Pending by type and skip the status check entirely.
+
+### Micro-deposit verification (one-time payments)
+
+Micro-deposit verification confirms to `requires_action` with `next_action.type =
+verify_with_microdeposits` and settles days later, during which the cart would otherwise stay editable.
+Two protections cover this:
+
+- **Cart freeze**: `isMicrodepositNextAction` (`utils.ts`) freezes the cart on that `requires_action`. It
+  is kept **separate** from `isBankTransferNextAction` on purpose, so the 3DS/Boleto release-gate tests
+  that pin the bank-transfer predicate stay green. No CT transaction is written.
+- **Order-creation backstop**: `handlePaymentIntentSucceededFlow` refuses to create the order unless
+  `pi.amount` equals the cart's *current* total, `pi.amount_received` equals `pi.amount`, and the currency
+  matches (integer minor-unit comparison, so JPY is correct). On mismatch it logs at `error` and returns.
+  This layer is universal — it also covers boleto, OXXO, konbini and multibanco, which have no freeze.
+
+> A blocked order leaves a **paid-without-order** state: the `Charge/Success` has already persisted, and by
+> hub rule the divergence is surfaced for manual reconciliation, never auto-corrected. There is no
+> auto-refund. Watch the processor logs for it.
+
+On subscriptions, micro-deposit verification is **not** supported: the confirm throws on `requires_action`.
+
+### Late returns (post-settlement reversal)
+
+A settled ACH debit can be reversed by the customer's bank for up to ~60 days. Stripe fires
+`payment_intent.payment_failed` / `charge.failed` but does **not** re-fire `invoice.payment_failed`, so the
+invoice-driven subscription handlers never saw it and the CT order stayed paid while the funds were clawed
+back.
+
+A subscription-invoice `payment_intent.payment_failed` is now routed to `processSubscriptionEventLateReturn`,
+which sets the native `paymentStatus.interfaceCode = 'ach_late_return'` (plus `interfaceText`) — and only
+when the payment already carries a `Charge/Success` proving the money had settled; a still-`Pending` charge
+is an ordinary failure owned by `invoice.payment_failed`. No transaction, order-state or custom-field
+change: the financial correction is made in the Stripe Dashboard, like a dispute.
+
+> **The handler is best-effort and never throws.** If the CT write fails the error is logged, the webhook
+> still returns 200, and Stripe does not redeliver — the flag is simply absent. This flag is the only
+> in-connector signal that money was clawed back, so wire it to an alerting channel.
+
+### Webhook write failures
+
+On `invoice.paid` / `invoice.payment_failed`, a commercetools write failing with a **transient** error
+(`ConcurrentModification`/409, 429, 502, 503, `ETIMEDOUT`, `ECONNRESET`) is rethrown so the webhook responds
+non-2xx and Stripe redelivers. Permanent errors — bad credentials, a missing customer — stay logged and
+swallowed: rethrowing everything was tried first and turned a permanent failure into a days-long redelivery
+storm. The split is a regex on error text, so an unrecognised transient error is still swallowed.
+
+### Testing locally
+
+- **Webhooks**: same as crypto above — forward with `stripe listen --forward-to localhost:8080/stripe/webhooks` and set `STRIPE_WEBHOOK_SIGNING_SECRET` to the printed `whsec_...`.
+- **Test accounts**: Stripe publishes `us_bank_account` test account numbers covering both paths — instant verification and the micro-deposit flow — plus the fixed values that verify a test micro-deposit and the ones that force a failure or a late return. See Stripe's ACH Direct Debit testing reference; do not wait on the real settlement clock.
+- **What to assert**: the interesting states are the ones that persist for days in production and seconds in a test — `Charge/Pending` after confirm, its promotion on `invoice.paid`, the cart freeze on a micro-deposit `requires_action`, and a blocked order on an amount mismatch. Cover those in unit tests rather than relying on live timing.
+
 ## Mixed Cart Support
 
 The connector now supports mixed carts containing both subscription items and one-time items. This feature allows customers to purchase subscription products alongside regular products in a single transaction, with automatic handling of different billing scenarios.

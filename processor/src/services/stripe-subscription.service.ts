@@ -63,7 +63,9 @@ import {
   updateCartById,
   freezeCart,
   isCartFrozen,
+  unfreezeCart,
 } from './commerce-tools/cart-client';
+import { setPaymentStatusInterface } from './commerce-tools/payment-client';
 import { getCustomFieldUpdateActions } from './commerce-tools/custom-type-helper';
 import {
   METADATA_CART_ID_FIELD,
@@ -85,6 +87,13 @@ import { PaymentTransactions } from '../dtos/operations/payment-intents.dto';
 import { OrderPaymentState, PaymentStatus, StripeEventUpdatePayment } from './types/stripe-payment.type';
 
 const stripe = stripeApi();
+
+// KI-003: which subscription-webhook handler failures are worth re-raising so the route returns
+// non-2xx and Stripe redelivers. Only transient/retryable CT-write failures — a permanent error
+// (auth, not-found, validation) would just redeliver in vain (a retry storm). Redelivery is safe:
+// order creation is guarded by cartState:Ordered and transaction writes are idempotent via
+// changeTransactionState.
+const RETRYABLE_CT_ERROR = /ConcurrentModification|409|429|50[23]|ETIMEDOUT|ECONNRESET/i;
 
 export class StripeSubscriptionService {
   private customerService: StripeCustomerService;
@@ -739,13 +748,31 @@ export class StripeSubscriptionService {
           paymentReference,
         );
 
+        // Async methods (ACH us_bank_account) leave the PaymentIntent `processing` at confirm time —
+        // settlement lands later via invoice.paid / invoice.payment_failed. Write Charge/Pending (not
+        // Success) so the payment is not marked paid before it settles, mirroring the one-time flow.
+        // succeeded/requires_capture => synchronous card success. requires_action (microdeposit
+        // verification — out of scope) / requires_payment_method must not be marked paid either.
+        // send_invoice/trial are already Pending by type, so the PaymentIntent status is not consulted.
+        let isAsyncProcessing = false;
+        if (!isSendInvoice && !hasTrial && paymentIntentId) {
+          const { status } = await stripe.paymentIntents.retrieve(paymentIntentId);
+          if (status === 'processing') {
+            isAsyncProcessing = true;
+          } else if (status !== 'succeeded' && status !== 'requires_capture') {
+            throw new Error(
+              `Subscription payment is not settled (PaymentIntent status: ${status}); microdeposit verification is out of scope.`,
+            );
+          }
+        }
+
         await this.paymentCreationService.updateSubscriptionPaymentTransactions({
           // Key by the invoice id (in_) so the confirm transaction matches the checkout/webhook
           // transactions and deduplicates instead of creating a parallel pi_-keyed set.
           interactionId: invoice?.id || paymentIntentId || subscriptionId,
           payment,
           subscriptionId,
-          isPending: isSendInvoice || hasTrial ? true : false,
+          isPending: isSendInvoice || hasTrial || isAsyncProcessing,
         });
       }
     } catch (error) {
@@ -1274,6 +1301,9 @@ export class StripeSubscriptionService {
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : JSON.stringify(e);
       log.error(`Error processing Subscription processSubscriptionEventPaid notification: ${errorMessage}`);
+      if (RETRYABLE_CT_ERROR.test(errorMessage)) {
+        throw e; // KI-003: transient CT-write failure — let Stripe redeliver instead of a silent 200
+      }
       return;
     }
   }
@@ -1614,6 +1644,85 @@ export class StripeSubscriptionService {
     return true;
   }
 
+  /**
+   * Unfreezes the cart when a subscription is canceled (retries exhausted). The cart stays frozen for
+   * the whole subscription lifecycle (subscription-lifecycle Rule 1/2), including during Stripe's
+   * Smart-Retry window; only at terminal cancellation do we release it so the shopper can edit it and
+   * retry with another payment method (which happens in Stripe). Best-effort: does not touch
+   * payment/order state and never throws — a lingering frozen cart is not worth failing the webhook
+   * and forcing Stripe to redeliver.
+   */
+  public async processSubscriptionEventDeleted(event: Stripe.Event): Promise<void> {
+    log.info('Processing subscription processSubscriptionEventDeleted notification', {
+      event: JSON.stringify(event.id),
+    });
+    try {
+      const subscription = event.data.object as Stripe.Subscription;
+      const paymentId = subscription.metadata?.[METADATA_PAYMENT_ID_FIELD];
+      if (!paymentId) {
+        log.warn('Cannot unfreeze cart on subscription cancellation: missing payment id in subscription metadata.', {
+          subscriptionId: subscription.id,
+        });
+        return;
+      }
+
+      const cart = await this.ctCartService.getCartByPaymentId({ paymentId });
+      if (!isCartFrozen(cart)) {
+        return;
+      }
+
+      await unfreezeCart(cart);
+      log.info('Cart unfrozen after subscription cancellation.', {
+        ctCartId: cart.id,
+        subscriptionId: subscription.id,
+      });
+    } catch (error) {
+      log.error('Error unfreezing cart after subscription cancellation.', { error });
+    }
+  }
+
+  /**
+   * Flags a CT payment when Stripe reports a subscription PaymentIntent failure AFTER the invoice was
+   * already paid — an ACH late return (the bank reverses an already-settled debit, up to ~60 days
+   * later). Stripe does not re-fire invoice.payment_failed in this case, so the invoice-driven handlers
+   * never see it. Per the product decision the reversal is handled in the Stripe Dashboard (like
+   * disputes); here we only leave a native paymentStatus mark (no custom fields, no transaction/order
+   * state change) so the team is aware. Distinguished from an ordinary first-payment failure by an
+   * existing Charge/Success (the money had settled) — a still-pending charge is a normal failure
+   * handled by invoice.payment_failed and is ignored here. Best-effort, never throws.
+   */
+  public async processSubscriptionEventLateReturn(event: Stripe.Event): Promise<void> {
+    try {
+      const paymentIntent = event.data.object as Stripe.PaymentIntent;
+      const paymentId = paymentIntent.metadata?.[METADATA_PAYMENT_ID_FIELD];
+      if (!paymentId) {
+        return;
+      }
+
+      const payment = await this.ctPaymentService.getPayment({ id: paymentId });
+      const wasSettled = this.ctPaymentService.hasTransactionInState({
+        payment,
+        transactionType: PaymentTransactions.CHARGE,
+        states: [PaymentStatus.SUCCESS],
+      });
+      if (!wasSettled) {
+        return; // ordinary first-payment failure — resolved by invoice.payment_failed, not a late return
+      }
+
+      await setPaymentStatusInterface(
+        payment,
+        'ach_late_return',
+        'ACH late return after settlement — handle in Stripe',
+      );
+      log.warn('Subscription payment flagged for an ACH late return (handled in the Stripe Dashboard).', {
+        ctPaymentId: payment.id,
+        paymentIntentId: paymentIntent.id,
+      });
+    } catch (error) {
+      log.error('Error flagging subscription payment for a late ACH return.', { error });
+    }
+  }
+
   public async processSubscriptionEventFailed(event: Stripe.Event): Promise<void> {
     log.info('Processing subscription processSubscriptionEventFailed notification', {
       event: JSON.stringify(event.id),
@@ -1693,6 +1802,9 @@ export class StripeSubscriptionService {
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : JSON.stringify(e);
       log.error(`Error processing Subscription processSubscriptionEventFailed notification: ${errorMessage}`);
+      if (RETRYABLE_CT_ERROR.test(errorMessage)) {
+        throw e; // KI-003: transient CT-write failure — let Stripe redeliver instead of a silent 200
+      }
       return;
     }
   }

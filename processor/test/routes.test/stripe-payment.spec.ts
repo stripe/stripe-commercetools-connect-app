@@ -31,6 +31,7 @@ import {
   mockEvent__paymentIntent_requiresAction_bankTransfer,
   mockEvent__paymentIntent_requiresAction_3ds,
   mockEvent__paymentIntent_requiresAction_boleto,
+  mockEvent__paymentIntent_requiresAction_microdeposits,
   mockEvent__paymentIntent_partiallyFunded_bankTransfer,
   mockEvent__customerCashBalanceTransaction_funded,
   mockEvent__customerCashBalanceTransaction_fundingReversed,
@@ -648,6 +649,19 @@ describe('Stripe Payment APIs', () => {
 
       expect(response.statusCode).toEqual(200);
       expect(spiedPaymentService.processStripeEvent).toHaveBeenCalledTimes(1);
+    });
+
+    test('an ACH micro-deposit requires_action event is routed and freezes the cart', async () => {
+      arrangeWebhook(mockEvent__paymentIntent_requiresAction_microdeposits);
+      const freezeSpy = jest
+        .spyOn(StripePaymentService.prototype, 'freezeCartForBankTransfer')
+        .mockReturnValue(Promise.resolve());
+
+      const response = await postWebhook();
+
+      expect(response.statusCode).toEqual(200);
+      expect(spiedPaymentService.processStripeEvent).toHaveBeenCalledTimes(1);
+      expect(freezeSpy).toHaveBeenCalledTimes(1);
     });
 
     // This used to fabricate `invoice` on the PaymentIntent, and the NOTE here used to say the
