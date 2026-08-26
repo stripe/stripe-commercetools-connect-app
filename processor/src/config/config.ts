@@ -131,7 +131,8 @@ const canonicalizeRuleValue = (
 const reportInactiveField = (prefix: string, field: string): void => {
   if (RULE_FIELDS_IGNORED_HERE.includes(field)) {
     console.error(
-      `[config] ${prefix}.${field} is a ct-connect-stripe-checkout field and has no effect in this connector. Ignoring.`,
+      `[config] ${prefix}.${field} has no effect as a per-rule override in this connector and is ignored. ` +
+        `The field itself IS supported here, globally — set STRIPE_COLLECT_BILLING_ADDRESS instead.`,
     );
     return;
   }
@@ -402,13 +403,14 @@ export const config = {
    *   Elements path rather than pending on it. It is kept because it keeps this response honest about
    *   what the shopper will actually get.
    *
-   * DIVERGENCE FROM CHECKOUT — deliberate, not an oversight in the port. checkout falls back to
-   * 'deferred' with a console.warn on an unknown value (config.ts:134-145). Here an unknown value
-   * ABORTS startup, for consistency with the rule validation above: config that looks configured and
-   * is not is worse than a crash. STRIPE_PAYMENT_FLOW=pi_frist would fall back to 'deferred', leave
-   * bank transfers silently off, and surface as "I configured pi_first and the tab never appears" —
-   * days later, from someone else. It is a deploy-time variable, so a boot abort reports it at deploy
-   * time, where a check catches it, rather than a stdout warning nobody reads in CT Connect.
+   * MATCHES CHECKOUT: an unknown value falls back to 'deferred' and is reported, it does NOT abort.
+   * This connector briefly diverged and aborted instead, on the argument that config which looks
+   * configured and is not is worse than a crash — STRIPE_PAYMENT_FLOW=pi_frist falls back silently,
+   * leaves bank transfers off, and surfaces as "I configured pi_first and the tab never appears" days
+   * later, from someone else. ADR-012 reversed it: aborting takes every payment on the deployment down
+   * over one typo in an optional variable, and denies the operator a running service to fix it from.
+   * The original concern is real and is answered by the message instead — see the console.error below,
+   * which names the rejected value and states outright that bank transfers and BLIK are now off.
    *
    * Blank is NOT invalid, it is absent: an optional variable with no default in connect.yaml can come
    * back from the CT Connect config UI as '' or whitespace, and aborting on that would brick a deploy

@@ -26,7 +26,9 @@ For the base feature set (one-time payments, Payment Element, Express Checkout, 
 | Feature | Status | Notes |
 | --- | --- | --- |
 | Create subscription from cart | ✅ Supported | `POST /subscription`; freezes CT cart on creation |
-| Cancel subscription | ✅ Supported | `DELETE /subscription-api/:customerId/:subscriptionId` — cancels in Stripe only; CT not updated (see `known-issues.md` KI-010) |
+| Cancel subscription (API) | ✅ Supported | `DELETE /subscription-api/:customerId/:subscriptionId` — cancels in Stripe only; CT not updated (see `known-issues.md` KI-010) |
+| Cancel subscription (Dashboard / Dunning) → unfreeze cart | ✅ Supported | `customer.subscription.deleted` webhook now unfreezes the CT cart at terminal cancellation (KI-009 RESOLVED); stale subscription ID on the line item not cleared |
+| Async ACH (`us_bank_account`) subscription payment | ✅ Supported | `confirmSubscriptionPayment` writes `Charge/Pending` while the PaymentIntent is `processing`; settlement resolves via `invoice.paid` (→ Success) / `invoice.payment_failed` (→ Failure). Micro-deposit verification (`requires_action`) is out of scope **on this path only** — the confirm throws; the one-time path does support it (see `payment_intent.requires_action` below). |
 | Update subscription (new variant/price) | ✅ Supported | `POST /subscription-api/:customerId` |
 | List active subscriptions for customer | ✅ Supported | `GET /subscription-api/:customerId` |
 | Trial periods | ✅ Supported | Via `stripeConnector_trial_period_days` or `stripeConnector_trial_end_date` (mutually exclusive) |
@@ -54,16 +56,18 @@ Events registered in `processor/src/connectors/actions.ts` (in addition to check
 | `charge.succeeded` (subscription invoice) | ⚠️ Registered, deliberately dropped | `isFromSubscriptionInvoice()` guard stops it before processing — `invoice.paid` alone handles recurring payments, see `business-rules/recurring-billing.md` Rule 4 |
 | `charge.refunded` | ✅ Always registered | Registered unconditionally; multirefund behavior |
 | `charge.captured` | ✅ Always registered | Registered unconditionally; multicapture behavior |
-| `payment_intent.requires_action` | ✅ Bank transfer only | **Async funding** (`customer_balance`). Gated on `isBankTransferNextAction()` — only a PI whose `next_action.type` is exactly `display_bank_transfer_instructions` is processed, writing one `Authorization/Pending` for the full `pi.amount`. Card 3DS and Boleto also emit this event and keep their log-only path; the predicate fails closed. Release-gate tested. |
+| `payment_intent.requires_action` | ✅ Bank transfer + ACH micro-deposit | **Async funding** (`customer_balance`), gated on `isBankTransferNextAction()` — only a PI whose `next_action.type` is exactly `display_bank_transfer_instructions` is processed, writing one `Authorization/Pending` for the full `pi.amount` and freezing the cart. **ACH micro-deposit verification** (`verify_with_microdeposits`), gated on the separate `isMicrodepositNextAction()` — freezes the cart only, no CT transaction, so it cannot be edited during the days-long verification window (KI-050). Card 3DS and Boleto also emit this event and keep their log-only path; both predicates fail closed. Release-gate tested. |
 | `payment_intent.partially_funded` | ✅ No CT transaction | Shopper wired part of the amount. Deliberately writes **no** CT transaction — only the interface interaction — so the single `Authorization/Pending` for the full amount stays the truth. See KI-035. |
 | `customer_cash_balance_transaction.created` | ✅ Observability only | Logged, never converted, never written to CT. `funding_reversed` / `adjusted_for_overdraft` escalate to `log.error` — they are the only signal that money was clawed back after the order was created. No CT modelling in v1. |
 | `payment_intent.processing` | ✅ | **Async settlement** (crypto/stablecoin). Writes an `Authorization/Pending` CT transaction while the payment settles; resolves to `Success` on `payment_intent.succeeded` and to `Failure` on `payment_intent.payment_failed` / `payment_intent.canceled`. Guarded against out-of-order/duplicate events. The synchronous `/confirmPayments` gate also validates the real PI status and writes `Authorization/Pending` (returning `PENDING` → HTTP 202) when the PI is still `processing`, so async-settlement one-time payments are reflected even before the webhook arrives. See `workflows/process-crypto-payment.md`. |
+| `payment_intent.succeeded` (order creation) | ✅ Inherited from checkout, **gated** | Order creation now refuses unless `pi.amount === currentCartTotal.centAmount` **and** `pi.amount_received === pi.amount` **and** the currency matches (`currentCartTotal = taxedPrice?.totalGross ?? totalPrice`, integer minor units — correct for JPY). On mismatch it logs `error` and returns, leaving a *paid-without-order* state for manual reconciliation; there is no auto-refund (hub rule). An already-`Ordered` cart is skipped idempotently. Universal backstop for every delayed rail — ACH micro-deposits, boleto, OXXO, konbini, multibanco. See KI-050, ADR-016. |
+| `customer.subscription.deleted` | ✅ Registered & handled | Terminal subscription cancellation (Stripe Dashboard / Dunning exhaustion). `processSubscriptionEventDeleted` resolves the cart via `ct_payment_id` metadata and **unfreezes it** so the shopper can edit/retry. Best-effort, never throws; does not clear the stale `stripeConnector_stripeSubscriptionId` (residual). KI-009 RESOLVED. |
+| `payment_intent.payment_failed` (subscription invoice, post-settlement) | ✅ Handled — ACH late return | A subscription-invoice PI failure *after* the invoice was paid = **ACH late return** (bank reverses an already-settled debit; Stripe does not re-fire `invoice.payment_failed`). `processSubscriptionEventLateReturn` sets `paymentStatus.interfaceCode='ach_late_return'` for team attention only when a prior `Charge/Success` proves settlement — no transaction/order/custom-field change. Handled in the Stripe Dashboard. |
 
 Events **declared in code but NOT registered** (Stripe does not deliver them):
 
 | Event | Status | Notes |
 | --- | --- | --- |
-| `customer.subscription.deleted` | ❌ Not registered, no handler | Declared in `StripeSubscriptionEvent` enum; marked as TODO — frozen carts not unfrozen when Stripe cancels |
 | `charge.updated` | ❌ Route handler exists, not registered | Must be manually added to `actions.ts` enabled events |
 
 Events **not registered** (same as checkout):
@@ -137,8 +141,8 @@ Configurable via `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING`:
 | --- | --- |
 | Subscription pause | Not implemented |
 | Free trial without collecting a payment method | Payment method required at subscription creation |
-| `customer.subscription.deleted` webhook handling | Not registered; marked as TODO — cancellation via Stripe Dashboard does not update CT |
-| CT update after explicit subscription cancellation | `cancelSubscription()` does not update CT — see `known-issues.md` KI-010 |
+| CT update after explicit API cancellation | `cancelSubscription()` does not update CT — see `known-issues.md` KI-010. (The `customer.subscription.deleted` **webhook** path now unfreezes the cart — KI-009 RESOLVED — but does not clear the stale subscription ID.) |
+| ACH late-return financial correction in CT | Only flagged via `paymentStatus.interfaceCode='ach_late_return'`; reversal handled in the Stripe Dashboard. No transaction/order rollback. |
 | Dispute / chargeback automation | No `charge.dispute.*` webhook handler; manual process required |
 | Stripe Connect (marketplace, split payments) | Handled by separate `mirakl-stripe` integration |
 | Subscription quantity updates | Not documented or implemented |

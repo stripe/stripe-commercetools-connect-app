@@ -22,12 +22,12 @@ Connector-specific limitations, code defects, and operational gotchas. Cross-cut
 
 ---
 
-## KI-003: `processSubscriptionEventPaid/Charged/Failed` all swallow errors → subscription webhook events permanently lost
+## KI-003: `processSubscriptionEventPaid/Charged/Failed` swallow errors → subscription webhook events permanently lost — ⚠️ PARTIALLY RESOLVED (2026-08-12, `5d73f32`)
 
-**Problem:** `processSubscriptionEventPaid()`, `processSubscriptionEventCharged()`, and `processSubscriptionEventFailed()` at `processor/src/services/stripe-subscription.service.ts:1186, 1492, 1617` each have top-level try/catch blocks that log exceptions and return void. The route handler returns HTTP 200 to Stripe on any failure. Failed invoice processing (CT order creation failure, CT payment update failure) is permanently lost.
-**Root cause:** `processor/src/services/stripe-subscription.service.ts:1186, 1492, 1617` — exceptions absorbed before reaching the route layer.
-**Rule:** Subscription event handlers must propagate failures so Stripe retries delivery. See hub `known-issues.md` Issue 1.
-**Implementation note:** A failed `invoice.paid` event means a recurring payment is processed in Stripe but no CT order or payment record is created. Merchants must reconcile manually.
+**Status:** PARTIALLY RESOLVED for `processSubscriptionEventPaid()` and `processSubscriptionEventFailed()`. Their catch blocks now re-throw when the error message matches `RETRYABLE_CT_ERROR` (`/ConcurrentModification|409|429|50[23]|ETIMEDOUT|ECONNRESET/i`, `processor/src/services/stripe-subscription.service.ts:96`) — a transient CT-write failure now returns non-2xx so Stripe redelivers (redelivery is safe: order creation is guarded by `cartState:Ordered` and transaction writes are idempotent via `changeTransactionState`). **Permanent errors (auth, not-found, validation) are still swallowed by design** — re-raising them would cause a retry storm with no chance of success.
+**Still open:** `processSubscriptionEventCharged()` (`:1522`) is now `@deprecated` and no longer wired (subscription-invoice charge/PI events are dropped in favour of `invoice.paid`), but its catch still swallows unconditionally if ever re-wired. A **permanent** failure on `invoice.paid` / `invoice.payment_failed` still returns HTTP 200 and is lost — merchants must reconcile manually.
+**Root cause (residual):** `processor/src/services/stripe-subscription.service.ts` — the retryable-error filter covers transient failures only; permanent failures are intentionally not surfaced.
+**Rule:** Transient CT-write failures on subscription webhooks must propagate so Stripe retries; permanent failures are logged and swallowed to avoid retry storms. See hub `known-issues.md` Issue 1.
 
 ---
 
@@ -72,12 +72,11 @@ Connector-specific limitations, code defects, and operational gotchas. Cross-cut
 
 ---
 
-## KI-009: `customer.subscription.deleted` not registered in `actions.ts` — subscription cancellation via Stripe Dashboard doesn't update CT
+## KI-009: `customer.subscription.deleted` not registered in `actions.ts` — subscription cancellation via Stripe Dashboard doesn't update CT — ✅ RESOLVED (2026-08-12, `0375a54`)
 
-**Problem:** `StripeSubscriptionEvent.CUSTOMER_SUBSCRIPTION_DELETED` is declared in the enum at `processor/src/services/types/stripe-payment.type.ts:49` with a `//TODO when canceled subscription` comment, but is not registered in the `enabled_events` array in `processor/src/connectors/actions.ts:66`. Stripe never delivers this event. When a subscription is canceled via Stripe Dashboard (or by Dunning exhaustion), the CT cart remains frozen indefinitely.
-**Root cause:** `processor/src/connectors/actions.ts:66` — event not in `enabled_events`; `processor/src/routes/stripe-payment.route.ts:137–186` — no route case for this event.
-**Rule:** Every subscription lifecycle event that changes Stripe state must have a corresponding CT state update. See hub `feature-scope.md — Subscriptions`.
-**Implementation note:** To implement: register `customer.subscription.deleted` in the `enabled_events` array, add a switch case in the route dispatcher, implement a handler that unfreezes the cart and clears `stripeConnector_stripeSubscriptionId`.
+**Status:** RESOLVED. `customer.subscription.deleted` is now registered in `enabled_events` (`processor/src/connectors/actions.ts:85`), dispatched in the webhook route (`processor/src/routes/stripe-payment.route.ts:358`), and handled by `processSubscriptionEventDeleted()` (`processor/src/services/stripe-subscription.service.ts:1655`), which resolves the cart via the `ct_payment_id` subscription metadata and **unfreezes it** on terminal cancellation (best-effort, never throws — a lingering frozen cart is not worth forcing a Stripe redelivery).
+**Original problem:** The event was declared in the `StripeSubscriptionEvent` enum with a `//TODO when canceled subscription` comment but never registered, so Stripe never delivered it. A subscription canceled via the Stripe Dashboard (or by Dunning exhaustion) left the CT cart frozen indefinitely.
+**Residual:** The handler unfreezes the cart but does **not** clear `stripeConnector_stripeSubscriptionId` on the line item — that field still holds the canceled subscription ID. Explicit operator-initiated cancellation via the management API is a separate, still-open gap — see KI-010.
 
 ---
 
@@ -520,3 +519,43 @@ The user-visible symptom is an error on reload where a designed "awaiting your t
 **Rule:** Treat this as a **prerequisite for enabling `pi_first`**, alongside the orphaned-PaymentIntent gap already recorded in the CHANGELOG — it is the more concrete of the two. Closing it is a data-model decision (how "awaiting funds" is represented in commercetools), not a patch: do not "fix" it by changing the transaction type or state at `requires_action` without deciding that question first. This is also the concrete answer to the open product question of whether commercetools supports partial payment states — it does not distinguish them.
 
 **Implementation note:** Surfaced during review of SB3-207. Pre-existing behaviour, shared with the crypto settlement path. Cross-reference KI-044 (abandoned carts) and KI-035.
+
+---
+
+## KI-050 (RESOLVED): ACH micro-deposit underpayment — cart not frozen, order created at the mutated total
+
+**Problem:** ACH `us_bank_account` verified by micro-deposits leaves the cart editable while the debit settles (days), and the `payment_intent.succeeded` webhook created the order from the cart's **current** total regardless of what was paid. Reproduced live 2026-08-21: pay $6.99 → return and add $4000 of items → on micro-deposit settlement the order was created `Ordered` at $4000 while only $6.99 was collected.
+
+**Root cause — three gaps aligning only on this rail:**
+1. The confirm gate's amount validation (`stripe-payment.service.ts` `updatePaymentIntentStripeSuccessful`, status allowlist `['succeeded','requires_capture','processing']`) never runs: micro-deposits confirm to `requires_action` (`next_action.type = verify_with_microdeposits`).
+2. The `requires_action` freeze covered only bank transfer (`isBankTransferNextAction` → `display_bank_transfer_instructions`); micro-deposits did not freeze, so the cart stayed editable.
+3. `handlePaymentIntentSucceededFlow` only logged `amountMismatch` as a `warn` and created the order anyway.
+
+This is the **residual** of KI-044 (freeze moved to each rail's commitment point — micro-deposits had none) and KI-047 (confirm gate validates the current total — but not for `requires_action`). Same family as boleto/OXXO/konbini/multibanco, which share gap 3.
+
+**Resolution — two layers (see ADR-016):**
+- **Layer 1 (backstop, universal):** `handlePaymentIntentSucceededFlow` now refuses to create the order unless `pi.amount === currentCartTotal.centAmount` **and** `pi.amount_received === pi.amount` **and** currency matches (`currentCartTotal = taxedPrice?.totalGross ?? totalPrice`, integer minor-unit comparison — correct for JPY too). On mismatch it logs `error` and returns; the `Charge/Success` already persisted upstream leaves a *paid-without-order* state for manual reconciliation. Also added an idempotency guard: an already-`Ordered` cart skips cleanly (mirrors the subscription path).
+- **Layer 2 (freeze, ACH micro-deposit rail):** new `isMicrodepositNextAction` predicate (kept separate from `isBankTransferNextAction` so the 3DS/Boleto release-gates stay green); the `requires_action` handler now freezes for micro-deposits too.
+
+**Accepted trade-offs:**
+- No auto-refund on a blocked order (hub rule: divergence is surfaced, never auto-corrected) — the money-captured-without-order state is logged for reconciliation.
+- Layer 2 inherits KI-044: an abandoned micro-deposit cart stays `Frozen` with no unfreeze-on-abandonment.
+- Layer 2 covers only ACH micro-deposits; boleto/OXXO/etc. rely on Layer 1 for correctness (a follow-up may generalise the freeze).
+
+**Implementation note:** `processor/src/services/stripe-payment.service.ts` (`handlePaymentIntentSucceededFlow`), `processor/src/utils.ts` (`isMicrodepositNextAction`), `processor/src/routes/stripe-payment.route.ts` (`handleBankTransferPendingEvent` guard). Extends `business-rules/payment-confirmation.md` Rule 5 to the async order-creation path. Cross-reference KI-044, KI-047.
+
+---
+
+## KI-051: `charge.updated` is never registered, so multicapture silently does nothing
+
+**Problem:** `handleMulticaptureEvent` (`stripe-payment.route.ts:249-257`) routes `charge.updated` to `processStripeEventMultipleCaptured()`, but `charge.updated` is **not** in the `enabled_events` array in `connectors/actions.ts`. Stripe therefore never delivers it and the handler never runs. A merchant who sets `STRIPE_ENABLE_MULTI_OPERATIONS=true`, switches to `STRIPE_CAPTURE_METHOD=manual` and performs a second partial capture gets the capture in Stripe and **no** incremental `Charge/Success` transaction in commercetools. The feature reads as enabled from every configuration surface and produces nothing.
+
+**Why it survived:** the handler, its tests and the documentation all exist and pass — nothing in the codebase asserts that a routed event is also a registered one. This is the general class KI-042 describes from the other direction: KI-042 is "the array is right but the endpoint update failed"; this is "the endpoint update succeeds and the array itself is missing the event".
+
+**Rule:** An event with a route-dispatcher case must also appear in `enabled_events`, and the reverse. The two are a single contract; neither file is meaningful alone. This is already stated in `CLAUDE.md → What Claude Must Never Do`, which names `charge.updated` as the live example of the mismatch — a bug to fix, not a pattern to copy.
+
+**Workaround:** add `charge.updated` to the webhook endpoint by hand in the Stripe Dashboard. Note that this is also required for existing deployments even after the code is fixed, per KI-042.
+
+**Not yet fixed, and the fix is a judgement call, not a one-liner:** `charge.updated` is high-volume — it fires on many charge mutations, not only on a second capture. Registering it sends that stream to **every** deployment, including the default `STRIPE_ENABLE_MULTI_OPERATIONS=false` ones, where `handleMulticaptureEvent` logs one line and discards it. The options are to register it unconditionally and accept the noise, to register it only when multi-operations is enabled (which makes `enabled_events` config-dependent — new behavior for `actions.ts`), or to leave it manual and document it as a merchant step. Needs an owner.
+
+**Implementation note:** `processor/src/connectors/actions.ts` (`enabled_events`), `processor/src/routes/stripe-payment.route.ts:249-257`. Cross-reference KI-042, KI-031, and `business-rules/multi-operations.md` Rule 1.

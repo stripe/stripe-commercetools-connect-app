@@ -23,6 +23,44 @@ Merchant                  Processor                        Stripe          CT
 
 ---
 
+## Webhook-Driven Cancellation & Cart Cleanup (`customer.subscription.deleted`)
+
+The `DELETE` endpoint above cancels the subscription in Stripe. Stripe then emits
+`customer.subscription.deleted` — also fired when a subscription is canceled from the Stripe
+Dashboard or is exhausted by Dunning. The connector subscribes to this event
+(`connectors/actions.ts` → `enabled_events`) and routes it (`routes/stripe-payment.route.ts`) to
+`processSubscriptionEventDeleted()` (`stripe-subscription.service.ts`), which:
+
+1. Resolves the CT Payment from the subscription's `ct_payment_id` metadata, then the cart from that payment.
+2. If the cart is still `Frozen`, calls `unfreezeCart()` so the cart is reusable after the subscription ends.
+3. Best-effort: any failure is logged and swallowed — a failed cleanup must never make Stripe redeliver indefinitely.
+
+> This closes the former KI-009 gap: previously `customer.subscription.deleted` was **not** registered,
+> so a canceled subscription left its cart frozen forever. See `business-rules/subscription-lifecycle.md` Rule 2.
+
+---
+
+## ACH Late Return (post-settlement reversal)
+
+An ACH debit can be reversed by the customer's bank **after** it has already settled (up to ~60 days later).
+Stripe fires `payment_intent.payment_failed` / `charge.failed` for this — but does **not** re-fire
+`invoice.payment_failed`, so the invoice-driven subscription handlers never see it and the CT order stays `Paid`.
+
+To surface this, a subscription-invoice `payment_intent.payment_failed` is routed
+(`routes/stripe-payment.route.ts`) to `processSubscriptionEventLateReturn()`
+(`stripe-subscription.service.ts`), which:
+
+1. Resolves the CT Payment from the PaymentIntent's `ct_payment_id` metadata.
+2. Only acts if the payment already has a `Charge/Success` (`wasSettled`) — i.e. the money had settled and is
+   now being clawed back. A still-`Pending` charge is an ordinary first-payment failure (handled by
+   `invoice.payment_failed`) and is ignored here.
+3. Flags the payment via the native `paymentStatus` interface (`setStatusInterfaceCode: 'ach_late_return'` plus a
+   human-readable `interfaceText`) — **without** changing any transaction or the order state. The reversal itself
+   is then handled in the Stripe Dashboard.
+4. Best-effort: never throws.
+
+---
+
 ## Update Subscription (Variant/Price Change) Flow
 
 ```

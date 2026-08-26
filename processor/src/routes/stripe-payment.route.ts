@@ -23,7 +23,7 @@ import {
   PaymentModificationStatus,
 } from '../dtos/operations/payment-intents.dto';
 import { StripeEvent, StripeSubscriptionEvent } from '../services/types/stripe-payment.type';
-import { isBankTransferNextAction, isFromSubscriptionInvoice } from '../utils';
+import { isBankTransferNextAction, isMicrodepositNextAction, isFromSubscriptionInvoice } from '../utils';
 import { StripeSubscriptionService } from '../services/stripe-subscription.service';
 
 type PaymentRoutesOptions = {
@@ -164,9 +164,9 @@ const logCustomerCashBalanceTransaction = (event: Stripe.Event): void => {
 };
 
 /**
- * `payment_intent.requires_action` / `payment_intent.partially_funded` — the bank transfer pending
- * rail. Extracted from the webhook switch so its two guards, and the reasoning below, do not sit
- * three levels deep inside it.
+ * `payment_intent.requires_action` / `payment_intent.partially_funded` — the async-settlement pending
+ * rails (bank transfer and ACH micro-deposits). Extracted from the webhook switch so its two guards,
+ * and the reasoning below, do not sit three levels deep inside it.
  *
  * Subscription-driven money is skipped here, and "out of scope" is a decision of OURS rather than a
  * Stripe restriction — Stripe supports bank transfer for recurring payments and lists Subscriptions
@@ -192,20 +192,24 @@ const handleBankTransferPendingEvent = async (
   // Cast once: both events this handles carry a PaymentIntent, but the parameter is the general
   // Stripe.Event union, which the caller's `case` labels used to narrow.
   const paymentIntent = event.data.object as Stripe.PaymentIntent;
-  // Bank transfers only. Card 3DS and Boleto emit payment_intent.requires_action too, and both must
+  // Async-settlement rails that must freeze the cart: bank transfer (customer_balance) and ACH
+  // micro-deposits (us_bank_account). Both confirm to requires_action and never reach the confirm
+  // gate, so this is the only place that can lock the cart before their funds settle days later.
+  // Card 3DS (use_stripe_sdk) and Boleto (boleto_display_details) also emit requires_action but must
   // keep the pre-existing log-only behavior — routing them would write an Authorization/Pending for
-  // every 3DS payment. Guarded by release-gate tests.
-  if (!isBankTransferNextAction(paymentIntent)) {
+  // every 3DS payment. The two predicates are deliberately narrow (not one broadened check) so the
+  // 3DS/Boleto release-gate tests stay green.
+  if (!isBankTransferNextAction(paymentIntent) && !isMicrodepositNextAction(paymentIntent)) {
     log.info(`Received: ${event.type} event of ${paymentIntent.id}`);
     return;
   }
   log.info(`Processing Stripe payment event: ${event.type}`);
   await paymentService.processStripeEvent(event);
-  // Commitment point for the bank transfer rail. The shopper now holds wire instructions and the
-  // funds are days away, so the cart must stop moving — and this is the only place that can do it,
-  // since the confirm gate never sees requires_action. Deliberately after processStripeEvent: the
-  // payment record matters more than the cart lock if only one succeeds. See
-  // freezeCartForBankTransfer and KI-044.
+  // Commitment point for the async-settlement rails. The shopper now holds wire instructions (bank
+  // transfer) or has an ACH debit in flight (micro-deposits) and the funds are days away, so the cart
+  // must stop moving — and this is the only place that can do it, since the confirm gate never sees
+  // requires_action. Deliberately after processStripeEvent: the payment record matters more than the
+  // cart lock if only one succeeds. See freezeCartForBankTransfer and KI-044.
   await paymentService.freezeCartForBankTransfer(event);
 };
 
@@ -308,6 +312,11 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
           if (!isFromSubscriptionInvoice(event)) {
             log.info(`Processing Stripe payment event: ${event.type}`);
             await opts.paymentService.processStripeEvent(event);
+          } else if (event.type === StripeEvent.PAYMENT_INTENT__PAYMENT_FAILED) {
+            // A subscription-invoice payment_intent.payment_failed AFTER the invoice was paid is an ACH
+            // late return (Stripe does not re-fire invoice.payment_failed); flag the payment for review.
+            log.info(`Subscription-invoice PI failure — checking for a late ACH return: ${event.type}`);
+            await opts.subscriptionService.processSubscriptionEventLateReturn(event);
           }
           // Subscription-invoice charge/PI events are ignored on purpose:
           // invoice.paid / invoice.payment_failed are the single source of truth for
@@ -349,6 +358,10 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
         case StripeSubscriptionEvent.INVOICE_UPCOMING:
           log.info(`Processing Stripe Subscription event: ${event.type}`);
           await opts.subscriptionService.processSubscriptionEventUpcoming(event);
+          break;
+        case StripeSubscriptionEvent.CUSTOMER_SUBSCRIPTION_DELETED:
+          log.info(`Processing Stripe Subscription event: ${event.type}`);
+          await opts.subscriptionService.processSubscriptionEventDeleted(event);
           break;
         default:
           log.info(`--->>> This Stripe event is not supported: ${event.type}`);

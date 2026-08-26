@@ -32,22 +32,29 @@ Stripe.js renders none).
 4. The storefront narrows that error on `next_action.type` and shows the funding reference, the
    outstanding amount and the financial addresses. Stripe also emails the same instructions to the
    customer, so the reference is never only on screen. — sample site `PendingPage.tsx`
-5. Stripe emits `payment_intent.requires_action`. The processor routes it **only** when
+5. Stripe emits `payment_intent.requires_action`. The processor routes it to this flow **only** when
    `isBankTransferNextAction()` passes, and writes one `Authorization/Pending` for the full
-   `pi.amount` — never `amount_received`, which is `0` until the wire lands. —
+   `pi.amount` — never `amount_received`, which is `0` until the wire lands. It also freezes the cart
+   here: this is the bank transfer's commitment point, since its confirm returns `requires_action` and
+   never reaches the confirm endpoint. —
    `processor/src/utils.ts`, `processor/src/services/converters/stripeEventConverter.ts`
 6. *(Days later.)* Buyer wires the funds quoting the reference. Partial payments emit
    `payment_intent.partially_funded`, which writes **no** CT transaction — only the interface
    interaction — so the single full-amount `Authorization/Pending` stays the truth.
 7. Funds complete → PI → `succeeded`. `payment_intent.succeeded` writes `Charge/Success`, transitions
    the pending `Authorization` to `Success`, and **creates the CT order** — the only place an order is
-   created in this flow. — `processor/src/services/stripe-payment.service.ts`
+   created in this flow. Order creation is gated: it requires `pi.amount` to equal the cart's current
+   total, `pi.amount_received` to equal `pi.amount`, and the currency to match. On a mismatch it logs an
+   error and returns, leaving a paid-without-order state for manual reconciliation. The freeze at step 5
+   is what normally keeps the totals equal; this gate is the backstop for when it does not. —
+   `processor/src/services/stripe-payment.service.ts`
 
 ## Error Paths
 
 | Condition | Behavior | File |
 | --- | --- | --- |
 | Card 3DS or Boleto emits `requires_action` | Log-only, no CT write. The narrow `next_action.type` predicate is what separates them; a loose check would write a Pending authorization on every 3DS payment | `processor/src/routes/stripe-payment.route.ts` |
+| ACH micro-deposits emit `requires_action` | **Not this flow, but not log-only either.** A second predicate, `isMicrodepositNextAction()` (`verify_with_microdeposits`), freezes the cart and writes no CT transaction. It is kept separate from `isBankTransferNextAction()` on purpose, so the release-gate tests pinning the bank-transfer predicate stay green. See KI-050 and `decisions/adr-016-ach-microdeposit-underpayment-backstop.md` | `processor/src/utils.ts`, `processor/src/routes/stripe-payment.route.ts` |
 | Crypto emits `requires_action` with `redirect_to_url` | Log-only. A third method beyond 3DS and Boleto, found by testing against a real account rather than fixtures | `processor/src/routes/stripe-payment.route.ts` |
 | Event originates from a subscription invoice | Log-only — subscriptions are out of scope for bank transfers (`customer_balance` supports neither SetupIntents nor `setup_future_usage`) | `processor/src/routes/stripe-payment.route.ts` |
 | CT write fails on `requires_action` | Re-thrown so Stripe retries | `processor/src/services/stripe-payment.service.ts` |

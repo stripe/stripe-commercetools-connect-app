@@ -77,9 +77,17 @@ before the Element mounts and initializes Elements with its `clientSecret`, whic
 
 > **Do not set `pi_first` yet.** Two open processor-side risks: mounting the payment page alone creates a
 > PaymentIntent and a commercetools Payment with no deterministic idempotency key, so any remount orphans
-> the previous pair (KI-044); and an unfunded bank transfer makes the cart read as paid in full (KI-049).
-> An invalid value does **not** abort startup — it is reported to the deploy log and falls back to
-> `deferred`, which silently disables bank transfers and BLIK. Check that log after changing it.
+> the previous pair (no KI of its own — see `CHANGELOG.md → Known gaps` and the resolution note of KI-044,
+> which is itself resolved and no longer a blocker); and an unfunded bank transfer makes the cart read as
+> paid in full (KI-049). An invalid value does **not** abort startup — it is reported to the deploy log and
+> falls back to `deferred`, which silently disables bank transfers and BLIK. Check that log after changing
+> it.
+
+> **ACH Direct Debit needs no variable here.** It is a Stripe Dashboard toggle and works under either
+> `STRIPE_PAYMENT_FLOW` value. What it does require operationally: a subscription payment sits in
+> `Charge/Pending` for ~2–4 business days before an order exists, and a post-settlement reversal is
+> surfaced only as `paymentStatus.interfaceCode = 'ach_late_return'` on the CT payment. See
+> `adopter-guide.md → ACH Direct Debit` before enabling it in the Dashboard.
 
 **`STRIPE_PAYMENT_BEHAVIOR_RULES`** contains exceptions only — the flat variables above are always the
 default, and there is no wildcard key. Keys are a cart country (`"DE"`) or a CT store key (`"store-mx"`).

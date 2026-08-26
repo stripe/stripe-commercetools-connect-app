@@ -1108,6 +1108,34 @@ export const mockEvent__paymentIntent_requiresAction_boleto: Stripe.Event = {
   },
 } as unknown as Stripe.Event;
 
+/**
+ * ACH micro-deposits (`us_bank_account`) also emits `requires_action`, with a distinct next_action
+ * type. Unlike 3DS/Boleto it MUST be routed and freeze the cart, since the debit is in flight for
+ * days and the confirm gate never sees it. Carries `cart_id` so freezeCartForBankTransfer can resolve
+ * the cart.
+ */
+export const mockEvent__paymentIntent_requiresAction_microdeposits: Stripe.Event = {
+  ...mockEvent__paymentIntent_requiresAction_bankTransfer,
+  id: 'evt_md_11111',
+  data: {
+    object: {
+      ...bankTransferPaymentIntent,
+      id: 'pi_md_11111',
+      currency: 'usd',
+      payment_method_types: ['us_bank_account'],
+      metadata: { ct_payment_id: 'ct_payment_md_11111', cart_id: 'cart-md-11111' },
+      next_action: {
+        type: 'verify_with_microdeposits',
+        verify_with_microdeposits: {
+          arrival_date: 1717692999,
+          hosted_verification_url: 'https://payments.stripe.com/microdeposit/test_11111',
+          microdeposit_type: 'descriptor_code',
+        },
+      },
+    },
+  },
+} as unknown as Stripe.Event;
+
 const cashBalanceTransaction = {
   id: 'ccsbtxn_11111',
   object: 'customer_cash_balance_transaction',

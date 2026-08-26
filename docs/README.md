@@ -2,10 +2,20 @@
 
 This directory contains comprehensive documentation for the Stripe-Commercetools payment connector.
 
+> **Where to look first.** `CHANGELOG.md` below is kept current. The **feature guides** in this directory
+> are point-in-time write-ups from the release that introduced each feature (2025 – early 2026) and are not
+> revised afterwards — they are accurate about the feature they describe and silent about everything added
+> since. The living, maintained description of how the connector behaves today is `../context/`:
+> `ARCHITECTURE.md` for the system and its webhooks, `feature-scope.md` for what is and is not supported,
+> `known-issues.md` for active defects, `business-rules/` for the invariants and `decisions/` for the ADRs.
+> Nothing about **bank transfers** or **ACH Direct Debit** is in the feature guides here; see the changelog
+> below, `../README.md`, `../processor/README.md`, and `../context/adopter-guide.md`.
+
 ## Core Documentation
 
 ### [CHANGELOG.md](./CHANGELOG.md)
-Complete changelog documenting all updates, improvements, and breaking changes across versions.
+Complete changelog documenting all updates, improvements, and breaking changes across versions. **Current** —
+mirrors the root `CHANGELOG.md`, including ACH Direct Debit (SB3-206) and bank transfers (SB3-207).
 
 ### [recent-improvements-summary.md](./recent-improvements-summary.md)
 Summary of recent architectural improvements and enhancements to the connector.
@@ -79,8 +89,33 @@ Documentation for Context7 library integrations and examples.
 ## Getting Started
 
 For new users, start with:
-1. [Main README](../README.md) - Overview and getting started
-2. [Processor README](../processor/README.md) - Backend implementation details
+1. [Main README](../README.md) - Overview, configuration and the full webhook list
+2. [Processor README](../processor/README.md) - Backend implementation details, including the crypto and ACH async rails
 3. [Enabler README](../enabler/README.md) - Frontend implementation details
+4. [context/index.md](../context/index.md) - Knowledge base index: routes a question to the document that answers it
 
-For specific features, refer to the relevant documentation files listed above.
+For specific features, refer to the relevant documentation files listed above — bearing in mind the note at
+the top of this page about which of them are point-in-time.
+
+## Asynchronous Payment Rails
+
+Bank transfer, ACH and crypto all settle after the shopper has left. None of them is covered by the
+feature guides above — these are the documents that describe them.
+
+### [CHANGELOG.md](./CHANGELOG.md)
+What changed and why, for both work streams: ACH Direct Debit (SB3-206) and bank transfers (SB3-207).
+
+### [../README.md → Webhooks](../README.md)
+Every registered Stripe event and the commercetools transaction it writes.
+
+### [../processor/README.md → ACH Direct Debit](../processor/README.md)
+Pending charges on subscriptions, micro-deposit verification, the underpayment backstop, and late returns.
+
+### [../processor/README.md → Stablecoin / Crypto Payments](../processor/README.md)
+Crypto settlement and the `payment_intent.processing` pending state.
+
+### [../context/adopter-guide.md](../context/adopter-guide.md) and [../context/deployment.md](../context/deployment.md)
+What a merchant must configure and watch before enabling any of these rails.
+
+### [../context/decisions/](../context/decisions/)
+ADR-010 through ADR-016 — the decisions behind the behavior described above.
