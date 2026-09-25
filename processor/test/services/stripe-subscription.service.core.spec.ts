@@ -211,6 +211,51 @@ describe('stripe-subscription.service.core', () => {
       expect(spiedSaveSubscriptionIdMock).toHaveBeenCalled();
     });
 
+    // Wiring test. The drift guard reads the cart total back off the subscription's metadata, so if
+    // this seal is not actually written at creation the guard degrades to a no-op and every unit test
+    // of the guard still passes. Assert it on the real `subscriptions.create` call.
+    test('seals the cart total onto the subscription metadata', async () => {
+      setupMockConfig({
+        projectKey: 'test-project-key',
+        stripeCollectBillingAddress: 'auto',
+        stripeSecretKey: 'sk_test_123',
+        subscriptionPaymentHandling: 'createOrder',
+      });
+      const cart = mockGetSubscriptionCartWithVariant(1);
+      jest.spyOn(StripeSubscriptionService.prototype, 'prepareSubscriptionData').mockResolvedValue({
+        cart,
+        stripeCustomerId: 'cus_123',
+        subscriptionParams: { customer: 'cus_123' },
+        billingAddress: '123 Main St',
+        merchantReturnUrl: 'http://example.com',
+        lineItemAmount: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
+        amountPlanned: { centAmount: 1000, currencyCode: 'USD', fractionDigits: 2 },
+        priceId: 'price_123',
+        shippingPriceId: undefined,
+      } as BasicSubscriptionData);
+      const createSpy = jest.spyOn(Stripe.prototype.subscriptions, 'create').mockResolvedValue({
+        id: 'sub_mock_id',
+        latest_invoice: {
+          id: 'in_123',
+          confirmation_secret: { client_secret: 'pi_secret', type: 'payment_intent' },
+        },
+      } as Stripe.Response<Stripe.Subscription>);
+      jest.spyOn(CtPaymentCreationService.prototype, 'handleCtPaymentCreation').mockResolvedValue('payment_ref_123');
+      jest.spyOn(StripeSubscriptionService.prototype, 'saveSubscriptionId').mockResolvedValue();
+
+      await stripeSubscriptionService.createSubscription();
+
+      expect(createSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            ct_cart_total_amount: String(cart.totalPrice.centAmount),
+            ct_cart_total_currency: cart.totalPrice.currencyCode,
+          }),
+        }),
+        expect.anything(),
+      );
+    });
+
     test('should handle error when creating subscription', async () => {
       const error = new Error('Failed to create subscription');
       jest.spyOn(StripeSubscriptionService.prototype, 'createSubscription').mockRejectedValue(error);

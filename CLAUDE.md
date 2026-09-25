@@ -103,13 +103,16 @@ cd processor && npm run start:dev
 - CT product type updates must use update-in-place (add missing fields, remove stale) — never delete-then-create, a failed create after delete permanently removes the type (KI-012)
 - A cart may contain at most one subscription line item — reject additional ones at subscription creation, do not process them silently (KI-018, `business-rules/mixed-carts.md` Rule 4)
 - Any reuse of an existing Stripe Price (line item or shipping) must verify the amount still matches the current CT price, not just that the price is `active` (KI-021)
+- A CT discount code is translated to a Stripe coupon only when its `DiscountCodeInfo.state` is `MatchesCart` — commercetools is the authority on whether a code applies, and the connector never re-derives that from the code's own configuration (KI-055, `business-rules/coupon-sync.md` Rule 3)
 
 ## What Claude Must Never Do
 
 - Catch a Stripe or CT error inside `processSubscriptionEventPaid/Charged/Failed` (or any webhook handler) and return HTTP 200 anyway (KI-002, KI-003)
-- Register a new subscription webhook event without also adding its route dispatcher case — `customer.subscription.deleted` (declared in the enum, not registered, no route handler) and `charge.updated` (route handler exists, not registered in `actions.ts`) are already broken examples to fix, not patterns to copy (KI-009)
+- Register a new subscription webhook event without keeping `enabled_events` (`actions.ts`) and the route dispatcher case in sync — the two must always match. `charge.updated` is a live example of the mismatch (route handler exists, but it is **not** registered in `actions.ts`), a bug to fix, not a pattern to copy. (`customer.subscription.deleted` was the same kind of gap and is now **fixed** — registered + handled; see KI-009 RESOLVED / the KI-010 residual.)
 - Resolve "the" refund from a list call (`refunds.list(limit: 2)[0]`) without correlating to the actual webhook event's own refund object — near-simultaneous refunds can misattribute amount/ID (KI-023)
 - Add a new payment method to `createComponentBuilder` without fixing the hardcoded empty `supportedMethods` map first (KI-025)
+- Delete and recreate a Stripe coupon because Stripe reports it unusable — the coupon id **is** the CT discount code id, and Stripe hands a recreated id a fresh redemption counter. Only configuration divergence from commercetools may trigger a re-sync (KI-055, `business-rules/coupon-sync.md` Rule 4)
+- Write `max_redemptions` onto a Stripe coupon — the usage cap is enforced by commercetools, and mirroring it is what made Stripe mark coupons invalid on exhaustion in the first place (KI-055, ADR-018)
 - Call `cancelSubscription()` and assume CT is updated afterward — today it only cancels in Stripe; CT stays frozen with a stale subscription ID until this is fixed (KI-010)
 
 ## Skills

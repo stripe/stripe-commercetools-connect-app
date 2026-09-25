@@ -14,7 +14,7 @@ After the initial subscription is created, Stripe generates invoices automatical
 
 **Invariant:** The reconstructed cart must mirror the original order's line items, quantities, and addresses. Never create an order with different items than what was originally subscribed.
 
-**Implementation:** `stripe-subscription.service.ts` → `handleOrderProcessingForPaidEvent()`, `handleRecurringChargeOrder()`
+**Implementation:** `stripe-subscription.service.ts` → `processSubscriptionEventPaid()` → `handleOrderProcessingForPaidEvent()` → `handleSubscriptionPaymentCreateNewOrder()`. (Not `handleRecurringChargeOrder()` — that is only called by the `@deprecated`, unwired `processSubscriptionEventCharged()`; see Rule 4.)
 
 **What breaks if violated:** Recurring charges in Stripe have no corresponding CT orders. Fulfillment systems that depend on CT orders to trigger shipping or provisioning never fire for subsequent billing cycles.
 

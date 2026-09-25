@@ -86,4 +86,7 @@ export interface CreateOrderProps {
   subscriptionId?: string;
   paymentIntentId?: string;
   paymentState?: OrderPaymentState;
+  /** When set, the order is created pinned to this exact cart version (optimistic-locking guard).
+   *  Omitted by callers that don't need snapshot pinning (e.g. subscription flows) → legacy re-read. */
+  expectedVersion?: number;
 }

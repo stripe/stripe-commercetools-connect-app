@@ -17,12 +17,17 @@ export const stripeApi = (): Stripe => {
   });
 };
 
-export const wrapStripeError = (e: any): Error => {
-  if (e?.raw) {
-    const errorData = JSON.parse(JSON.stringify(e.raw)) as StripeApiErrorData;
+export const wrapStripeError = (e: unknown): Error => {
+  const raw = (e as { raw?: unknown } | null | undefined)?.raw;
+  if (raw) {
+    const errorData = JSON.parse(JSON.stringify(raw)) as StripeApiErrorData;
     return new StripeApiError(errorData, { cause: e });
   }
 
   log.error('Unexpected error calling Stripe API:', e);
-  return e;
+  // Behaviour preserved deliberately: a non-Stripe value is returned unchanged, as it always has been.
+  // The signature has always claimed `Error` while this branch could hand back anything a `catch` caught,
+  // so callers doing `throw wrapStripeError(e)` can still throw a non-Error. That is a real latent defect
+  // and not this branch's to fix — changing it alters what propagates out of every Stripe call site.
+  return e as Error;
 };

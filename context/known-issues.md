@@ -39,11 +39,10 @@ Connector-specific limitations, code defects, and operational gotchas. Cross-cut
 
 ---
 
-## KI-005: `addPaymentToOrder()` swallows CT update errors — payment record lost on order update failure
+## KI-005 (RESOLVED — verified 2026-09-02 @ `a9e1fba`): `addPaymentToOrder()` swallows CT update errors — payment record lost on order update failure
 
-**Problem:** At `processor/src/services/stripe-payment.service.ts:967`, when `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING=addPaymentToOrder`, the CT order update call is wrapped in a try/catch that logs the error and returns void. A CT API failure during the `invoice.paid` handler means the payment was charged in Stripe but no payment record is added to the CT order.
-**Root cause:** `processor/src/services/stripe-payment.service.ts:967` — CT update error suppressed, Stripe returns 200.
-**Rule:** A successful Stripe charge must always produce a CT payment record. CT update errors must propagate so Stripe retries the event.
+**Problem (original):** When `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING=addPaymentToOrder`, the CT order update was wrapped in a local try/catch that logged and returned void, so a CT failure during `invoice.paid` left the charge in Stripe with no CT payment record and a 200 to Stripe.
+**Resolution:** The path was refactored to `stripe-subscription.service.ts` — `handleSubscriptionPaymentAddToOrder()` (`:2173-2188`) now calls `addPaymentToOrder()` **without a local try/catch**, so the error propagates. Error handling is now governed centrally by the transient/permanent split in `processSubscriptionEventPaid/Failed()` (rethrow on `ConcurrentModification|409|429|502|503|ETIMEDOUT|ECONNRESET`, swallow otherwise) — see `business-rules/recurring-billing.md` Rule 7 / `decisions/adr-015-redeliver-transient-ct-errors.md`. The specific "swallow → void → 200" bug this KI described no longer exists; the residual permanent-error swallow is now the deliberate, documented Rule 7 behavior.
 
 ---
 
@@ -56,18 +55,19 @@ Connector-specific limitations, code defects, and operational gotchas. Cross-cut
 
 ---
 
-## KI-007: `coupons.del()` errors swallowed — next coupon creation attempt fails with duplicate key
+## KI-007 (RESOLVED): `coupons.del()` errors swallowed — next coupon creation attempt fails with duplicate key
 
 **Problem:** At `processor/src/services/stripe-coupon.service.ts:75`, `stripe.coupons.del()` is called inside a try/catch that logs errors and continues. If the deletion fails (e.g., coupon still in use), the next `stripe.coupons.create()` with the same coupon ID fails with a duplicate key error. The CT discount is never synchronized to Stripe.
 **Root cause:** `processor/src/services/stripe-coupon.service.ts:75` — deletion error absorbed; caller receives no signal that deletion failed.
 **Rule:** Coupon deletion failures must be surfaced so the caller can skip creation or use a different ID strategy.
+**Resolved (2026-09-17):** `deleteStripeDiscountCode()` re-throws after logging, so a failed delete aborts before the create instead of surfacing later as a duplicate-id error with its cause already logged away. Closed alongside KI-055, which is what made the delete path worth hardening: after that fix the path still exists, but only for the merchant-edit case. Regression test: *"should not attempt to recreate a coupon whose deletion failed"*.
 
 ---
 
 ## KI-008: Cart freeze/unfreeze errors silently continued — subscription cart may be permanently frozen or unfrozen
 
-**Problem:** At `processor/src/services/stripe-payment.service.ts:454`, `freezeCart()` and `unfreezeCart()` calls are wrapped in try/catch blocks with a `// Continue - do not break the payment flow if freeze fails` comment. A failure to freeze the cart after subscription creation leaves the cart in Active state — users can modify it, potentially corrupting an in-flight subscription.
-**Root cause:** `processor/src/services/stripe-payment.service.ts:454` — freeze/unfreeze errors suppressed by design comment.
+**Problem:** A `freezeCart()`/`unfreezeCart()` failure is caught and swallowed so the payment flow continues, which can leave the cart in the wrong frozen/unfrozen state (e.g. Active after subscription creation, editable mid-subscription).
+**Root cause (updated 2026-09-02 @ `a9e1fba`):** The original location (`stripe-payment.service.ts:454`) and its `// Continue - do not break the payment flow if freeze fails` comment **no longer exist** — after the KI-044 fix the freeze moved off `createPaymentIntent` to the confirm gate and to per-rail commit points. The live swallow is now in `stripe-payment.service.ts:1021-1033` (inside `updatePaymentIntentStripeSuccessful`), carrying a new comment (`:1017-1020`) that documents it as deliberate. The invariant still holds — a swallowed freeze failure can still corrupt cart state — but at a different site than originally recorded.
 **Rule:** Cart freeze on subscription initiation is a critical state change. Failure must abort the operation, not continue silently. See `business-rules/subscription-lifecycle.md`.
 
 ---
@@ -114,11 +114,11 @@ Connector-specific limitations, code defects, and operational gotchas. Cross-cut
 
 ---
 
-## KI-014: `billingAddressRequired` hardcoded to `true` in the enabler — billing address always collected
+## KI-014 (RESOLVED — verified 2026-09-02 @ `a9e1fba`): `billingAddressRequired` hardcoded to `true` in the enabler — billing address always collected
 
-**Problem:** At `enabler/src/payment-enabler/payment-enabler-mock.ts:215`, `billingAddressRequired` is hardcoded to `true`. The `STRIPE_COLLECT_BILLING_ADDRESS` environment variable configures this at the processor level but the enabler ignores the processor response and always tells the Payment Element to collect billing address.
-**Root cause:** `enabler/src/payment-enabler/payment-enabler-mock.ts:215` — hardcoded boolean, not read from processor config response.
-**Rule:** The enabler must read `collectBillingAddress` from the processor's config response and pass it to the Payment Element.
+**Problem (original):** The enabler hardcoded `billingAddressRequired: true` and ignored the processor's config response, so billing address was always collected regardless of `STRIPE_COLLECT_BILLING_ADDRESS`.
+**Resolution:** The enabler now reads `collectBillingAddress` from the processor config and passes it to the Payment Element: `payment-enabler-mock.ts:397` destructures `collectBillingAddress`, `:405-411` applies `fields.billingDetails.address = collectBillingAddress` when it is not `"auto"`, and `mergeConfiguration()` (`:488-491`) reads it from `backendConfig`. The Rule this KI asked for is implemented.
+**Residual:** a `billingAddressRequired: true` literal survives at `:412`, but its own comment scopes it to **express checkout** ("Used for express checkout…"), not the standard Payment Element — a narrow, intentional case, not the original bug.
 
 ---
 
@@ -132,17 +132,25 @@ Connector-specific limitations, code defects, and operational gotchas. Cross-cut
 
 ## KI-016: Coupon `duration` hardcoded to `'once'` — all synced CT discounts become single-use Stripe coupons
 
-**Problem:** At `processor/src/services/stripe-coupon.service.ts:66`, `stripe.coupons.create()` is called with `duration: 'once'` hardcoded. CT discount types (`forever`, `repeating`, `once`) are not mapped to Stripe coupon `duration`. All CT discounts sync to Stripe as coupons that apply only to the first invoice.
+**Problem:** At `processor/src/services/stripe-coupon.service.ts:66`, `stripe.coupons.create()` is called with `duration: 'once'` hardcoded. All CT discounts sync to Stripe as coupons that apply only to the first invoice of a subscription.
 **Root cause:** `processor/src/services/stripe-coupon.service.ts:66` — hardcoded Stripe coupon duration.
-**Rule:** CT discount `validUntil` and discount type must be mapped to Stripe coupon `duration` and `duration_in_months` fields. See `business-rules/coupon-sync.md`.
+
+**Premise corrected (2026-09-17, while fixing KI-055 — this KI cannot be implemented as it was originally written):** the original text called for mapping "CT discount types (`forever`, `repeating`, `once`)" to Stripe's `duration`, and `validUntil` to `duration_in_months`. Neither mapping exists to be made.
+
+- `forever` / `repeating` / `once` is **Stripe's** vocabulary. commercetools has no equivalent: the full `DiscountCode` field set is `description`, `code`, `cartDiscounts`, `cartPredicate`, `isActive`, `references`, `maxApplications`, `maxApplicationsPerCustomer`, `custom`, `groups`, `validFrom`, `validUntil`. There is no billing-cycle concept in CT at all — subscriptions are a Stripe-side construct assembled from `stripeConnector_*` product attributes.
+- `validUntil` already maps correctly to `redeem_by` ("date after which the coupon can no longer be redeemed"). `duration_in_months` is a different concept — how long the discount lasts *once redeemed* — so mapping one to the other would be wrong, not merely incomplete.
+- `duration: 'once'` also happens to be Stripe's own default, so the current value is not arbitrary.
+
+**Rule (restated):** resolving this requires *introducing* a source for the value — a custom field on the CT discount code, a product attribute, or configuration — together with its custom type, post-deploy handling (subject to KI-012's update-in-place rule), adopter documentation and merchant setup. It is a feature with a new configuration surface, not a mapping fix, and it changes billing behaviour for live merchants: a discount that applies to the first invoice today would begin applying for the life of the subscription, while existing subscribers keep the old behaviour (deleting a Stripe coupon does not remove the discount from subscriptions that already carry it). **Deliberately left out of the KI-055 fix** for that reason, despite sitting in the same lines. Needs its own task and its own decision. See `business-rules/coupon-sync.md` coupon field mapping table.
 
 ---
 
 ## KI-017: `getSavedPaymentConfig()` swallows JSON parse error — invalid `STRIPE_SAVED_PAYMENT_METHODS_CONFIG` silently ignored
 
-**Problem:** At `processor/src/config/config.ts:9`, `getSavedPaymentConfig()` wraps `JSON.parse(env.STRIPE_SAVED_PAYMENT_METHODS_CONFIG)` in a try/catch that returns `undefined` on parse failure. If the env var contains malformed JSON, the connector starts without saved payment method configuration and no error is surfaced.
-**Root cause:** `processor/src/config/config.ts:9` — parse error swallowed, fallback to undefined.
-**Rule:** Configuration parse errors must be surfaced at startup, not silently ignored. An undefined saved payment config disables the feature without any operator notification.
+**Problem:** `getSavedPaymentConfig()` parses `STRIPE_SAVED_PAYMENT_METHODS_CONFIG` via a helper that returns a fallback on malformed JSON, so a bad env var silently disables saved payment methods with no startup error.
+**Root cause (updated 2026-09-02 @ `a9e1fba`):** `getSavedPaymentConfig()` now lives at `config.ts:277-282` (not `:9`) and delegates to `parseJSON()` (`utils.ts:7`), which returns **`{}`** (not `undefined`) on invalid JSON — still swallowed, still no surfacing.
+**Rule:** Configuration parse errors must be surfaced at startup, not silently ignored.
+**Note:** the neighbouring env var `STRIPE_PAYMENT_BEHAVIOR_RULES` already follows the correct pattern — it **throws** at boot on invalid JSON (`config.ts:254-255`), which is exactly what this KI asks `getSavedPaymentConfig()` to do.
 
 ---
 
@@ -559,3 +567,119 @@ This is the **residual** of KI-044 (freeze moved to each rail's commitment point
 **Not yet fixed, and the fix is a judgement call, not a one-liner:** `charge.updated` is high-volume — it fires on many charge mutations, not only on a second capture. Registering it sends that stream to **every** deployment, including the default `STRIPE_ENABLE_MULTI_OPERATIONS=false` ones, where `handleMulticaptureEvent` logs one line and discards it. The options are to register it unconditionally and accept the noise, to register it only when multi-operations is enabled (which makes `enabled_events` config-dependent — new behavior for `actions.ts`), or to leave it manual and document it as a merchant step. Needs an owner.
 
 **Implementation note:** `processor/src/connectors/actions.ts` (`enabled_events`), `processor/src/routes/stripe-payment.route.ts:249-257`. Cross-reference KI-042, KI-031, and `business-rules/multi-operations.md` Rule 1.
+
+---
+
+## KI-052: `Error freezing cart` at confirmation — order-creating webhook lands before the synchronous freeze (race)
+
+**Problem:** On the synchronous card path, the order-creating webhook (`payment_intent.succeeded`) can land and create the CT order *before* the synchronous `/confirmPayments` freeze runs. The freeze then executes against an already-`Ordered` cart and logs `Error freezing cart at payment confirmation` ("cart not in active state"). Observed in 100% of the affected timing in the 2026-09-01 regression baseline (anomaly **A2**, 3DS scenario). **Non-fatal:** the payment succeeds and the order is Paid — the cart is already consumed by the order, so the freeze is moot.
+**Root cause:** `processor/src/services/stripe-payment.service.ts:1022-1028` — `log.error('Error freezing cart at payment confirmation')`. A confirm↔webhook ordering race, not a logic bug; the two paths are not serialized. Same confirm↔webhook family as KI-047 (amount-gate), different failure point.
+**Rule / status:** Known non-fatal race, surfaced for operator awareness — **do not treat the `Error freezing cart` log line as a payment failure.** Serializing confirm and webhook, or making the freeze tolerant of an already-`Ordered` cart, would remove the noise.
+**Implementation note:** observed in the regression baseline 2026-09-01 (A2); `stripe-payment.service.ts:1022-1028`.
+
+---
+
+## KI-053: `Error getting payment mode` logged on every one-time checkout — non-fatal, falls back to `payment` mode
+
+**Problem:** Every one-time (non-subscription) checkout logs a `log.error` `Error getting payment mode` with an empty `error:{}` payload. Observed in **100% of checkouts** in the 2026-09-01 regression baseline (anomaly **A7**). **Non-fatal:** the Payment Element mounts normally and the mode correctly falls back to `payment`.
+**Root cause:** `processor/src/services/stripe-subscription.service.ts:847-862` — `getPaymentMode` calls `findSubscriptionLineItem`, which throws on any cart with no subscription line item (i.e. every one-time cart), and the catch logs `log.error` (`:859`) before falling back to `payment` mode. It is expected control flow logged at the wrong severity.
+**Rule / status:** Known non-fatal noise. The context previously described `getPaymentMode` only as normal behavior (`adopter-guide.md`, ADR-010) without noting the per-checkout error log. Lowering the "no subscription line item" case from `log.error` to `log.debug`/`info` (or short-circuiting before the throw) would silence it — **do not alert on this log line.**
+**Implementation note:** observed in the regression baseline 2026-09-01 (A7); `stripe-subscription.service.ts:847-862`, `log.error` at `:859`.
+
+---
+
+## KI-054 (RESOLVED): Subscription underpayment — `invoice.paid` minted a Paid order from a mutated cart with no amount comparison
+
+**Problem:** An authenticated shopper, using their own cart and no privileged credentials, could be billed for one amount and receive an order for a larger one. Reported through an external bug bounty against v1.7.5 and reproduced live: **order created `Paid` for €70.00 while Stripe collected €20.00.** It scales with whatever is added to the cart after the first step.
+
+**Chain, verified end to end:**
+1. `POST /subscription` prices the first invoice once (`getAllLineItemPrices` → `add_invoice_items`) and freezes the cart as the only control. The freeze is best-effort — a failure is logged and the flow continues, which is KI-008, so it was never a reliable control.
+2. `GET /shipping-methods/remove` (`removeShippingRate`, session auth only, reachable by the shopper for their own cart) unfreezes the cart and **by design never re-freezes** — the code says so explicitly. The cart is editable again while the invoice stays locked at its original amount.
+3. `invoice.paid` → `createSubscriptionOrderFromCart` re-read the now-enlarged cart, `log.warn`ed that it was not frozen, and created the order `Paid` anyway. **Nothing compared what Stripe collected against the cart total.**
+
+**Root cause — the guard existed and could not run.** `handlePaymentIntentSucceededFlow` has enforced exactly this comparison since KI-050 (ADR-016, `business-rules/payment-confirmation.md` Rule 5). But the webhook dispatcher deliberately drops subscription-invoice `payment_intent.succeeded` and `charge.*` events (`stripe-payment.route.ts:321-338`) because `invoice.paid` is the single source of truth for subscription money — correctly so, routing them would duplicate payments and orders. **The guard was therefore structurally unreachable from the subscription path.** This is the same defect class closed on one branch of the webhook handler and left open on the other, not a missing condition. KI-047 had already flagged `/shipping-methods/update` and `/shipping-methods/remove` as reachable attack surface — for the one-time flow only; the subscription flow was never revisited.
+
+**Resolution:** `createSubscriptionOrderFromCart` now validates the amount actually collected (`invoice.amount_paid`, `invoice.currency`) against the cart the order is minted from — the **post-`updateCartAddress`** snapshot, since the address is shopper-controlled — and refuses to create the order on divergence, pinning the validated cart version via `expectedVersion` so a cart that moves after validation cannot still mint an order. Applied at the `invoice.paid` and `charge.succeeded` call sites; see ADR-017 for the scope decisions and for why the `paymentState: Failed` call site and recurring cycles are deliberately exempt. The comparison itself is the single shared `paidAmountMatchesTotal` (`src/utils.ts`) that the one-time guard also calls — a second implementation of the same check is precisely what produced this bug.
+
+**Compared against `totalPrice`, NOT `taxedPrice.totalGross`** — deliberately, and unlike the one-time guard. The subscription invoice is assembled from Stripe Prices built off the line items' own price values plus the shipping price, and this connector sets neither `automatic_tax` nor a Stripe Tax calculation on the subscription path, so the invoice carries no tax. Using `totalGross` here would reject every legitimate order in a tax-on-top configuration — the KI-047 false-positive failure mode from the other direction. See KI-056 for the separate, pre-existing defect this exposed.
+
+**Hard block is scoped, on purpose.** It applies only where the first invoice *must* equal the cart total: first cycle (`billing_reason: subscription_create`), `charge_automatically`, no trial, `amount_paid > 0`, and an invoice carrying no discounts. Every condition is read from Stripe-owned data, never from the cart — the cart is what the attack mutates. Outside that configuration a first invoice legitimately differs (trial, free anchor days, `send_invoice`, recurring cycles, coupon translation pending verification in `stripe-coupon.service.ts`), so the divergence is logged for reconciliation and the order is still created. **Do not widen the hard block on assumption** — each case needs measuring in staging first.
+
+> **The discount exemption must be read from the invoice, never from the cart — this was caught as a self-inflicted bypass before merge.** The first implementation excluded carts whose `discountCodes` were non-empty, to avoid a false positive while the coupon translation in `stripe-coupon.service.ts` remains unverified. But `cart.discountCodes` is shopper-controlled at exactly the moment of the attack: the same commercetools call that enlarges the unfrozen cart can add a discount code, which switched the guard off and reproduced the original vulnerability in full. `invoice.discounts` / `invoice.total_discount_amounts` are fixed when the subscription is created and are the only evidence that a coupon was actually involved in what Stripe charged. Regression test: *"still blocks when the cart gained a discount code but the invoice carries none"*. The general rule — every condition of a guard must be immutable by the actor the guard defends against — is the whole reason the other four conditions read from the invoice and the subscription.
+
+> **Reopened and re-closed 2026-09-17 — the discount exemption was attacker-selectable.** The paragraph
+> above records that the exemption must be read from `invoice.discounts` rather than `cart.discountCodes`,
+> and that is correct as far as it goes. What it missed is that a shopper decides whether their cart
+> carries a discount code *before* the subscription is created, so any valid code puts `discounts` on the
+> invoice and switches the hard block off for that subscription's whole life — after which this exact
+> chain runs unimpeded. Reproduced against the shipped guard at the reporter's own figures: EUR 20.00
+> collected, EUR 70.00 ordered. **"Immutable after creation" and "not chosen by the attacker" are
+> different properties, and a guard condition needs the second.** Closed by sealing the cart total onto
+> the subscription at creation and comparing the cart against it at `invoice.paid` — a question with no
+> Stripe arithmetic in it, so the unverified coupon translation (KI-055) cannot make it misfire. The
+> exemption itself stays, on its original and still-sound reasoning. See `business-rules/payment-confirmation.md`
+> Rule 7 and the ADR-017 addendum.
+
+**Accepted trade-off:** no auto-refund on a blocked order (hub rule: divergence is surfaced, never auto-corrected). The `Charge/Success` is already persisted upstream, so a block leaves a *paid-without-order* state for manual reconciliation.
+
+**Not fixed here, deliberately:** `removeShippingRate` still unfreezes and never re-freezes. The amount guard is what closes the financial loss; the unfreeze only makes the attack convenient. Conditioning it on "a subscription is in flight" would leave a genuine Express Checkout canceller with a frozen cart — the KI-044 family — and pulls Express Checkout regression into scope. **Do not present a re-freeze as the fix:** the freeze is best-effort in at least four places (KI-008), and making it load-bearing repeats the mistake this bug exposed. Tracked separately; `workflows/process-shipping.md` now records that the cancel path is not a security boundary.
+
+**Implementation note:** `processor/src/services/stripe-subscription.service.ts` (`createSubscriptionOrderFromCart`, `isFirstCycleAmountGuardApplicable`), `processor/src/utils.ts` (`paidAmountMatchesTotal`), `processor/src/services/stripe-payment.service.ts` (`paidAmountMatchesCart` now delegates). Extends `business-rules/payment-confirmation.md` — new Rule 6. Cross-reference KI-008, KI-044, KI-047, KI-050, KI-056. **Scope:** `ct-connect-stripe-composable` only — `ct-connect-stripe-checkout` has no `stripe-subscription.service.ts` and no `/shipping-methods/remove` route, verified on branch `ctCheckout`.
+
+---
+
+## KI-055 (RESOLVED): Discount-code usage cap never enforced — the connector reset the Stripe counter on every over-limit application
+
+**Problem:** `getStripeCoupons` translated every discount code on a cart into a Stripe coupon without ever reading `DiscountCodeInfo.state`, and treated *any* unusable Stripe coupon as a signal to delete and recreate it on the same id. Since the Stripe coupon id **is** the CT discount code id, and Stripe permits reusing a deleted coupon's id with `times_redeemed` back at 0, a coupon that had reached `max_redemptions` was destroyed and reissued at the exact moment its limit engaged. The cap could never stop a redemption.
+
+**Reproduced 2026-09-15** against CT project `stripe-subscription` + a Stripe test account, connector v4.0.1: a `maxApplications: 1` code discounted three consecutive subscriptions. From the second onwards, commercetools reported `MaxApplicationReached` and priced the cart at the full amount while Stripe charged the discounted amount for the same cart.
+
+**Root cause:** two independent gaps in `processor/src/services/stripe-coupon.service.ts` that only combine into a defect together. (a) `DiscountCodeInfo.state` was read nowhere in `processor/src` — commercetools' verdict on whether a code applies was ignored entirely. (b) `validateDiscountCode()` returned `false` for any coupon with `valid: false` *before* comparing a single configuration field, and the caller's `else` branch read that as "the merchant edited the config" — so "spent" and "edited" were indistinguishable.
+
+**Measured impact — and it is not the over-valued order the external report describes.** commercetools refuses to create an order from a cart carrying a capped code (`The discountCode '…' cannot be applied to the cart`). The third run ended with Stripe having collected the discounted amount on a real card, **zero CT orders**, and the cart left `Frozen` at the undiscounted total, with the CT payment recording both an `Authorization Success` at the cart total and a `Charge Success` at the collected amount. The handler catches that error and it is not retryable, so Stripe receives HTTP 200 and never redelivers — the state is permanent. The real outcome is money collected with nothing to fulfil or refund against: a reconciliation problem, worse than an over-valued order in that the shopper has paid for nothing, less bad in that no order is recorded at the wrong price. What is fully proven and is the core issue: a capped code can be redeemed without limit against subscription first invoices, and commercetools and Stripe disagree on the price of the same cart.
+
+**Rule:** commercetools decides whether a discount code applies; the connector only honours that verdict. The Stripe coupon carries the price onto the invoice and is not an enforcement point. See `business-rules/coupon-sync.md` Rules 3-5 and `decisions/adr-018-ct-state-authority-coupon-price-vehicle.md`.
+
+**Resolved (2026-09-17):** gated coupon translation on `DiscountCodeInfo.state === 'MatchesCart'`; split "is the coupon in sync" from "is the coupon usable" so only configuration divergence triggers delete-and-recreate; stopped mirroring `maxApplications` into `max_redemptions`. The gate shipped first, deliberately — fixing the reset without it turns the undercharge into a failed subscription creation for every capped code, which is a checkout outage. Legacy coupons still carrying a mirrored cap count as divergent and are replaced once, on first touch.
+
+**Also closed by the same gate:** the separately reported `DoesNotMatchCart` coupon-state finding. Both coupon findings were communicated to the client as closing together.
+
+**Not a backstop for this, verified:** the KI-054 subscription amount guard cannot catch it — CT blocks the order first, for an unrelated reason, and the guard exempts discounted invoices by design.
+
+**Collateral observation from the run:** `DiscountCode.applicationCount` stayed `null` in the CT API throughout while the cap was fully enforced. It is not a usable readout; `DiscountCodeInfo.state` is.
+
+**Implementation note:** `processor/src/services/stripe-coupon.service.ts` (`appliesToCart`, `resolveStripeCoupon`, `hasDivergentConfig`, `createStripeDiscountCode`, `deleteStripeDiscountCode`). Cross-reference KI-007 (resolved alongside), KI-016 (adjacent, deliberately excluded — its premise is corrected in place), KI-054, KI-057. **Scope:** `ct-connect-stripe-composable` only — `ct-connect-stripe-checkout` has no coupon service and no subscription path.
+
+---
+
+## KI-056: Subscription invoices never carry tax — in a tax-on-top configuration the merchant under-collects
+
+**Problem:** A subscription's Stripe invoice is built by summing per-line `unit_amount` values taken from `lineItem.price.discounted?.value ?? lineItem.price.value` (`stripe-subscription.service.ts:428-438`) plus `shipping.price.centAmount` (`:642`). This connector sets **no** `automatic_tax`, no `tax_behavior`, no `tax_rates` anywhere in `processor/src`, and the Stripe Tax calculation reference (`connectorStripeTax_calculationReferences`) is read **only** in `stripe-payment.service.ts` — the one-time path. So the subscription invoice carries no tax line at all.
+
+Where commercetools computes tax **on top of** the price (`taxedPrice.totalGross > totalPrice`, the typical US configuration), the shopper is charged the net amount and the tax is never collected. This is **not** the KI-054 exploit and needs no attacker: it happens with an entirely honest shopper on the first cycle.
+
+**How it stayed invisible:** the connector's own `amountPlanned` for a subscription comes from `getPaymentAmount`, which returns `taxedPrice.totalGross ?? totalPrice` — so commercetools records the gross amount as planned while Stripe collects the net. The one-time flow does charge gross (Express Checkout explicitly presents net subtotal + tax + shipping, `stripe-shipping.service.ts:200-206`), which is why this is specific to subscriptions. **No subscription cart fixture in the test suite carries a `taxedPrice`**, and none of the subscription business rules mentions tax: the flow was built and tested only against untaxed carts.
+
+**Found:** 2026-09-17, while establishing the correct comparison base for the KI-054 guard. It is the reason that guard compares against `totalPrice` — comparing against `totalGross` would have converted this pre-existing revenue gap into a mass rejection of legitimate orders.
+
+**Status:** open, needs an owner. The fix is a design decision, not a patch: either carry the CT-computed tax onto the invoice as a line item, or enable Stripe Tax on the subscription path and reconcile it with what `ct-stripe-tax` writes to the cart. Direction of loss is the merchant's revenue, not the shopper's money — which is why it is not bundled into a security fix.
+
+**Implementation note:** `stripe-subscription.service.ts:428-438` / `:642` (invoice assembly), `:340` (`amountPlanned` via `getPaymentAmount`), `business-rules/tax-integration.md` Rules 1-3 (one-time path only). Cross-reference KI-054.
+
+---
+
+## KI-057: `invoice.paid` writes its transactions with no dedupe guard — a redelivery appends a second set
+
+**Problem:** `processSubscriptionEventPaid` builds a transaction list and writes it with a bare loop — `for (const tx of updateData.transactions) await this.ctPaymentService.updatePayment({ ...updateData, transaction: tx })` — with no check for whether a transaction of that type and `interactionId` is already on the payment. Processing the same `invoice.paid` twice appends the transactions twice.
+
+**It is worse than a plain duplicate, because the second run takes a different branch.** `isPaymentChargePending` is read from the CT payment's *current* state, which the first run already mutated. On the first pass a pending charge yields a single `Charge`; on the second the charge is no longer pending, so the converter returns the `[Authorization, Charge]` pair instead (`subscriptionEventConverter.ts`, `populateTransactions`, `INVOICE_PAID` case). The payment ends with an asymmetric, non-obvious set rather than a clean duplicate — which is what was observed.
+
+**Not only a replay artifact — reachable in production.** The observation came from a manual `invoice.paid` replay, but the same path opens without one: KI-003 / ADR-015 made `processSubscriptionEventPaid` re-throw retryable CT errors so that Stripe redelivers. The transaction loop runs *before* `createSubscriptionOrderFromCart`, so a retryable failure during order creation returns non-2xx **after** the transactions are already written. Stripe redelivers, the loop runs again, and the payment accumulates a second set. The fix that made delivery reliable is what makes this reachable.
+
+**Root cause:** `processor/src/services/stripe-subscription.service.ts` — `processSubscriptionEventPaid`, the transaction write loop; no `hasTransactionInState` guard. The one-time payment path guards extensively before writing (`stripe-payment.service.ts:404-430`, `:1047-1052`, `:1289`, `:1362-1367`); the subscription path has no equivalent. Same defect class as KI-054: a guard present on one branch of the webhook handling and absent on the other.
+
+**Rule:** A webhook handler that may be redelivered must be idempotent in its writes. Transactions must be keyed and checked before being appended, not appended unconditionally.
+
+**Found:** 2026-09-17, while investigating a collateral observation from the KI-055 reproduction (two `Authorization` and two `Charge` transactions on one payment after a single `invoice.paid` replay).
+
+**Status:** open, diagnosed but not fixed. Deliberately not bundled into the KI-055 coupon fix — different root cause, different area, and it needs its own regression coverage for the branch asymmetry above. Cross-reference KI-003, KI-054, ADR-015.

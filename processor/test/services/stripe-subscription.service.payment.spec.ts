@@ -300,6 +300,8 @@ describe('stripe-subscription.service.payment', () => {
 
       jest.spyOn(paymentSDK.ctCartService, 'getCartByPaymentId').mockResolvedValue({
         cartState: 'Active',
+        totalPrice: { type: 'centPrecision', currencyCode: 'USD', centAmount: 1000, fractionDigits: 2 },
+        discountCodes: [],
         id: 'cart_123',
       } as any);
       jest.spyOn(paymentSDK.ctOrderService, 'getOrderByPaymentId').mockRejectedValue(new Error('Order not found'));
@@ -663,6 +665,8 @@ describe('stripe-subscription.service.payment', () => {
 
       jest.spyOn(paymentSDK.ctCartService, 'getCartByPaymentId').mockResolvedValue({
         cartState: 'Active',
+        totalPrice: { type: 'centPrecision', currencyCode: 'USD', centAmount: 1000, fractionDigits: 2 },
+        discountCodes: [],
         id: 'cart_123',
       } as any);
 
@@ -886,6 +890,8 @@ describe('stripe-subscription.service.payment', () => {
       // Cart is Active (not yet ordered)
       jest.spyOn(paymentSDK.ctCartService, 'getCartByPaymentId').mockResolvedValue({
         cartState: 'Active',
+        totalPrice: { type: 'centPrecision', currencyCode: 'USD', centAmount: 1000, fractionDigits: 2 },
+        discountCodes: [],
         id: 'cart_123',
         frozen: true,
       } as any);
@@ -893,6 +899,8 @@ describe('stripe-subscription.service.payment', () => {
       jest.spyOn(StripePaymentService.prototype, 'updateCartAddress').mockResolvedValue({
         id: 'cart_123',
         cartState: 'Active',
+        totalPrice: { type: 'centPrecision', currencyCode: 'USD', centAmount: 1000, fractionDigits: 2 },
+        discountCodes: [],
       } as any);
 
       // Simulate version conflict (race condition - other handler already created the order)
@@ -973,6 +981,8 @@ describe('stripe-subscription.service.payment', () => {
 
       jest.spyOn(paymentSDK.ctCartService, 'getCartByPaymentId').mockResolvedValue({
         cartState: 'Active',
+        totalPrice: { type: 'centPrecision', currencyCode: 'USD', centAmount: 1000, fractionDigits: 2 },
+        discountCodes: [],
         id: 'cart_123',
         frozen: true,
       } as any);
@@ -980,6 +990,8 @@ describe('stripe-subscription.service.payment', () => {
       jest.spyOn(StripePaymentService.prototype, 'updateCartAddress').mockResolvedValue({
         id: 'cart_123',
         cartState: 'Active',
+        totalPrice: { type: 'centPrecision', currencyCode: 'USD', centAmount: 1000, fractionDigits: 2 },
+        discountCodes: [],
       } as any);
 
       const spiedCreateOrder = jest.spyOn(StripePaymentService.prototype, 'createOrder').mockResolvedValue(undefined);
@@ -1185,7 +1197,11 @@ describe('stripe-subscription.service.payment', () => {
       await stripeSubscriptionService.processSubscriptionEventLateReturn(piFailedEvent());
 
       expect(markSpy).toHaveBeenCalledTimes(1);
-      expect(markSpy).toHaveBeenCalledWith(expect.objectContaining({ id: 'paymentId' }), 'ach_late_return', expect.any(String));
+      expect(markSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'paymentId' }),
+        'ach_late_return',
+        expect.any(String),
+      );
     });
 
     test('does not flag an ordinary first-payment failure (charge not yet settled)', async () => {

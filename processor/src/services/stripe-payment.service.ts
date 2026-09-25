@@ -42,7 +42,7 @@ import { getCartIdFromContext, getMerchantReturnUrlFromContext } from '../libs/f
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
 import { StripeEventConverter } from './converters/stripeEventConverter';
-import { convertPaymentResultCode } from '../utils';
+import { convertPaymentResultCode, paidAmountMatchesTotal } from '../utils';
 import { CtPaymentCreationService } from './ct-payment-creation.service';
 import { stripeCustomerIdFieldName } from '../custom-types/custom-types';
 import { StripeCustomerService } from './stripe-customer.service';
@@ -61,7 +61,7 @@ import {
   resolveTrustedPaymentBehavior,
 } from './payment-behavior-resolver';
 import { StripeSubscriptionService } from './stripe-subscription.service';
-import { CartUpdateAction } from '@commercetools/platform-sdk';
+import { CartUpdateAction, TypedMoney } from '@commercetools/platform-sdk';
 
 /**
  * Async settlement events that write a Pending authorization to commercetools.
@@ -943,7 +943,7 @@ export class StripePaymentService extends AbstractPaymentService {
     let stripePaymentIntent: Stripe.PaymentIntent;
     try {
       stripePaymentIntent = await stripeApi().paymentIntents.retrieve(paymentIntentId);
-    } catch (error) {
+    } catch {
       log.warn('updatePaymentIntentStripeSuccessful: failed to retrieve PaymentIntent from Stripe', {
         paymentIntentId,
         paymentReference,
@@ -1490,11 +1490,9 @@ export class StripePaymentService extends AbstractPaymentService {
     // holds at succeeded. A mismatch never creates the order: the Charge/Success transaction was
     // already persisted upstream, so the outcome is a paid-without-order state surfaced for manual
     // reconciliation — the hub rule forbids auto-correction, so there is no auto-refund here.
-    const currentCartTotal = ctCart.taxedPrice?.totalGross ?? ctCart.totalPrice;
-    const amountMatches =
-      paymentIntent.amount === currentCartTotal.centAmount && paymentIntent.amount_received === paymentIntent.amount;
-    const currencyMatches = paymentIntent.currency.toLowerCase() === currentCartTotal.currencyCode.toLowerCase();
-    if (!amountMatches || !currencyMatches) {
+    const currentCartTotal = this.orderableCartTotal(ctCart);
+    const collectedInFull = paymentIntent.amount_received === paymentIntent.amount;
+    if (!collectedInFull || !paidAmountMatchesTotal(paymentIntent.amount, paymentIntent.currency, currentCartTotal)) {
       log.error(
         'payment_intent.succeeded: paid amount/currency does not match the current cart total — order NOT created (underpayment guard).',
         {
@@ -1514,7 +1512,156 @@ export class StripePaymentService extends AbstractPaymentService {
     const { latest_charge } = paymentIntent;
     const charge = await stripeApi().charges.retrieve(latest_charge as string);
     const updatedCart = await this.updateCartAddress(charge, ctCart);
-    await this.createOrder({ cart: updatedCart, paymentIntentId: updateData.pspReference });
+
+    // Post-address underpayment guard (KI-047/KI-050 residual). updateCartAddress may have set the
+    // shopper-controlled shipping address; in Platform tax mode commercetools recomputes taxedPrice for
+    // the new destination. The order is minted from THIS (state B) snapshot, which the pre-mutation guard
+    // above never validated. Re-validate the amount actually collected against the cart the order is built
+    // from, and pin its version so the order cannot be created from a cart that moved after validation.
+    // On mismatch: no order — the Charge/Success is already persisted, so this is a paid-without-order
+    // state surfaced for manual reconciliation; the hub rule forbids auto-correction (no auto-refund).
+    //
+    // Triggered by the cart's VALUE changing, not by its version changing. updateCartAddress bumps the
+    // version up to three times without the destination moving — unfreeze, setShippingAddress, refreeze —
+    // so a version-bump proxy sends a frozen cart whose charge address already matched into a re-check it
+    // has no reason to be in. What this guard defends against is a total that moved because the shopper
+    // chose the destination, and that is exactly what this compares. When the total did not move, the
+    // pre-mutation guard already validated this number against the same payment; re-checking adds nothing.
+    const totalBefore = this.orderableCartTotal(ctCart);
+    const totalAfter = this.orderableCartTotal(updatedCart);
+    // The currency half is defensive: commercetools does not change a cart's currency on a
+    // setShippingAddress, so no test drives it. It costs one comparison and it means an equal-looking
+    // amount in a different currency can never read as "unchanged".
+    const totalChanged =
+      totalAfter.centAmount !== totalBefore.centAmount ||
+      totalAfter.currencyCode.toLowerCase() !== totalBefore.currencyCode.toLowerCase();
+    //
+    // Triggering on the move alone is the whole test, and re-comparing the amount here would be
+    // tautological: the pre-mutation guard has already established that the payment equals the total
+    // BEFORE the address write, so once the total moves the payment cannot equal the one after. Writing
+    // the redundant comparison in would read as though some moved-total case still proceeds. None does.
+    if (totalChanged) {
+      log.error(
+        'payment_intent.succeeded: paid amount does not match the recalculated cart total after address update — order NOT created (post-address underpayment guard).',
+        {
+          ctCartId: updatedCart.id,
+          paymentId: updateData.id,
+          pspReference: updateData.pspReference,
+          stripeAmountReceived: paymentIntent.amount_received,
+          stripeCurrency: paymentIntent.currency,
+          cartTaxMode: updatedCart.taxMode,
+          cartHasTaxedPrice: !!updatedCart.taxedPrice,
+          cartTotalBeforeAddress: totalBefore.centAmount,
+          cartTotalCentAmount: totalAfter.centAmount,
+        },
+      );
+      return;
+    }
+
+    // Pinned on EVERY path, not only where the total moved. An earlier revision pinned only on address
+    // change, reasoning that without one there is no destination tax to inflate — true for tax, but the
+    // window protects more than tax: between the read above and this POST, any writer can add a line item,
+    // a discount or a shipping method, and an unpinned create mints the order from whatever the cart holds
+    // by then. That path is the one most card checkouts take.
+    //
+    // Pinning unconditionally is only safe with the retry below. Without it, the /confirmPayments freeze
+    // that races this webhook lands between the read and the POST, commercetools answers 409, and a
+    // legitimate paid order is dropped — which is why the pin was made conditional in the first place.
+    await this.createOrderPinned(updatedCart, updateData.pspReference, paymentIntent);
+  }
+
+  /**
+   * Creates the order pinned to the exact cart snapshot the guards validated, and resolves the one benign
+   * reason that pin can fail.
+   *
+   * A 409 here means the cart moved between validation and the POST. That is either the concurrent write
+   * this pin exists to stop, or the `/confirmPayments` freeze racing this webhook — and the two are
+   * indistinguishable from the error alone. So instead of guessing, re-read and re-decide: if the cart is
+   * still worth what was collected, the move was benign and the order is created from the new snapshot;
+   * if it is not, the pin did its job and no order is created.
+   *
+   * Exactly one retry. A second 409 means genuine contention rather than the single known race, and
+   * looping on order creation is not something to do while holding a captured payment.
+   */
+  private async createOrderPinned(
+    cart: Cart,
+    pspReference: string | undefined,
+    paymentIntent: Stripe.PaymentIntent,
+  ): Promise<void> {
+    try {
+      await this.createOrder({ cart, paymentIntentId: pspReference, expectedVersion: cart.version });
+      return;
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : JSON.stringify(e);
+      if (!/ConcurrentModification|409/i.test(message)) {
+        throw e;
+      }
+
+      const rereadCart = await this.ctCartService.getCart({ id: cart.id });
+      if (!this.paidAmountMatchesCart(paymentIntent, rereadCart)) {
+        log.error(
+          'payment_intent.succeeded: the cart moved after validation and no longer matches what was collected — order NOT created (version pin).',
+          {
+            ctCartId: cart.id,
+            pspReference,
+            stripeAmountReceived: paymentIntent.amount_received,
+            stripeCurrency: paymentIntent.currency,
+            validatedCartVersion: cart.version,
+            currentCartVersion: rereadCart.version,
+            currentCartTotal: this.orderableCartTotal(rereadCart).centAmount,
+          },
+        );
+        return;
+      }
+
+      log.info('Cart version moved between validation and order creation but the total is unchanged — retrying once.', {
+        ctCartId: cart.id,
+        pspReference,
+        validatedCartVersion: cart.version,
+        currentCartVersion: rereadCart.version,
+      });
+      await this.createOrder({
+        cart: rereadCart,
+        paymentIntentId: pspReference,
+        expectedVersion: rereadCart.version,
+      });
+    }
+  }
+
+  /**
+   * The total an order minted from this cart would be worth: the taxed gross when commercetools has
+   * computed one, the net total otherwise. Identical to the base the pre-mutation guard uses, and that
+   * identity is the point — the two guards must agree on what a cart is worth, or one of them rejects
+   * carts the other just accepted.
+   */
+  private orderableCartTotal(cart: Cart): TypedMoney {
+    return cart.taxedPrice?.totalGross ?? cart.totalPrice;
+  }
+
+  /**
+   * Post-address underpayment check. Validates the amount actually collected (`amount_received`, so an
+   * incompletely settled payment cannot pass) against the total the order will be minted from. Integer
+   * comparison in the currency's minor unit (no /100), matching the pre-mutation guard's style.
+   * Equality rejects both under- and over-payment (safe direction).
+   *
+   * This deliberately does NOT special-case `taxMode === 'Platform'` with a missing `taxedPrice`. An
+   * earlier revision treated that as a hard non-match, reasoning that destination tax could otherwise
+   * go uncollected through the `totalPrice` fallback. But a Platform cart with no `taxedPrice` is a
+   * supported shape everywhere else in this connector — the SDK prices the PaymentIntent from the same
+   * fallback, and the pre-mutation guard accepts it — so the rule rejected orders that had just been
+   * validated as exactly matching, seconds earlier, against the same number. The outcome was money
+   * captured with no order and no auto-refund, on carts that had done nothing wrong. Whether tax is
+   * under-collected on a subscription-style untaxed cart is a real question, but it is KI-056's, and it
+   * is not answered by dropping paid orders here. What this guard is for is narrower and is enforced by
+   * its caller: a total that MOVED because the destination changed.
+   */
+  private paidAmountMatchesCart(paymentIntent: Stripe.PaymentIntent, cart: Cart): boolean {
+    // `amount_received` rather than `amount` is the semantically right field — it is what was actually
+    // collected. It is also not separately observable here: the pre-mutation guard refuses the event
+    // unless `amount_received === amount`, so by this point the two are equal and no test can tell the
+    // choice apart through the webhook. Kept because it is correct on its own terms and stays correct if
+    // that upstream equality is ever relaxed; recorded so nobody reads the lack of a test as an oversight.
+    return paidAmountMatchesTotal(paymentIntent.amount_received, paymentIntent.currency, this.orderableCartTotal(cart));
   }
 
   /**
@@ -1801,8 +1948,14 @@ export class StripePaymentService extends AbstractPaymentService {
     }
   }
 
-  public async createOrder({ cart, subscriptionId, paymentIntentId, paymentState }: CreateOrderProps) {
-    const order = await createOrderFromCart(cart, paymentState);
+  public async createOrder({
+    cart,
+    subscriptionId,
+    paymentIntentId,
+    paymentState,
+    expectedVersion,
+  }: CreateOrderProps): Promise<void> {
+    const order = await createOrderFromCart(cart, paymentState, expectedVersion);
     log.info('Order created successfully', {
       ctOrderId: order.id,
       ctCartId: cart.id,
