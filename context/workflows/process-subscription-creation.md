@@ -130,6 +130,24 @@ Browser                    Enabler                 Processor               Strip
 
 ---
 
+## Order creation on `invoice.paid` — amount guard
+
+Step 7 above (**freeze cart**) is a convenience, not a control: it is best-effort, and `GET /shipping-methods/remove` releases it and never restores it (`process-shipping.md`). The first invoice, however, was priced once at step 5 and does not move. So between creation and `invoice.paid` the cart can grow while the invoice stays locked — which is how KI-054 produced an order marked `Paid` at €70.00 against €20.00 collected.
+
+`createSubscriptionOrderFromCart` therefore validates before minting the order:
+
+1. Cart already `Ordered` → skip (idempotency, unchanged).
+2. Cart not frozen → `log.warn`. Still a useful signal, no longer the only reaction.
+3. `updateCartAddress()` from the Stripe charge's billing details.
+4. **Amount guard** — compare `invoice.amount_paid` / `invoice.currency` against the **post-address** cart's `totalPrice` (the snapshot the order is minted from), via the shared `paidAmountMatchesTotal`.
+   - Guarded configuration (first cycle, `charge_automatically`, no trial, `amount_paid > 0`, undiscounted invoice — all read from Stripe, never from the cart) and a mismatch → **no order**, `log.error`. The `Charge/Success` is already persisted, so this is a paid-without-order state for manual reconciliation; never auto-refunded.
+   - Any other configuration → `log.warn` and the order **is** created: a trial, free anchor days, `send_invoice` or a recurring cycle legitimately bill a first invoice that differs from the cart total.
+5. `createOrder()`, pinning `expectedVersion` to the validated cart version so a cart that moved after step 4 cannot still mint an order (commercetools returns 409, handled as the race it is).
+
+Compared against `totalPrice` and **not** `taxedPrice.totalGross`: the invoice is built from the line items' own price values plus the shipping price, with no tax applied on the subscription path. See `business-rules/payment-confirmation.md` Rule 6, ADR-017, and KI-056 for the tax gap this exposed.
+
+---
+
 ## Decision Points
 
 | Point | Condition | Path |
@@ -139,6 +157,8 @@ Browser                    Enabler                 Processor               Strip
 | Trial configured | `trial_period_days` or `trial_end_date` on variant | Subscription starts in `trialing` state |
 | One-time items | Cart has non-subscription line items | Added to `add_invoice_items` |
 | Shipping | Cart has `shippingInfo` | Shipping price added to recurring `items` |
+| Discount codes | Code's `DiscountCodeInfo.state` is `MatchesCart` | Translated to a Stripe coupon and passed as `discounts` |
+| Discount codes | Any other state (cap reached, predicate not met, inactive, stopped by a previous discount) | Skipped before any Stripe call — commercetools is the authority on whether a code applies (`business-rules/coupon-sync.md` Rules 3-5, ADR-018) |
 
 ---
 

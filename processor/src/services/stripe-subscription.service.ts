@@ -48,7 +48,7 @@ import { getMerchantReturnUrlFromContext } from '../libs/fastify/context/context
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
 import { StripeCustomerService } from './stripe-customer.service';
-import { getLocalizedString, transformVariantAttributes } from '../utils';
+import { getLocalizedString, paidAmountMatchesTotal, transformVariantAttributes } from '../utils';
 import {
   lineItemStripeSubscriptionIdField,
   productTypeSubscription,
@@ -69,6 +69,8 @@ import { setPaymentStatusInterface } from './commerce-tools/payment-client';
 import { getCustomFieldUpdateActions } from './commerce-tools/custom-type-helper';
 import {
   METADATA_CART_ID_FIELD,
+  METADATA_CART_TOTAL_AMOUNT,
+  METADATA_CART_TOTAL_CURRENCY,
   METADATA_CUSTOMER_ID_FIELD,
   METADATA_PAYMENT_ID_FIELD,
   METADATA_PRICE_ID_FIELD,
@@ -168,7 +170,7 @@ export class StripeSubscriptionService {
           payment_behavior: 'default_incomplete',
           payment_settings: { save_default_payment_method: 'on_subscription' },
           expand: ['latest_invoice.confirmation_secret'],
-          metadata: this.paymentCreationService.getPaymentMetadata(cart),
+          metadata: this.sealCartTotal(cart, this.paymentCreationService.getPaymentMetadata(cart)),
           discounts: await this.stripeCouponService.getStripeCoupons(cart),
         },
         { idempotencyKey: randomUUID() },
@@ -258,7 +260,7 @@ export class StripeSubscriptionService {
           add_invoice_items: oneTimeItems,
           expand: ['latest_invoice'],
           payment_settings: { save_default_payment_method: 'on_subscription' },
-          metadata: this.paymentCreationService.getPaymentMetadata(cart),
+          metadata: this.sealCartTotal(cart, this.paymentCreationService.getPaymentMetadata(cart)),
           discounts: await this.stripeCouponService.getStripeCoupons(cart),
         },
         { idempotencyKey: randomUUID() },
@@ -1294,7 +1296,8 @@ export class StripeSubscriptionService {
           paymentId: payment.id,
           charge: invoiceExpanded.charge as Stripe.Charge,
           paymentIntentId: updateData.pspReference,
-          invoiceId: invoiceExpanded.id,
+          invoice: invoiceExpanded,
+          subscription,
           paymentState: OrderPaymentState.PAID,
         });
       }
@@ -1371,13 +1374,121 @@ export class StripeSubscriptionService {
   }
 
   /**
+   * Seals the cart total onto the Stripe Subscription at creation time.
+   *
+   * This is the anchor the first-cycle guard compares against. It has to live on a Stripe-owned
+   * object: the whole shape of KI-054 is that the cart is mutable by the shopper between pricing
+   * and `invoice.paid`, so the cart cannot be its own witness. Once written, only the connector's
+   * own API key can change it.
+   *
+   * Stored as the NET `totalPrice`, matching what the invoice is assembled from (see the comparison
+   * base note in `createSubscriptionOrderFromCart`), and alongside its currency so a currency change
+   * cannot pass as an equal amount.
+   */
+  private sealCartTotal(cart: Cart, metadata: Record<string, string>): Record<string, string> {
+    return {
+      ...metadata,
+      [METADATA_CART_TOTAL_AMOUNT]: String(cart.totalPrice.centAmount),
+      [METADATA_CART_TOTAL_CURRENCY]: cart.totalPrice.currencyCode,
+    };
+  }
+
+  /**
+   * True when the cart the order would be minted from is no longer the cart the subscription was
+   * priced from. Compares against the total sealed into the subscription's metadata at creation.
+   *
+   * This is the condition the amount comparison cannot express on a discounted invoice. The amount
+   * check asks "does what Stripe collected equal the cart total", which on a coupon-bearing invoice
+   * depends on the CT-discount → Stripe-coupon translation being exact, and that is not verified
+   * (KI-055). This asks a strictly narrower question with no Stripe arithmetic in it: "is this the
+   * same cart". A translation gap cannot make it false, and enlarging the cart cannot make it true.
+   *
+   * Returns false when the seal is absent — subscriptions created before this shipped keep exactly
+   * their previous behaviour rather than being blocked wholesale on their first renewal.
+   */
+  private cartDriftedFromPricedTotal(
+    cart: Cart,
+    subscription: Stripe.Subscription | undefined,
+  ): { drifted: boolean; pricedAmount?: number; pricedCurrency?: string } {
+    const sealedAmount = subscription?.metadata?.[METADATA_CART_TOTAL_AMOUNT];
+    const sealedCurrency = subscription?.metadata?.[METADATA_CART_TOTAL_CURRENCY];
+    if (sealedAmount === undefined || sealedCurrency === undefined) {
+      return { drifted: false };
+    }
+
+    const pricedAmount = Number(sealedAmount);
+    if (!Number.isInteger(pricedAmount)) {
+      // A malformed seal is not evidence of an attack; fall back rather than block a real order.
+      log.warn('Subscription carries a non-numeric sealed cart total — drift check skipped.', {
+        stripeSubscriptionId: subscription?.id,
+        sealedAmount,
+      });
+      return { drifted: false };
+    }
+
+    const drifted =
+      cart.totalPrice.centAmount !== pricedAmount ||
+      cart.totalPrice.currencyCode.toLowerCase() !== sealedCurrency.toLowerCase();
+
+    return { drifted, pricedAmount, pricedCurrency: sealedCurrency };
+  }
+
+  /**
+   * True only for the exact configuration in which the first subscription invoice MUST equal the cart
+   * total, so a divergence is provably an underpayment rather than a supported billing shape. Every
+   * condition is read from Stripe-owned data (the invoice and the subscription), never from the cart,
+   * because the cart is precisely what the attack mutates.
+   *
+   * Outside this configuration a first invoice legitimately differs from the cart total, so the caller
+   * logs and still creates the order rather than rejecting honest business:
+   *   - trial / free anchor days → first invoice is zero or amount_due-based, not the cart total
+   *   - `send_invoice` → the invoice is paid out of band, later, against a cart that has moved on
+   *   - recurring cycles (`billing_reason !== 'subscription_create'`) → priced from the subscription
+   *     items, not from this cart at all
+   *   - a discounted invoice → the cart total nets a CT discount out while Stripe applies its own
+   *     translated `discounts`; the two are only guaranteed equal once the coupon translation in
+   *     `stripe-coupon.service.ts` is verified, which is a separate piece of work. Excluded here so a
+   *     translation gap cannot reject a legitimate order (the KI-047 failure mode).
+   *
+   * `amount_paid > 0` additionally excludes the zero-invoice shapes (free anchor days, zero trial
+   * invoice) without needing `proration_behavior`, which Stripe does not persist on the Subscription.
+   * It costs nothing in coverage: the attack collects real money by construction.
+   */
+  private isFirstCycleAmountGuardApplicable(
+    invoice: StripeInvoiceExpanded,
+    subscription: Stripe.Subscription | undefined,
+  ): boolean {
+    // A missing/unexpanded subscription means the trial shape cannot be ruled out — log-only, since
+    // this object comes from Stripe and is not something a shopper can suppress to escape the guard.
+    if (!subscription) {
+      return false;
+    }
+
+    const isFirstCycle = invoice.billing_reason === 'subscription_create';
+    const isChargeAutomatically = invoice.collection_method === 'charge_automatically';
+    const hasTrial = !!subscription.trial_end;
+    const collectedRealMoney = invoice.amount_paid > 0;
+    // Read from the INVOICE, never from `cart.discountCodes`. A cart-side read would be shopper-
+    // controlled at exactly the moment of the attack: the same CT call that enlarges the unfrozen cart
+    // can add a discount code, which would switch this guard off and re-open the hole it exists to
+    // close. The invoice's discounts are fixed when the subscription is created and are the only
+    // evidence that a coupon translation was actually involved in what Stripe charged.
+    const hasDiscountedInvoice =
+      (invoice.discounts?.length ?? 0) > 0 || (invoice.total_discount_amounts?.length ?? 0) > 0;
+
+    return isFirstCycle && isChargeAutomatically && !hasTrial && collectedRealMoney && !hasDiscountedInvoice;
+  }
+
+  /**
    * Shared method for subscription order creation that replaces duplicated tail blocks.
-   * Checks cart state, warns on unfrozen carts, updates address, and creates order with
-   * a defensive try/catch for version-conflict race conditions (e.g., invoice.paid vs charge.succeeded).
+   * Checks cart state, warns on unfrozen carts, updates address, validates the amount actually
+   * collected against the cart the order is minted from, and creates the order with a defensive
+   * try/catch for version-conflict race conditions (e.g., invoice.paid vs charge.succeeded).
    * @param params.paymentId - The commercetools payment ID to look up the cart
    * @param params.charge - The Stripe charge for address update
    * @param params.paymentIntentId - The PSP reference for the order
-   * @param params.invoiceId - The Stripe invoice ID (for logging)
+   * @param params.invoice - The expanded Stripe invoice (amount actually collected + logging)
+   * @param params.subscription - The Stripe subscription, when available (guard applicability)
    * @param params.paymentState - The payment state for the order
    * @returns True if order was created, false if skipped or failed gracefully
    */
@@ -1385,10 +1496,12 @@ export class StripeSubscriptionService {
     paymentId: string;
     charge: Stripe.Charge;
     paymentIntentId: string;
-    invoiceId: string;
+    invoice: StripeInvoiceExpanded;
+    subscription?: Stripe.Subscription;
     paymentState?: OrderPaymentState;
   }): Promise<boolean> {
-    const { paymentId, charge, paymentIntentId, invoiceId, paymentState = OrderPaymentState.PAID } = params;
+    const { paymentId, charge, paymentIntentId, invoice, subscription, paymentState = OrderPaymentState.PAID } = params;
+    const invoiceId = invoice.id;
 
     const cart = await this.ctCartService.getCartByPaymentId({ paymentId });
     if (cart.cartState === 'Ordered') {
@@ -1410,6 +1523,42 @@ export class StripeSubscriptionService {
       );
     }
 
+    const isPaidOrder = paymentState === OrderPaymentState.PAID;
+    // Cart-drift guard. Deliberately NOT subject to isFirstCycleAmountGuardApplicable's exemptions:
+    // those exist because a first invoice may legitimately differ from the cart TOTAL, which is a
+    // statement about arithmetic. Drift is a statement about identity — whether this is still the
+    // cart that was priced — and no billing shape makes an enlarged cart legitimate.
+    //
+    // It is what closes the discount hole. `hasDiscountedInvoice` turns the amount check off, and a
+    // shopper chooses whether their cart carries a discount code before the subscription is created,
+    // so that one exemption was attacker-selectable: apply any valid code, then run the KI-054 chain
+    // unimpeded. Every other exemption reads merchant- or Stripe-owned data (product attributes set
+    // `collection_method` and the trial; Stripe sets `billing_reason` and `amount_paid`).
+    //
+    // Evaluated on the cart as read at webhook time, BEFORE updateCartAddress. The seal was taken
+    // before any address existed, so this compares like with like; running it after would fold in a
+    // shipping rate that legitimately changed because the destination became known, and reject an
+    // honest order. The post-address snapshot is still what the amount check below validates.
+    const drift = isPaidOrder ? this.cartDriftedFromPricedTotal(cart, subscription) : { drifted: false };
+    if (drift.drifted) {
+      log.error(
+        'invoice.paid: the cart no longer matches the total the subscription was priced from — order NOT created (cart drift guard).',
+        {
+          ctCartId: cart.id,
+          paymentId,
+          invoiceId,
+          pricedCartTotal: drift.pricedAmount,
+          pricedCurrency: drift.pricedCurrency,
+          currentCartTotal: cart.totalPrice.centAmount,
+          currentCurrency: cart.totalPrice.currencyCode,
+          stripeAmountPaid: invoice.amount_paid,
+          billingReason: invoice.billing_reason,
+          hasInvoiceDiscount: (invoice.discounts?.length ?? 0) > 0,
+        },
+      );
+      return false;
+    }
+
     log.info('Updating cart address after processing the notification', {
       ctCartId: cart.id,
       invoiceId,
@@ -1417,32 +1566,123 @@ export class StripeSubscriptionService {
 
     const updatedCart = await this.paymentService.updateCartAddress(charge, cart);
 
+    // Subscription underpayment guard (KI-054). The equivalent control on the one-time path
+    // (handlePaymentIntentSucceededFlow, Rule 5) can never run here by construction: the webhook
+    // dispatcher deliberately drops subscription-invoice payment_intent.succeeded / charge.* events
+    // because invoice.paid is the single source of truth for subscription money. So this path minted a
+    // Paid order from whatever the cart contained at webhook time, with nothing comparing it to what
+    // Stripe actually collected — while /shipping-methods/remove unfreezes the cart and never re-freezes.
+    //
+    // Validated against the POST-updateCartAddress cart because that is the snapshot the order is
+    // minted from, and the address is shopper-controlled. Compared against `totalPrice`, NOT
+    // `taxedPrice.totalGross`: the invoice is assembled from Stripe Prices built off the line items'
+    // own price values plus the shipping price, and this connector sets neither `automatic_tax` nor a
+    // Stripe Tax calculation on the subscription path, so the invoice carries no tax. Using
+    // `totalGross` here would reject every legitimate order in a tax-on-top configuration. (That the
+    // tax never reaches the subscription invoice at all is a separate, pre-existing defect — KI-056 —
+    // which this guard neither masks nor worsens.)
+    //
+    // Only the configuration in which the two figures MUST be equal is blocked; everything else is
+    // logged and proceeds. A block never creates the order: the Charge/Success is already persisted
+    // upstream, so the outcome is a paid-without-order state surfaced for manual reconciliation —
+    // the hub rule forbids auto-correction, so there is no auto-refund here.
+    // Applies to PAID orders only: the FAILED path creates an order precisely to record that no money
+    // was collected, so there is nothing to validate an amount against.
+    const guardApplies = isPaidOrder && this.isFirstCycleAmountGuardApplicable(invoice, subscription);
+
+    if (isPaidOrder && this.shouldBlockOnAmountMismatch({ invoice, updatedCart, paymentId, guardApplies })) {
+      return false;
+    }
+
     try {
       await this.paymentService.createOrder({
         cart: updatedCart,
         paymentIntentId,
         paymentState,
+        // Pin the version only where the guard actually validated this snapshot, so a cart that moved
+        // after validation cannot still mint an order (commercetools returns 409 → the catch below
+        // treats it as the race it is). Elsewhere keep the legacy re-read: pinning a version this
+        // method never validated would only add 409s that silently drop legitimate paid orders.
+        expectedVersion: guardApplies ? updatedCart.version : undefined,
       });
       return true;
     } catch (e: unknown) {
-      const errorMessage = e instanceof Error ? e.message : JSON.stringify(e);
-      const isVersionConflict =
-        errorMessage.includes('ConcurrentModification') ||
-        errorMessage.includes('version') ||
-        errorMessage.includes('409');
-      if (isVersionConflict) {
+      const conflictMessage = this.getVersionConflictMessage(e);
+      if (conflictMessage !== undefined) {
         log.info(
           'Subscription order creation skipped due to version conflict (likely race condition with another handler)',
           {
             ctCartId: updatedCart.id,
             invoiceId,
-            error: errorMessage,
+            error: conflictMessage,
           },
         );
         return false;
       }
       throw e;
     }
+  }
+
+  /**
+   * Compares the amount Stripe actually collected on a paid invoice against the cart total the order
+   * is minted from (KI-054). A mismatch blocks the order only when the underpayment guard applies;
+   * otherwise it is logged for reconciliation and the order proceeds.
+   * @param params.invoice - The expanded Stripe invoice (amount actually collected)
+   * @param params.updatedCart - The post-updateCartAddress cart the order is minted from
+   * @param params.paymentId - The commercetools payment ID (logging only)
+   * @param params.guardApplies - Whether this billing configuration requires both figures to match
+   * @returns True if the order must NOT be created, false otherwise
+   */
+  private shouldBlockOnAmountMismatch(params: {
+    invoice: StripeInvoiceExpanded;
+    updatedCart: Cart;
+    paymentId: string;
+    guardApplies: boolean;
+  }): boolean {
+    const { invoice, updatedCart, paymentId, guardApplies } = params;
+
+    if (paidAmountMatchesTotal(invoice.amount_paid, invoice.currency, updatedCart.totalPrice)) {
+      return false;
+    }
+
+    const mismatchDetail = {
+      ctCartId: updatedCart.id,
+      paymentId,
+      invoiceId: invoice.id,
+      stripeAmountPaid: invoice.amount_paid,
+      stripeCurrency: invoice.currency,
+      cartTotalCentAmount: updatedCart.totalPrice.centAmount,
+      cartCurrency: updatedCart.totalPrice.currencyCode,
+      billingReason: invoice.billing_reason,
+      collectionMethod: invoice.collection_method,
+    };
+    if (guardApplies) {
+      log.error(
+        'invoice.paid: collected amount does not match the cart total — order NOT created (subscription underpayment guard).',
+        mismatchDetail,
+      );
+      return true;
+    }
+    log.warn(
+      'invoice.paid: collected amount does not match the cart total, but this billing configuration allows a first invoice to differ — order created, flagged for reconciliation.',
+      mismatchDetail,
+    );
+    return false;
+  }
+
+  /**
+   * Classifies an order-creation error as a commercetools version conflict (e.g., invoice.paid racing
+   * charge.succeeded for the same cart).
+   * @param e - The error thrown by order creation
+   * @returns The error message when it is a version conflict, undefined otherwise
+   */
+  private getVersionConflictMessage(e: unknown): string | undefined {
+    const errorMessage = e instanceof Error ? e.message : JSON.stringify(e);
+    const isVersionConflict =
+      errorMessage.includes('ConcurrentModification') ||
+      errorMessage.includes('version') ||
+      errorMessage.includes('409');
+    return isVersionConflict ? errorMessage : undefined;
   }
 
   /**
@@ -1589,11 +1829,15 @@ export class StripeSubscriptionService {
       }
 
       if (isPaymentChargePending) {
+        // Same first-cycle cart and same exposure as the invoice.paid path, so it gets the same
+        // amount guard — closing one branch of a handler and not the other is the defect class
+        // KI-054 itself is an instance of.
         await this.createSubscriptionOrderFromCart({
           paymentId: payment.id,
           charge: invoiceExpanded.charge as Stripe.Charge,
           paymentIntentId: updateData.pspReference,
-          invoiceId: invoiceExpanded.id,
+          invoice: invoiceExpanded,
+          subscription,
           paymentState: OrderPaymentState.PAID,
         });
       }
@@ -1791,11 +2035,14 @@ export class StripeSubscriptionService {
       }
 
       if (isPaymentChargePending || isPaymentFailed) {
+        // No amount guard here, deliberately: this order is created precisely to record that the
+        // collection FAILED, so there is no collected amount to validate the cart against. The guard
+        // is skipped on paymentState — `subscription` is therefore not passed.
         await this.createSubscriptionOrderFromCart({
           paymentId: payment.id,
           charge: invoiceExpanded.charge as Stripe.Charge,
           paymentIntentId: updateData.pspReference,
-          invoiceId: invoiceExpanded.id,
+          invoice: invoiceExpanded,
           paymentState: OrderPaymentState.FAILED,
         });
       }

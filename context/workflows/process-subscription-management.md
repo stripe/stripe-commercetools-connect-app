@@ -17,7 +17,7 @@ Merchant                  Processor                        Stripe          CT
   |                           | subscriptions.cancel(id)       |              |
   |                           |-------------------------------->|              |
   |   { id, status: "canceled",|                               |              |
-  |     outcome: "CANCELLED" } |                               |              |
+  |     outcome: "canceled" }  |                               |              |
   |<--------------------------|                                |              |
 ```
 

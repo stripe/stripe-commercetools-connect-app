@@ -238,7 +238,10 @@ Two protections cover this:
 
 - **Cart freeze**: `isMicrodepositNextAction` (`utils.ts`) freezes the cart on that `requires_action`. It
   is kept **separate** from `isBankTransferNextAction` on purpose, so the 3DS/Boleto release-gate tests
-  that pin the bank-transfer predicate stay green. No CT transaction is written.
+  that pin the bank-transfer predicate stay green. Like bank transfer, the event runs `processStripeEvent`
+  and the converter writes one **Authorization: Pending** for `pi.amount` (`stripeEventConverter.ts`, case
+  `PAYMENT_INTENT__REQUIRED_ACTION`) — the two rails differ only in the freeze predicate, not in whether a
+  CT transaction is written.
 - **Order-creation backstop**: `handlePaymentIntentSucceededFlow` refuses to create the order unless
   `pi.amount` equals the cart's *current* total, `pi.amount_received` equals `pi.amount`, and the currency
   matches (integer minor-unit comparison, so JPY is correct). On mismatch it logs at `error` and returns.

@@ -129,6 +129,35 @@ export const isEventRefund = (event: Stripe.Event): boolean => {
   return event.type === StripeEvent.CHARGE__REFUNDED;
 };
 
+/**
+ * Single implementation of the underpayment comparison shared by every order-creating path.
+ *
+ * WHY THE EXPECTED TOTAL IS A PARAMETER AND NOT DERIVED FROM THE CART HERE. The two flows do not
+ * charge the same figure, and hard-coding either convention inside this function is what would
+ * produce the duplicate-guard divergence that KI-050/KI-054 are both instances of:
+ *   - One-time (`payment_intent.succeeded`): the PaymentIntent is created for the cart's payable
+ *     amount, which is `taxedPrice.totalGross` when tax was calculated — so the caller passes that.
+ *   - Subscription (`invoice.paid`): the invoice is assembled from Stripe Prices built off
+ *     `lineItem.price.(discounted?.)value` plus the shipping price, and this connector never sets
+ *     `automatic_tax` nor passes a Stripe Tax calculation on the subscription path — so the invoice
+ *     carries NO tax and the caller passes `cart.totalPrice`. Comparing a subscription invoice
+ *     against `totalGross` would reject every legitimate order in a tax-on-top configuration
+ *     (the KI-047 false-positive failure mode, from the other direction).
+ *
+ * Integer comparison in the currency's minor unit, NOT divided by 100: commercetools `centAmount`
+ * already respects the currency's fractionDigits and so does Stripe's amount, so this is correct for
+ * USD and for zero-decimal currencies (JPY). Equality rejects both under- and over-payment.
+ */
+export const paidAmountMatchesTotal = (
+  paidAmount: number,
+  paidCurrency: string,
+  expectedTotal: { centAmount: number; currencyCode: string },
+): boolean => {
+  const amountMatches = paidAmount === expectedTotal.centAmount;
+  const currencyMatches = paidCurrency.toLowerCase() === expectedTotal.currencyCode.toLowerCase();
+  return amountMatches && currencyMatches;
+};
+
 export const transformVariantAttributes = <T>(attributes?: Attribute[]): T => {
   const result: Record<string, string> = {};
   for (const { name, value } of attributes ?? []) {

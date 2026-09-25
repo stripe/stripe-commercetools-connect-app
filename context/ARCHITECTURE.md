@@ -70,6 +70,14 @@ Extends `ct-connect-stripe-checkout` with subscription billing, mixed carts (one
 | --- | --- |
 | `GET /customer/session?stripeCustomerId=cus_xxx` | Returns stored Stripe customer for a known Stripe ID |
 
+### Operations (`operation.route.ts` — connect-payments-sdk)
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /status` | SDK health/status probe (`paymentService.status()`) |
+| `GET /payment-components` | Lists supported payment components (`getSupportedPaymentComponents()`); note the hardcoded empty `supportedMethods` map — see `known-issues.md` KI-025 |
+| `POST /payment-intents/:id` | Merchant operations endpoint — capture / refund / cancel via `modifyPayment()`. The operations themselves are documented in `business-rules/multi-operations.md` and `business-rules/refunds-and-disputes.md` |
+
 ---
 
 ## CT Data Model (additions to checkout)

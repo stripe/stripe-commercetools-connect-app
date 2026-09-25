@@ -26,6 +26,33 @@ describe('StripeSubscriptionService - Simple Private Method Tests', () => {
     jest.clearAllMocks();
   });
 
+  describe('sealCartTotal — the anchor the drift guard compares against', () => {
+    const cart = {
+      id: 'cart_123',
+      totalPrice: { type: 'centPrecision', currencyCode: 'EUR', centAmount: 2000, fractionDigits: 2 },
+    } as any;
+
+    test('writes the cart total and currency onto the subscription metadata', () => {
+      const service = stripeSubscriptionService as any;
+
+      const metadata = service.sealCartTotal(cart, { ct_payment_id: 'p_1' });
+
+      expect(metadata).toEqual({
+        ct_payment_id: 'p_1',
+        ct_cart_total_amount: '2000',
+        ct_cart_total_currency: 'EUR',
+      });
+    });
+
+    test('keeps the amount a string, as the Stripe metadata API requires', () => {
+      const service = stripeSubscriptionService as any;
+
+      const metadata = service.sealCartTotal(cart, {});
+
+      expect(typeof metadata.ct_cart_total_amount).toBe('string');
+    });
+  });
+
   describe('Private Method Access', () => {
     test('should be able to access private methods using type assertion', () => {
       const service = stripeSubscriptionService as any;

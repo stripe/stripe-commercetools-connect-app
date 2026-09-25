@@ -1,4 +1,5 @@
 import Stripe from 'stripe';
+import { StripeInvoiceExpanded } from '../../src/services/types/stripe-subscription.type';
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
 import * as StatusHandler from '@commercetools/connect-payments-sdk/dist/api/handlers/status.handler';
 import { DefaultPaymentService } from '@commercetools/connect-payments-sdk/dist/commercetools/services/ct-payment.service';
@@ -1912,6 +1913,392 @@ describe('stripe-payment.service', () => {
       );
     });
 
+    // Characterisation of the pre-mutation guard's remaining branches. Before these, only a larger cart
+    // total was driven, so the currency half, the settlement-completeness half and the case-insensitive
+    // currency match could each change without a failing test.
+    describe('pre-mutation guard — every branch of the comparison', () => {
+      const converted = {
+        id: 'paymentId',
+        pspReference: 'paymentIntentId',
+        paymentMethod: 'payment',
+        transactions: [],
+      };
+      const cartAt = (centAmount: number, currencyCode: string) =>
+        ({ id: 'mock-cart-id', version: 1, cartState: 'Active', totalPrice: { centAmount, currencyCode } }) as Cart;
+      const eventWith = (pi: Partial<Stripe.PaymentIntent>): Stripe.Event => ({
+        ...mockEvent__paymentIntent_succeeded_captureMethodManual,
+        data: { object: { ...mockEvent__paymentIntent_succeeded_captureMethodManual.data.object, ...pi } },
+      });
+      const run = async (event: Stripe.Event, cart: Cart) => {
+        jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(converted);
+        jest.spyOn(DefaultCartService.prototype, 'getCartByPaymentId').mockResolvedValue(cart);
+        jest.spyOn(Stripe.prototype.charges, 'retrieve').mockResolvedValue({} as Stripe.Response<Stripe.Charge>);
+        jest.spyOn(StripePaymentService.prototype, 'updateCartAddress').mockResolvedValue(cart);
+        const createOrderSpy = jest.spyOn(StripePaymentService.prototype, 'createOrder').mockResolvedValue();
+        await stripePaymentService.processStripeEvent(event);
+        return createOrderSpy;
+      };
+      const GUARD_A =
+        'payment_intent.succeeded: paid amount/currency does not match the current cart total — order NOT created (underpayment guard).';
+
+      test('refuses an equal amount in a different currency', async () => {
+        const createOrderSpy = await run(
+          eventWith({ amount: 13200, amount_received: 13200, currency: 'mxn' }),
+          cartAt(13200, 'usd'),
+        );
+
+        expect(createOrderSpy).not.toHaveBeenCalled();
+        expect(Logger.log.error).toHaveBeenCalledWith(
+          GUARD_A,
+          expect.objectContaining({ stripeCurrency: 'mxn', cartCurrency: 'usd' }),
+        );
+      });
+
+      test('refuses a payment that matches the cart but was not collected in full', async () => {
+        const createOrderSpy = await run(
+          eventWith({ amount: 13200, amount_received: 10000, currency: 'mxn' }),
+          cartAt(13200, 'mxn'),
+        );
+
+        expect(createOrderSpy).not.toHaveBeenCalled();
+        expect(Logger.log.error).toHaveBeenCalledWith(
+          GUARD_A,
+          expect.objectContaining({ stripeAmountReceived: 10000 }),
+        );
+      });
+
+      test('matches the currency case-insensitively (Stripe lower-case, commercetools upper-case)', async () => {
+        const createOrderSpy = await run(
+          eventWith({ amount: 13200, amount_received: 13200, currency: 'mxn' }),
+          cartAt(13200, 'MXN'),
+        );
+
+        expect(createOrderSpy).toHaveBeenCalled();
+        expect(Logger.log.error).not.toHaveBeenCalledWith(GUARD_A, expect.anything());
+      });
+    });
+
+    describe('version pin — the 409 that the confirm-freeze race produces', () => {
+      const convertedPayment = {
+        id: 'paymentId',
+        pspReference: 'paymentIntentId',
+        paymentMethod: 'payment',
+        transactions: [],
+      };
+      const validatedCart = {
+        id: 'mock-cart-id',
+        version: 9,
+        cartState: 'Active',
+        taxMode: 'Platform',
+        totalPrice: { centAmount: 13200, currencyCode: 'mxn' },
+      } as Cart;
+
+      /** Order creation 409s once; `reread` is what commercetools holds on the retry. */
+      const runWithConflict = async (reread: Cart, firstError = new Error('ConcurrentModification')) => {
+        jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(convertedPayment);
+        jest.spyOn(DefaultCartService.prototype, 'getCartByPaymentId').mockResolvedValue(validatedCart);
+        jest.spyOn(Stripe.prototype.charges, 'retrieve').mockResolvedValue({} as Stripe.Response<Stripe.Charge>);
+        jest.spyOn(StripePaymentService.prototype, 'updateCartAddress').mockResolvedValue(validatedCart);
+        jest.spyOn(DefaultCartService.prototype, 'getCart').mockResolvedValue(reread);
+        const createOrderSpy = jest
+          .spyOn(StripePaymentService.prototype, 'createOrder')
+          .mockRejectedValueOnce(firstError)
+          .mockResolvedValue();
+
+        await stripePaymentService.processStripeEvent(mockEvent__paymentIntent_succeeded_captureMethodManual);
+        return createOrderSpy;
+      };
+
+      // The regression that made the pin conditional in the first place: /confirmPayments freezes the cart
+      // in a webhook-racing request, the pinned POST 409s, and a fully paid order used to be dropped.
+      test('retries once and creates the order when the moved cart is still worth what was collected', async () => {
+        const frozenByConfirm = { ...validatedCart, version: 10, cartState: 'Frozen' } as Cart;
+
+        const createOrderSpy = await runWithConflict(frozenByConfirm);
+
+        expect(createOrderSpy).toHaveBeenCalledTimes(2);
+        expect(createOrderSpy).toHaveBeenLastCalledWith(
+          expect.objectContaining({ cart: frozenByConfirm, expectedVersion: 10 }),
+        );
+      });
+
+      // ...and the case the pin exists for: the cart moved because it grew.
+      test('does NOT retry into an order when the moved cart is no longer worth what was collected', async () => {
+        const enlarged = {
+          ...validatedCart,
+          version: 11,
+          totalPrice: { centAmount: 70000, currencyCode: 'mxn' },
+        } as Cart;
+
+        const createOrderSpy = await runWithConflict(enlarged);
+
+        expect(createOrderSpy).toHaveBeenCalledTimes(1);
+        expect(Logger.log.error).toHaveBeenCalledWith(
+          expect.stringContaining('order NOT created (version pin)'),
+          expect.objectContaining({ currentCartTotal: 70000, validatedCartVersion: 9, currentCartVersion: 11 }),
+        );
+      });
+
+      // Kills the mutant that drops the currency comparison from the retry check.
+      test('rejects the retry when the amount matches but the currency does not', async () => {
+        const createOrderSpy = await runWithConflict({
+          ...validatedCart,
+          version: 10,
+          totalPrice: { centAmount: 13200, currencyCode: 'usd' },
+        } as Cart);
+
+        expect(createOrderSpy).toHaveBeenCalledTimes(1);
+      });
+
+      test('rethrows an error that is not a version conflict', async () => {
+        const createOrderSpy = await runWithConflict(validatedCart, new Error('InvalidOperation: something else'));
+
+        // processStripeEvent catches and logs; the point is that no retry was attempted.
+        expect(createOrderSpy).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    test('should NOT create an order when a post-guard shipping-address change inflates taxedPrice past the paid amount (post-address underpayment guard)', async () => {
+      const mockEvent: Stripe.Event = mockEvent__paymentIntent_succeeded_captureMethodManual;
+
+      const test = {
+        id: 'paymentId',
+        pspReference: 'paymentIntentId',
+        paymentMethod: 'payment',
+        transactions: [],
+      };
+      // Cart A (pre-mutation) matches the PI (amount = amount_received = 13200 mxn) → passes guard A.
+      const cartA = {
+        id: 'mock-cart-id',
+        version: 1,
+        cartState: 'Active',
+        totalPrice: { centAmount: 13200, currencyCode: 'mxn' },
+      } as Cart;
+      // Cart B (post-updateCartAddress): shopper set a North-Carolina address, Platform tax recomputed
+      // taxedPrice.totalGross to 15575 (+2375 on-top tax) — the reproduced shortfall. Order must NOT mint.
+      const cartB = {
+        id: 'mock-cart-id',
+        version: 2,
+        cartState: 'Frozen',
+        taxMode: 'Platform',
+        totalPrice: { centAmount: 13200, currencyCode: 'mxn' },
+        taxedPrice: { totalGross: { centAmount: 15575, currencyCode: 'mxn' } },
+      } as Cart;
+
+      jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(test);
+      jest.spyOn(DefaultCartService.prototype, 'getCartByPaymentId').mockResolvedValue(cartA);
+      jest.spyOn(Stripe.prototype.charges, 'retrieve').mockResolvedValue({} as Stripe.Response<Stripe.Charge>);
+      jest.spyOn(StripePaymentService.prototype, 'updateCartAddress').mockResolvedValue(cartB);
+      const createOrderSpy = jest.spyOn(StripePaymentService.prototype, 'createOrder').mockResolvedValue();
+
+      await stripePaymentService.processStripeEvent(mockEvent);
+
+      expect(createOrderSpy).not.toHaveBeenCalled();
+      // Exact-object assertion: any address field leaking into the log (PII) would fail this test.
+      expect(Logger.log.error).toHaveBeenCalledWith(
+        'payment_intent.succeeded: paid amount does not match the recalculated cart total after address update — order NOT created (post-address underpayment guard).',
+        {
+          ctCartId: 'mock-cart-id',
+          paymentId: 'paymentId',
+          pspReference: 'paymentIntentId',
+          stripeAmountReceived: 13200,
+          stripeCurrency: 'mxn',
+          cartTaxMode: 'Platform',
+          cartHasTaxedPrice: true,
+          cartTotalBeforeAddress: 13200,
+          cartTotalCentAmount: 15575,
+        },
+      );
+    });
+
+    test('should create the order pinned to the post-address cart version when the paid amount still matches (honest control)', async () => {
+      const mockEvent: Stripe.Event = mockEvent__paymentIntent_succeeded_captureMethodManual;
+
+      const test = {
+        id: 'paymentId',
+        pspReference: 'paymentIntentId',
+        paymentMethod: 'payment',
+        transactions: [],
+      };
+      const cartA = {
+        id: 'mock-cart-id',
+        version: 1,
+        cartState: 'Active',
+        totalPrice: { centAmount: 13200, currencyCode: 'mxn' },
+      } as Cart;
+      // Matching address at confirmation → recomputed total still equals the paid amount. Order mints,
+      // pinned to cartB.version so it cannot be created from a cart that moved after validation.
+      const cartB = {
+        id: 'mock-cart-id',
+        version: 7,
+        cartState: 'Frozen',
+        taxMode: 'Platform',
+        totalPrice: { centAmount: 13200, currencyCode: 'mxn' },
+        taxedPrice: { totalGross: { centAmount: 13200, currencyCode: 'mxn' } },
+      } as Cart;
+
+      jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(test);
+      jest.spyOn(DefaultCartService.prototype, 'getCartByPaymentId').mockResolvedValue(cartA);
+      jest.spyOn(Stripe.prototype.charges, 'retrieve').mockResolvedValue({} as Stripe.Response<Stripe.Charge>);
+      jest.spyOn(StripePaymentService.prototype, 'updateCartAddress').mockResolvedValue(cartB);
+      const createOrderSpy = jest.spyOn(StripePaymentService.prototype, 'createOrder').mockResolvedValue();
+
+      await stripePaymentService.processStripeEvent(mockEvent);
+
+      expect(createOrderSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cart: cartB,
+          paymentIntentId: 'paymentIntentId',
+          expectedVersion: 7,
+        }),
+      );
+      expect(Logger.log.error).not.toHaveBeenCalledWith(
+        expect.stringContaining('post-address underpayment guard'),
+        expect.any(Object),
+      );
+    });
+
+    // Inverted deliberately. This case used to be a hard-fail: a Platform cart whose taxedPrice was not
+    // computed was refused even when the amount matched, on the reasoning that totalPrice could mask
+    // uncollected destination tax. But the pre-mutation guard accepts that same cart against that same
+    // number, so the rule dropped paid orders that had just been validated — money captured, no order, no
+    // auto-refund, on carts that had done nothing. The guard now triggers on the total actually MOVING, so
+    // this cart (13200 before, 13200 after) is not re-checked and the order is created. Under-collected tax
+    // on a never-taxed cart is KI-056 and is not addressed by refusing orders here.
+    test('should create the order when the post-address Platform cart still has no taxedPrice and the total did not move', async () => {
+      const mockEvent: Stripe.Event = mockEvent__paymentIntent_succeeded_captureMethodManual;
+
+      const test = {
+        id: 'paymentId',
+        pspReference: 'paymentIntentId',
+        paymentMethod: 'payment',
+        transactions: [],
+      };
+      const cartA = {
+        id: 'mock-cart-id',
+        version: 1,
+        cartState: 'Active',
+        totalPrice: { centAmount: 13200, currencyCode: 'mxn' },
+      } as Cart;
+      // Platform tax mode, taxedPrice still not computed, and the total is unchanged by the address write.
+      const cartB = {
+        id: 'mock-cart-id',
+        version: 3,
+        cartState: 'Frozen',
+        taxMode: 'Platform',
+        totalPrice: { centAmount: 13200, currencyCode: 'mxn' },
+      } as Cart;
+
+      jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(test);
+      jest.spyOn(DefaultCartService.prototype, 'getCartByPaymentId').mockResolvedValue(cartA);
+      jest.spyOn(Stripe.prototype.charges, 'retrieve').mockResolvedValue({} as Stripe.Response<Stripe.Charge>);
+      jest.spyOn(StripePaymentService.prototype, 'updateCartAddress').mockResolvedValue(cartB);
+      const createOrderSpy = jest.spyOn(StripePaymentService.prototype, 'createOrder').mockResolvedValue();
+
+      await stripePaymentService.processStripeEvent(mockEvent);
+
+      expect(createOrderSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ cart: cartB, paymentIntentId: 'paymentIntentId', expectedVersion: 3 }),
+      );
+      expect(Logger.log.error).not.toHaveBeenCalledWith(
+        expect.stringContaining('post-address underpayment guard'),
+        expect.any(Object),
+      );
+    });
+
+    test('should still create the order for a Platform cart with no taxedPrice when the address did not change (no false paid-without-order)', async () => {
+      const mockEvent: Stripe.Event = mockEvent__paymentIntent_succeeded_captureMethodManual;
+
+      const test = {
+        id: 'paymentId',
+        pspReference: 'paymentIntentId',
+        paymentMethod: 'payment',
+        transactions: [],
+      };
+      // Platform cart with NO computed taxedPrice: guard A validated it against totalPrice (13200 == paid).
+      // The charge carries no complete address → updateCartAddress no-ops and returns the SAME cart/version.
+      // The total did not move, so the amount is not re-checked and this legitimate order is not blocked.
+      // The version IS pinned — pinning is now unconditional, and the /confirmPayments freeze that races
+      // this webhook is handled by the 409 retry rather than by declining to pin (see the retry tests).
+      const cartA = {
+        id: 'mock-cart-id',
+        version: 5,
+        cartState: 'Active',
+        taxMode: 'Platform',
+        totalPrice: { centAmount: 13200, currencyCode: 'mxn' },
+      } as Cart;
+
+      jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(test);
+      jest.spyOn(DefaultCartService.prototype, 'getCartByPaymentId').mockResolvedValue(cartA);
+      jest.spyOn(Stripe.prototype.charges, 'retrieve').mockResolvedValue({} as Stripe.Response<Stripe.Charge>);
+      // No-op mutation: same cart, same version.
+      jest.spyOn(StripePaymentService.prototype, 'updateCartAddress').mockResolvedValue(cartA);
+      const createOrderSpy = jest.spyOn(StripePaymentService.prototype, 'createOrder').mockResolvedValue();
+
+      await stripePaymentService.processStripeEvent(mockEvent);
+
+      expect(createOrderSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cart: cartA,
+          paymentIntentId: 'paymentIntentId',
+          expectedVersion: 5,
+        }),
+      );
+      expect(Logger.log.error).not.toHaveBeenCalledWith(
+        expect.stringContaining('post-address underpayment guard'),
+        expect.any(Object),
+      );
+    });
+
+    // Inverted deliberately. The no-op path used to skip the pin so the /confirmPayments freeze racing this
+    // webhook could not 409 a legitimate order away. That protected the freeze race but left the window
+    // open for every other concurrent write — a line item, a discount, a shipping method — on the path most
+    // card checkouts take. The pin is now unconditional and the freeze race is resolved by re-reading and
+    // re-deciding on 409, which keeps the honest order without leaving the window open.
+    test('should PIN the version on the no-op path (the confirm-freeze race is handled by the 409 retry, not by skipping the pin)', async () => {
+      const mockEvent: Stripe.Event = mockEvent__paymentIntent_succeeded_captureMethodManual;
+
+      const test = {
+        id: 'paymentId',
+        pspReference: 'paymentIntentId',
+        paymentMethod: 'payment',
+        transactions: [],
+      };
+      // Honest one-time checkout: the charge address is incomplete (card Payment Element only collects
+      // country+ZIP), so updateCartAddress no-ops and returns the SAME cart the pre-mutation guard already
+      // validated (13200 == paid). The total did not move, so the amount is not re-checked — but the version
+      // IS pinned.
+      const cartNoop = {
+        id: 'mock-cart-id',
+        version: 9,
+        cartState: 'Active',
+        taxMode: 'Platform',
+        taxedPrice: { totalGross: { centAmount: 13200, currencyCode: 'mxn' } },
+        totalPrice: { centAmount: 13200, currencyCode: 'mxn' },
+      } as Cart;
+
+      jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(test);
+      jest.spyOn(DefaultCartService.prototype, 'getCartByPaymentId').mockResolvedValue(cartNoop);
+      jest.spyOn(Stripe.prototype.charges, 'retrieve').mockResolvedValue({} as Stripe.Response<Stripe.Charge>);
+      // No-op mutation: same cart, same version (incomplete charge address).
+      jest.spyOn(StripePaymentService.prototype, 'updateCartAddress').mockResolvedValue(cartNoop);
+      const createOrderSpy = jest.spyOn(StripePaymentService.prototype, 'createOrder').mockResolvedValue();
+
+      await stripePaymentService.processStripeEvent(mockEvent);
+
+      expect(createOrderSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cart: cartNoop,
+          paymentIntentId: 'paymentIntentId',
+          expectedVersion: 9,
+        }),
+      );
+      expect(Logger.log.error).not.toHaveBeenCalledWith(
+        expect.stringContaining('post-address underpayment guard'),
+        expect.any(Object),
+      );
+    });
+
     test('should skip order creation on payment_intent.succeeded when the cart is already Ordered (idempotency)', async () => {
       const mockEvent: Stripe.Event = mockEvent__paymentIntent_succeeded_captureMethodManual;
 
@@ -3173,7 +3560,7 @@ describe('stripe-payment.service', () => {
       await subscriptionService.processSubscriptionEventPaid(mockEvent);
 
       const mockedInvoice = mockEvent.data.object as Stripe.Invoice;
-      const mockedSubscription = (mockedInvoice as any).parent?.subscription_details
+      const mockedSubscription = (mockedInvoice as unknown as StripeInvoiceExpanded).parent?.subscription_details
         ?.subscription as Stripe.Subscription;
       const mockedPaymentIntent = mockedInvoice.payment_intent as Stripe.PaymentIntent;
       expect(spiedStripeInvoiceExpandedMock).toHaveBeenCalled();
@@ -3372,7 +3759,7 @@ describe('stripe-payment.service', () => {
       await subscriptionService.processSubscriptionEventPaid(mockEvent);
 
       const mockedInvoice = mockEvent.data.object as Stripe.Invoice;
-      const mockedSubscription = (mockedInvoice as any).parent?.subscription_details
+      const mockedSubscription = (mockedInvoice as unknown as StripeInvoiceExpanded).parent?.subscription_details
         ?.subscription as Stripe.Subscription;
       const mockedPaymentIntent = mockedInvoice.payment_intent as Stripe.PaymentIntent;
       expect(spiedStripeInvoiceExpandedMock).toHaveBeenCalled();
@@ -3462,7 +3849,7 @@ describe('stripe-payment.service', () => {
       await subscriptionService.processSubscriptionEventFailed(mockEvent);
 
       const mockedInvoice = mockEvent.data.object as Stripe.Invoice;
-      const mockedSubscription = (mockedInvoice as any).parent?.subscription_details
+      const mockedSubscription = (mockedInvoice as unknown as StripeInvoiceExpanded).parent?.subscription_details
         ?.subscription as Stripe.Subscription;
       const mockedPaymentIntent = mockedInvoice.payment_intent as Stripe.PaymentIntent;
       expect(spiedStripeInvoiceExpandedMock).toHaveBeenCalled();
@@ -3593,8 +3980,8 @@ describe('stripe-payment.service', () => {
       expect(spiedStripeInvoiceExpandedMock).toHaveBeenCalledWith(mockedCharge.invoice);
 
       // The expanded invoice contains the subscription with metadata
-      const mockedSubscription = (mockStripeInvoicesRetrievedExpanded as any).parent?.subscription_details
-        ?.subscription as Stripe.Subscription;
+      const mockedSubscription = (mockStripeInvoicesRetrievedExpanded as unknown as StripeInvoiceExpanded).parent
+        ?.subscription_details?.subscription as Stripe.Subscription;
       expect(spiedPaymentMock).toHaveBeenCalled();
       expect(spiedPaymentMock).toHaveBeenCalledWith({
         id: mockedSubscription.metadata.ct_payment_id,

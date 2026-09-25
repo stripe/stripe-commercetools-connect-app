@@ -80,7 +80,15 @@ here rather than in the card-shaped documents.
 | Why an ACH subscription payment is `Charge/Pending`, not `Success` | `decisions/adr-013-async-ach-charge-pending.md` + `business-rules/subscription-lifecycle.md` |
 | What happens when a settled ACH debit is reversed weeks later | `decisions/adr-014-ach-late-return-flag.md` + `failure-modes.md → Stripe ACH — Late return` |
 | Why an order can be refused after the money was captured | `decisions/adr-016-ach-microdeposit-underpayment-backstop.md` + `business-rules/payment-confirmation.md` |
+| Why a cart whose total moves on address write mints no order | `business-rules/payment-confirmation.md` Rule 5b + `decisions/adr-019-post-address-guard-and-unconditional-version-pin.md` |
+| Why a subscription order checks the cart against a sealed total | `business-rules/payment-confirmation.md` Rule 7 + `decisions/adr-017-subscription-invoice-paid-underpayment-guard.md` addendum |
 | Which rails freeze the cart, and when | `business-rules/payment-confirmation.md` + `known-issues.md` KI-050 |
+| Why a subscription order can be refused after the invoice was paid | `decisions/adr-017-subscription-invoice-paid-underpayment-guard.md` + `business-rules/payment-confirmation.md` Rule 6 |
+| Why the subscription guard compares `totalPrice` while the one-time guard compares `totalGross` | `business-rules/payment-confirmation.md` Rule 6 + `known-issues.md` KI-056 (subscription invoices carry no tax) |
+| Why `/shipping-methods/remove` leaving the cart unfrozen is not treated as the bug | `workflows/process-shipping.md` + `known-issues.md` KI-054, KI-008 |
+| Why a discount code on the cart may never reach the Stripe subscription | `business-rules/coupon-sync.md` Rule 3 + `decisions/adr-018-ct-state-authority-coupon-price-vehicle.md` |
+| Why a discount code's usage cap is not visible on the Stripe Dashboard | `business-rules/coupon-sync.md` Rule 5 + `decisions/adr-018-ct-state-authority-coupon-price-vehicle.md` + `known-issues.md` KI-055 |
+| Why an exhausted Stripe coupon is never deleted and recreated | `business-rules/coupon-sync.md` Rule 4 + `known-issues.md` KI-055 |
 | How crypto/stablecoin settlement is modelled | `workflows/process-crypto-payment.md` |
 
 ---

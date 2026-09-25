@@ -120,6 +120,10 @@ Stripe ECE                    Processor                                  CT
 
 **Important:** Cart is NOT re-frozen after remove. The checkout was abandoned — the cart returns to an unfrozen, editable state so the customer can modify it or try a different payment flow.
 
+> **This endpoint is not a security boundary, and the freeze it releases never was one.** Reaching it requires only session auth on the shopper's own cart, and it leaves the cart editable while an already-priced subscription invoice stays locked at its original amount. That was step 2 of the KI-054 underpayment chain: create subscription → cancel here → enlarge the cart → let `invoice.paid` mint the order. What closes that loss is the amount guard in `createSubscriptionOrderFromCart` (`business-rules/payment-confirmation.md` Rule 6, ADR-017), which validates what Stripe collected against the cart the order is minted from — **not** the freeze.
+>
+> Do not "fix" a future variant of this by re-freezing here or by conditioning the unfreeze on an in-flight subscription. The freeze is best-effort in at least four places (KI-008), so making it load-bearing repeats the mistake KI-054 exposed; and blocking the unfreeze strands a genuine canceller with a frozen cart, which is the KI-044 family. Hardening this endpoint is tracked as defense in depth, with its own Express Checkout regression scope — never as the control that prevents underpayment.
+
 ---
 
 ## Freeze/unfreeze contract
@@ -130,7 +134,29 @@ Stripe ECE                    Processor                                  CT
 | Address change | Unfrozen (normal cart) | Unfrozen (no change) |
 | Method selection | Frozen | Frozen (re-frozen after update) |
 | Method selection | Unfrozen | Unfrozen |
-| Checkout cancelled | Frozen | **Unfrozen** (intentional — payment abandoned) |
+| Checkout cancelled | Frozen (**one-time** cart) | **Unfrozen** (intentional — payment abandoned) |
+| Checkout cancelled | Frozen (**subscription** cart) | **Unfrozen** — also intentional, see below |
 | Checkout cancelled | Unfrozen | Unfrozen |
+
+### What the freeze is protecting
+
+The table above describes *state* only. That is how the subscription row read as unremarkable for four
+months: a freeze being released looks fine until you ask which freeze, and what was relying on it. So
+state transitions on a control belong next to the thing the control protects.
+
+| Freeze taken by | Protects | Released legitimately by | What holds the invariant after release |
+|---|---|---|---|
+| Express Checkout (`POST /shipping-methods`, `/update`) | Nothing — it is restoring a freeze it borrowed | The same request, immediately (re-freeze) | n/a |
+| `POST /subscription` | Nothing load-bearing. It was *believed* to protect the cart backing an already-priced invoice | This endpoint, on abandonment — deliberately, see the note above | The amount guard in `createSubscriptionOrderFromCart` (Rule 7 + ADR-017 addendum), which compares what Stripe collected against the sealed cart total |
+| Bank transfer / ACH commit point | Nothing load-bearing — the cart total must match an amount that settles days later | Settlement, or abandonment | The same amount guard, refusing the order |
+
+Read the middle row carefully: the answer is *not* "the freeze protects it". Treating it that way is
+what KI-054 cost. The freeze is best-effort in at least four places (KI-008), so anything load-bearing
+placed on it inherits those four failure modes.
+
+**Rule for anyone adding an unfreeze, or citing a freeze as protection:** name which freeze you are
+releasing and what still guarantees the invariant afterwards. "The cart was frozen and my flow needs it
+editable" is not an answer — it is a description of the bug. A freeze whose release has no compensating
+check is not a control and must not be cited as one in a security review.
 
 The unfreeze/refreeze sequence is best-effort — there is no transaction wrapping it. A failure between `unfreezeCart()` and `freezeCart()` may leave the cart unfrozen. See `context/business-rules/subscription-lifecycle.md` Rule 6.

@@ -31,6 +31,25 @@ describe('CartClient testing', () => {
       const result = await createOrderFromCart(mockCart);
       expect(result).toEqual(orderMock);
     });
+
+    it('should mint the order pinned to expectedVersion without re-reading the cart', async () => {
+      const mockCart = mockGetCartResult();
+      const getCartSpy = jest.spyOn(paymentSDK.ctCartService, 'getCart').mockResolvedValue(mockCart);
+      const executeMock = jest.fn().mockReturnValue(Promise.resolve({ body: orderMock }));
+      const postMock = jest.fn(() => ({ execute: executeMock }));
+
+      const client = paymentSDK.ctAPI.client;
+      client.orders = jest.fn(() => ({ post: postMock })) as never;
+
+      const result = await createOrderFromCart(mockCart, undefined, 42);
+
+      expect(result).toEqual(orderMock);
+      // Version pinning (HIGH-1 / TOCTOU): the caller-validated snapshot mints the order — no fresh re-read.
+      expect(getCartSpy).not.toHaveBeenCalled();
+      expect(postMock).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.objectContaining({ version: 42 }) }),
+      );
+    });
   });
 
   describe('addOrderPayment', () => {

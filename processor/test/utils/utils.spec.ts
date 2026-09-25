@@ -8,6 +8,7 @@ import {
   isMicrodepositNextAction,
   isFromSubscriptionInvoice,
   isValidUUID,
+  paidAmountMatchesTotal,
   parseJSON,
   parseTimeString,
   transformVariantAttributes,
@@ -341,9 +342,9 @@ describe('isMicrodepositNextAction', () => {
   });
 
   test('returns false for a Boleto PaymentIntent (boleto_display_details)', () => {
-    expect(isMicrodepositNextAction(withNextAction({ type: 'boleto_display_details', boleto_display_details: {} }))).toBe(
-      false,
-    );
+    expect(
+      isMicrodepositNextAction(withNextAction({ type: 'boleto_display_details', boleto_display_details: {} })),
+    ).toBe(false);
   });
 
   test('returns false for a bank transfer PaymentIntent (display_bank_transfer_instructions)', () => {
@@ -362,5 +363,33 @@ describe('isMicrodepositNextAction', () => {
   // Fails closed: the type literal alone is not enough, the payload must be present.
   test('returns false when the type matches but the verification object is absent', () => {
     expect(isMicrodepositNextAction(withNextAction({ type: 'verify_with_microdeposits' }))).toBe(false);
+  });
+});
+
+describe('paidAmountMatchesTotal', () => {
+  const usd = (centAmount: number) => ({ centAmount, currencyCode: 'USD' });
+
+  test('matches an exact amount and currency, case-insensitively', () => {
+    expect(paidAmountMatchesTotal(2000, 'usd', usd(2000))).toBe(true);
+  });
+
+  test('rejects underpayment', () => {
+    expect(paidAmountMatchesTotal(2000, 'usd', usd(7000))).toBe(false);
+  });
+
+  // Equality, not ">=": an overpayment is as much a divergence as an underpayment and must not
+  // silently mint an order either.
+  test('rejects overpayment', () => {
+    expect(paidAmountMatchesTotal(7000, 'usd', usd(2000))).toBe(false);
+  });
+
+  test('rejects a currency mismatch even when the amounts are equal', () => {
+    expect(paidAmountMatchesTotal(2000, 'eur', usd(2000))).toBe(false);
+  });
+
+  // Minor-unit comparison with no division by 100, so zero-decimal currencies are handled correctly.
+  test('compares zero-decimal currencies in their own minor unit', () => {
+    expect(paidAmountMatchesTotal(2000, 'jpy', { centAmount: 2000, currencyCode: 'JPY' })).toBe(true);
+    expect(paidAmountMatchesTotal(20, 'jpy', { centAmount: 2000, currencyCode: 'JPY' })).toBe(false);
   });
 });
