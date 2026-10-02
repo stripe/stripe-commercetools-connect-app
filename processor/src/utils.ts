@@ -158,6 +158,86 @@ export const paidAmountMatchesTotal = (
   return amountMatches && currencyMatches;
 };
 
+/**
+ * ADR-015 / KI-003: which commercetools-write failures are worth re-raising so the webhook route
+ * returns non-2xx and Stripe redelivers. Only transient/retryable failures match — a permanent error
+ * (auth, not-found, validation, a terminal 400 such as MissingTaxRateForCountry / InvalidField) would
+ * just redeliver in vain (a retry storm). Shared by the subscription webhook handlers and the one-time
+ * `payment_intent.succeeded` path so the two classify "retryable" identically (SB3-227 reuses ADR-015).
+ */
+export const RETRYABLE_CT_ERROR = /ConcurrentModification|409|429|50[23]|ETIMEDOUT|ECONNRESET/i;
+
+/**
+ * True when an unknown thrown value is a transient/retryable commercetools-write failure per
+ * RETRYABLE_CT_ERROR. Centralises the classification so every caller decides identically.
+ *
+ * WHY THIS INSPECTS STRUCTURED FIELDS, NOT JUST `message`. A real commercetools-SDK error is an `Error`
+ * whose human `message` reads "Object <id> has a different version than expected. Expected: 10 - Actual:
+ * 12." — it contains NEITHER "ConcurrentModification" NOR "409". Those live on `error.code`
+ * (`'ConcurrentModification'`), `error.statusCode`/`error.status` (`409`) and `error.name`. Testing the
+ * message alone classified a genuine 409 as terminal and dropped a captured-but-orderless payment
+ * (the SB3-227 live repro). So RETRYABLE_CT_ERROR is tested against `code + statusCode + status + name +
+ * message` joined together — structured signals and legacy message forms both match. A non-Error value
+ * still falls back to its JSON so unknown shapes are not silently misclassified.
+ */
+export const isRetryableCtError = (error: unknown): boolean => {
+  if (error instanceof Error) {
+    const { name, message, code, statusCode, status } = error as Error & {
+      code?: unknown;
+      statusCode?: unknown;
+      status?: unknown;
+    };
+    const haystack = [code, statusCode, status, name, message].filter((part) => part !== undefined).join(' ');
+    return RETRYABLE_CT_ERROR.test(haystack);
+  }
+  return RETRYABLE_CT_ERROR.test(JSON.stringify(error));
+};
+
+/**
+ * Narrow predicate: true only for a commercetools optimistic-locking conflict (ConcurrentModification /
+ * HTTP 409). Unlike `isRetryableCtError` this is deliberately NOT the full transient set — the version
+ * race is the only failure a re-read-and-retry can resolve, so `createOrderPinned` keys its single retry
+ * off this and lets every other transient (429/502/503/…) surface to the outer classifier.
+ *
+ * Classifies by the STRUCTURED fields a real CT-SDK error carries (`code === 'ConcurrentModification'`,
+ * `statusCode`/`status === 409`) and falls back to the message so a legacy "409"/"ConcurrentModification"
+ * string still matches. Same message-text flaw as the old `isRetryableCtError`: a real 409's human
+ * message is "Object <id> has a different version than expected…", which contains neither token.
+ */
+export const isConcurrentModificationError = (error: unknown): boolean => {
+  if (error instanceof Error) {
+    const { code, statusCode, status, message } = error as Error & {
+      code?: unknown;
+      statusCode?: unknown;
+      status?: unknown;
+    };
+    if (code === 'ConcurrentModification' || statusCode === 409 || status === 409) {
+      return true;
+    }
+    return /ConcurrentModification|409/i.test(message);
+  }
+  return /ConcurrentModification|409/i.test(JSON.stringify(error));
+};
+
+/**
+ * Reduces an unknown thrown value to a log-safe shape — `name` / `message` / `code` / `statusCode`
+ * only. Used on the paid-without-order path, where the raw error can be a commercetools 400 whose body
+ * echoes the shopper's address PII: that body must never be logged verbatim (connector rule — never log
+ * sensitive payloads). SB3-227.
+ */
+export const redactError = (error: unknown): Record<string, unknown> => {
+  if (error instanceof Error) {
+    const { name, message, code, statusCode } = error as Error & { code?: unknown; statusCode?: unknown };
+    return {
+      name,
+      message,
+      ...(code !== undefined ? { code } : {}),
+      ...(statusCode !== undefined ? { statusCode } : {}),
+    };
+  }
+  return { message: typeof error === 'string' ? error : 'Non-Error thrown value' };
+};
+
 export const transformVariantAttributes = <T>(attributes?: Attribute[]): T => {
   const result: Record<string, string> = {};
   for (const { name, value } of attributes ?? []) {

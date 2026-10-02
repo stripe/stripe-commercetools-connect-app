@@ -5,8 +5,10 @@ import {
   convertPaymentResultCode,
   getLocalizedString,
   isBankTransferNextAction,
+  isConcurrentModificationError,
   isMicrodepositNextAction,
   isFromSubscriptionInvoice,
+  isRetryableCtError,
   isValidUUID,
   paidAmountMatchesTotal,
   parseJSON,
@@ -391,5 +393,71 @@ describe('paidAmountMatchesTotal', () => {
   test('compares zero-decimal currencies in their own minor unit', () => {
     expect(paidAmountMatchesTotal(2000, 'jpy', { centAmount: 2000, currencyCode: 'JPY' })).toBe(true);
     expect(paidAmountMatchesTotal(20, 'jpy', { centAmount: 2000, currencyCode: 'JPY' })).toBe(false);
+  });
+});
+
+/**
+ * A realistic commercetools-SDK optimistic-locking error: an `Error` whose structured fields carry the
+ * signal (`code`/`statusCode`) while the human `message` does NOT contain "ConcurrentModification" or
+ * "409". This is the exact shape that escaped classification in the SB3-227 live repro — the tests below
+ * exist to keep message-only classification from ever being reintroduced.
+ */
+const realConcurrentModificationError = (): Error => {
+  return Object.assign(new Error('Object abc has a different version than expected. Expected: 10 - Actual: 12.'), {
+    code: 'ConcurrentModification',
+    statusCode: 409,
+  });
+};
+
+describe('isRetryableCtError', () => {
+  // The regression guard: a REAL CT 409 carries the signal only on its structured fields.
+  test('classifies a realistic ConcurrentModification (code + statusCode 409, no token in message) as retryable', () => {
+    expect(isRetryableCtError(realConcurrentModificationError())).toBe(true);
+  });
+
+  test('classifies other transient CT errors by statusCode', () => {
+    expect(isRetryableCtError(Object.assign(new Error('Service Unavailable'), { statusCode: 503 }))).toBe(true);
+    expect(isRetryableCtError(Object.assign(new Error('Too Many Requests'), { statusCode: 429 }))).toBe(true);
+  });
+
+  // Still matches the legacy message form, so callers that only have a stringly-typed error keep working.
+  test('still matches a retryable token carried in the message', () => {
+    expect(isRetryableCtError(new Error('ETIMEDOUT'))).toBe(true);
+    expect(isRetryableCtError('ECONNRESET while writing to commercetools')).toBe(true);
+  });
+
+  // A genuinely terminal error: a 400 whose code is not retryable and whose message has no token.
+  test('classifies a terminal validation error (InvalidField 400) as NOT retryable', () => {
+    const terminal = Object.assign(new Error('Address.state is not a valid value.'), {
+      code: 'InvalidField',
+      statusCode: 400,
+    });
+    expect(isRetryableCtError(terminal)).toBe(false);
+  });
+
+  test('classifies an unknown non-Error value without a retryable signal as NOT retryable', () => {
+    expect(isRetryableCtError({ foo: 'bar' })).toBe(false);
+  });
+});
+
+describe('isConcurrentModificationError', () => {
+  test('detects a realistic ConcurrentModification by its structured fields (message has no token)', () => {
+    expect(isConcurrentModificationError(realConcurrentModificationError())).toBe(true);
+  });
+
+  test('detects a 409 carried on statusCode even without the ConcurrentModification code', () => {
+    expect(isConcurrentModificationError(Object.assign(new Error('Conflict'), { statusCode: 409 }))).toBe(true);
+  });
+
+  // Deliberately narrower than isRetryableCtError: a 503 is transient but NOT a version race, so a
+  // re-read-and-retry cannot resolve it.
+  test('does NOT treat a non-409 transient (503) as a concurrent modification', () => {
+    expect(isConcurrentModificationError(Object.assign(new Error('Service Unavailable'), { statusCode: 503 }))).toBe(
+      false,
+    );
+  });
+
+  test('still matches a legacy token in the message', () => {
+    expect(isConcurrentModificationError(new Error('ConcurrentModification'))).toBe(true);
   });
 });

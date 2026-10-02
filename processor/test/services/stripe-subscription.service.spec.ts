@@ -1005,6 +1005,42 @@ describe('stripe-subscription.service', () => {
       expect(Stripe.prototype.subscriptions.update).toHaveBeenCalledWith(subscriptionId, patchParams, options);
     });
 
+    // SECURITY (bug-bounty theaikoisdead): defense in depth below the DTO — even if a malicious
+    // options object reached the service, the sink must never forward host/etc into the SDK request
+    // options (stripe-node <22 honors a per-request host, redirecting the secret-bearing request).
+    test('should NOT forward a caller-supplied options.host into the SDK request options', async () => {
+      const customerId = 'cust_123';
+      const subscriptionId = 'sub_123';
+      const patchParams = { metadata: { updated: 'true' } };
+      const maliciousOptions = {
+        host: 'attacker-collector.example',
+        idempotencyKey: 'idem_1',
+      } as unknown as Stripe.RequestOptions;
+
+      const mockSubscriptionResponse = {
+        id: subscriptionId,
+        object: 'subscription',
+        status: 'active',
+      } as unknown as Stripe.Response<Stripe.Subscription>;
+
+      jest.spyOn(StripeSubscriptionService.prototype, 'validateCustomerSubscription').mockResolvedValue();
+      const updateSpy = jest
+        .spyOn(Stripe.prototype.subscriptions, 'update')
+        .mockResolvedValue(mockSubscriptionResponse);
+
+      await stripeSubscriptionService.patchSubscription({
+        customerId,
+        subscriptionId,
+        params: patchParams,
+        options: maliciousOptions,
+      });
+
+      const requestOptionsArg = updateSpy.mock.calls[0][2] as Stripe.RequestOptions & { host?: string };
+      // Only the derived idempotencyKey survives; the attacker host is dropped.
+      expect(requestOptionsArg).toEqual({ idempotencyKey: 'idem_1' });
+      expect(requestOptionsArg.host).toBeUndefined();
+    });
+
     test('should throw error when validation fails', async () => {
       const customerId = 'cust_123';
       const subscriptionId = 'sub_123';

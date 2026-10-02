@@ -683,3 +683,22 @@ Where commercetools computes tax **on top of** the price (`taxedPrice.totalGross
 **Found:** 2026-09-17, while investigating a collateral observation from the KI-055 reproduction (two `Authorization` and two `Charge` transactions on one payment after a single `invoice.paid` replay).
 
 **Status:** open, diagnosed but not fixed. Deliberately not bundled into the KI-055 coupon fix — different root cause, different area, and it needs its own regression coverage for the branch asymmetry above. Cross-reference KI-003, KI-054, ADR-015.
+
+---
+
+## KI-058: Wallet address copy corrupted the shipping address and could silently orphan a paid order — ✅ RESOLVED (2026-09-30, SB3-227)
+
+**Problem (pre-fix):** On `payment_intent.succeeded`, `updateCartAddress` copied the Stripe charge address onto the cart with three defects: (1) it wrote the shopper's full name into the CT address `key` (constrained to `^[A-Za-z0-9_-]+$`) and never set `firstName`/`lastName`/`email`; (2) it ran whenever the *charge* carried a complete address, overwriting the merchant's already-validated checkout address — common on wallet flows (Apple Pay), where the unnormalized wallet `state` could also trigger `MissingTaxRateForCountry` in Platform tax mode; (3) a throw from `updateCartAddress` or order creation was swallowed by the `processStripeEvent` catch (HTTP 200, since `payment_intent.succeeded` is not in `ASYNC_PENDING_EVENTS`), leaving money captured with no order and no Stripe retry — a paid-without-order state (a succeeded-path instance of the KI-002 class).
+
+**Root cause:** `processor/src/services/stripe-payment.service.ts` — `updateCartAddress` mapped `key: addressSource?.name` and `streetNumber: address.line2`, gated only on `hasCompleteAddress(chargeAddress)`; `processStripeEvent`'s catch re-threw only for `ASYNC_PENDING_EVENTS`.
+
+**Fix:**
+- **Mapping** — the wallet name is split into `firstName` (first token) / `lastName` (remainder); `key` is no longer written; the cart's existing `email` is carried; Stripe `line2` maps to CT `additionalStreetInfo` instead of `streetNumber`.
+- **Preserve the validated address** — the copy is skipped when the cart already has a complete shipping address (safer default; CT semantics `country/city/postalCode/streetName`, `state` optional so validated DE/GB addresses count — Fix 2). The skip is scoped to the one-time succeeded path via an opt-in `preserveExistingAddress` option; the subscription `invoice.paid` / recurring-order callers do not opt in, so their copy behaviour is unchanged. *(An opt-out `STRIPE_SKIP_WALLET_ADDRESS_COPY` env var was added then removed before release as unnecessary — see ADR-020 Update 2026-10-02.)*
+- **No silent paid-without-order, no poison-retry** (reconciled with ADR-015) — the charge-address copy is best-effort: on failure it falls back to the original (tax-valid) checkout cart and still creates the order. Order-creation failures are classified: a transient/retryable error (ADR-015's shared `RETRYABLE_CT_ERROR`) raises `PaidWithoutOrderError`, re-thrown out of `processStripeEvent` so Stripe retries; a terminal error is logged as a visible paid-without-order and `return`s (no three-day retry storm that could disable the shared webhook endpoint). PII is redacted from these logs. The generic succeeded-path catch and async settlement events are unchanged; the underpayment/version-pin guards still `return`.
+
+**Residual / deferred:** Wallet `state` is **not** normalized in code (guessing tax-region mapping is out of scope). Because the copy is now best-effort and the order is minted from the validated checkout cart, a bad wallet `state`/tax no longer blocks order creation. A cart that reaches `payment_intent.succeeded` with *no* prior shipping address still copies the charge `state` verbatim — tax correctness there depends on the project's tax-category configuration.
+
+**Tests:** `processor/test/services/stripe-payment.service.spec.ts` — `updateCartAddress method` (name split, no name-in-key, `additionalStreetInfo` mapping, cart-already-complete, no-state regression) and `version pin — ... surfaces a non-version-conflict order-creation failure to Stripe without retrying`.
+
+**Status:** ✅ resolved. Cross-reference KI-002, ADR-020.
