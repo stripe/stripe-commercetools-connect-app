@@ -403,6 +403,86 @@ describe('stripe-customer.service', () => {
       expect(result).toBeDefined();
       expect(mockCreateCustomer).toHaveBeenCalled();
     });
+
+    test('should fall back to shippingAddress name when CT customer firstName and lastName are undefined', async () => {
+      const mockCtCustomer: Customer = {
+        ...mockCtCustomerData,
+        firstName: undefined,
+        lastName: undefined,
+      };
+      const mockCreateCustomer = jest
+        .spyOn(Stripe.prototype.customers, 'create')
+        .mockReturnValue(Promise.resolve(mockCustomerData));
+
+      // mockGetCartResult provides shippingAddress.firstName: 'John', shippingAddress.lastName: 'Smith'
+      await stripeCustomerService.createStripeCustomer(mockGetCartResult(), mockCtCustomer);
+
+      expect(mockCreateCustomer).toHaveBeenCalledWith(expect.objectContaining({ name: 'John Smith' }));
+      expect(mockCreateCustomer).not.toHaveBeenCalledWith(
+        expect.objectContaining({ name: expect.stringContaining('undefined') }),
+      );
+    });
+
+    test('should fall back to shippingAddress name when CT customer has empty firstName and lastName', async () => {
+      const mockCtCustomer: Customer = {
+        ...mockCtCustomerData,
+        firstName: '',
+        lastName: '',
+      };
+      const mockCreateCustomer = jest
+        .spyOn(Stripe.prototype.customers, 'create')
+        .mockReturnValue(Promise.resolve(mockCustomerData));
+
+      await stripeCustomerService.createStripeCustomer(mockGetCartResult(), mockCtCustomer);
+
+      expect(mockCreateCustomer).toHaveBeenCalledWith(expect.objectContaining({ name: 'John Smith' }));
+    });
+
+    test('should use only the populated name field when CT customer has firstName but no lastName', async () => {
+      const mockCtCustomer: Customer = {
+        ...mockCtCustomerData,
+        firstName: 'Jane',
+        lastName: undefined,
+      };
+      const mockCreateCustomer = jest
+        .spyOn(Stripe.prototype.customers, 'create')
+        .mockReturnValue(Promise.resolve(mockCustomerData));
+
+      await stripeCustomerService.createStripeCustomer(mockGetCartResult(), mockCtCustomer);
+
+      expect(mockCreateCustomer).toHaveBeenCalledWith(expect.objectContaining({ name: 'Jane' }));
+    });
+
+    test('should leave name undefined when both CT customer and addresses have no name fields', async () => {
+      const cart = mockGetCartResult();
+      const mockCart: Cart = {
+        ...cart,
+        shippingAddress: undefined,
+      };
+      const mockCtCustomer: Customer = {
+        ...mockCtCustomerData,
+        firstName: undefined,
+        lastName: undefined,
+        addresses: [],
+      };
+      const mockCreateCustomer = jest
+        .spyOn(Stripe.prototype.customers, 'create')
+        .mockReturnValue(Promise.resolve(mockCustomerData));
+
+      await stripeCustomerService.createStripeCustomer(mockCart, mockCtCustomer);
+
+      expect(mockCreateCustomer).toHaveBeenCalledWith(expect.objectContaining({ name: undefined }));
+    });
+
+    test('should use CT customer name when firstName and lastName are populated', async () => {
+      const mockCreateCustomer = jest
+        .spyOn(Stripe.prototype.customers, 'create')
+        .mockReturnValue(Promise.resolve(mockCustomerData));
+
+      await stripeCustomerService.createStripeCustomer(mockGetCartResult(), mockCtCustomerData);
+
+      expect(mockCreateCustomer).toHaveBeenCalledWith(expect.objectContaining({ name: 'John Smith' }));
+    });
   });
 
   describe('method saveStripeCustomerId', () => {

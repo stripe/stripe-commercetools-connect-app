@@ -139,7 +139,7 @@ export class StripeCustomerService {
     const email = cart.customerEmail || customer.email || cart.shippingAddress?.email;
     return await stripe.customers.create({
       email,
-      name: `${customer.firstName} ${customer.lastName}`.trim() || shippingAddress?.name,
+      name: `${customer.firstName ?? ''} ${customer.lastName ?? ''}`.trim() || shippingAddress?.name,
       phone: shippingAddress?.phone,
       address: shippingAddress?.address,
       metadata: {
