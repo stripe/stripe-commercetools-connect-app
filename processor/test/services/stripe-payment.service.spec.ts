@@ -1993,8 +1993,22 @@ describe('stripe-payment.service', () => {
         totalPrice: { centAmount: 13200, currencyCode: 'mxn' },
       } as Cart;
 
+      /**
+       * A realistic commercetools-SDK ConcurrentModification: the signal lives on `code`/`statusCode`,
+       * NOT in the human `message` (which carries neither "ConcurrentModification" nor "409"). This is the
+       * exact shape that defeated the old message-only 409 detection in the SB3-227 live repro.
+       */
+      const realConcurrentModificationError = () =>
+        Object.assign(
+          new Error('Object mock-cart-id has a different version than expected. Expected: 9 - Actual: 10.'),
+          {
+            code: 'ConcurrentModification',
+            statusCode: 409,
+          },
+        );
+
       /** Order creation 409s once; `reread` is what commercetools holds on the retry. */
-      const runWithConflict = async (reread: Cart, firstError = new Error('ConcurrentModification')) => {
+      const runWithConflict = async (reread: Cart, firstError: Error = realConcurrentModificationError()) => {
         jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(convertedPayment);
         jest.spyOn(DefaultCartService.prototype, 'getCartByPaymentId').mockResolvedValue(validatedCart);
         jest.spyOn(Stripe.prototype.charges, 'retrieve').mockResolvedValue({} as Stripe.Response<Stripe.Charge>);
@@ -2050,11 +2064,74 @@ describe('stripe-payment.service', () => {
         expect(createOrderSpy).toHaveBeenCalledTimes(1);
       });
 
-      test('rethrows an error that is not a version conflict', async () => {
-        const createOrderSpy = await runWithConflict(validatedCart, new Error('InvalidOperation: something else'));
+      /** Drives handlePaymentIntentSucceededFlow to the order-creation catch with `error` thrown by createOrder. */
+      const runWithOrderCreationError = async (error: Error) => {
+        jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(convertedPayment);
+        jest.spyOn(DefaultCartService.prototype, 'getCartByPaymentId').mockResolvedValue(validatedCart);
+        jest.spyOn(Stripe.prototype.charges, 'retrieve').mockResolvedValue({} as Stripe.Response<Stripe.Charge>);
+        jest.spyOn(StripePaymentService.prototype, 'updateCartAddress').mockResolvedValue(validatedCart);
+        return jest.spyOn(StripePaymentService.prototype, 'createOrder').mockRejectedValue(error);
+      };
 
-        // processStripeEvent catches and logs; the point is that no retry was attempted.
+      test('TERMINAL order-creation error → logged as paid-without-order and returned, NOT re-thrown (SB3-227/ADR-015)', async () => {
+        // A deterministic/permanent failure must NOT poison-retry for three days: it is logged as a
+        // visible paid-without-order and the handler returns (HTTP 200 on this event). Realistic CT shape:
+        // a validation 400 whose code is not retryable and whose message carries no retryable token.
+        const terminalError = Object.assign(new Error('Address.state is not a valid value.'), {
+          code: 'InvalidField',
+          statusCode: 400,
+        });
+        const createOrderSpy = await runWithOrderCreationError(terminalError);
+
+        await expect(
+          stripePaymentService.processStripeEvent(mockEvent__paymentIntent_succeeded_captureMethodManual),
+        ).resolves.not.toThrow();
+
         expect(createOrderSpy).toHaveBeenCalledTimes(1);
+        expect(Logger.log.error).toHaveBeenCalledWith(
+          expect.stringContaining('terminal error, NOT retrying'),
+          expect.objectContaining({ ctCartId: validatedCart.id }),
+        );
+      });
+
+      test('TRANSIENT order-creation error → re-thrown as PaidWithoutOrderError so Stripe retries (SB3-227/ADR-015)', async () => {
+        // A transient/retryable failure (ADR-015 — here a 503) escapes createOrderPinned's 409-only internal
+        // retry and must surface so the webhook returns non-2xx and Stripe redelivers. Realistic CT shape:
+        // the 503 is carried on statusCode, not spelled out in the message.
+        const transientError = Object.assign(new Error('Service Unavailable'), { statusCode: 503 });
+        const createOrderSpy = await runWithOrderCreationError(transientError);
+
+        await expect(
+          stripePaymentService.processStripeEvent(mockEvent__paymentIntent_succeeded_captureMethodManual),
+        ).rejects.toThrow('payment_intent.succeeded failed to create the order');
+
+        // No in-process retry: 503 is not the 409 race createOrderPinned resolves.
+        expect(createOrderSpy).toHaveBeenCalledTimes(1);
+      });
+
+      test('a failing updateCartAddress does NOT lose the order — it is created from the original cart (SB3-227 Fix 1)', async () => {
+        // The charge-address copy is best-effort. If it throws, the handler falls back to the un-mutated
+        // cart and still creates the order; nothing is re-thrown.
+        jest.spyOn(StripeEventConverter.prototype, 'convert').mockReturnValue(convertedPayment);
+        jest.spyOn(DefaultCartService.prototype, 'getCartByPaymentId').mockResolvedValue(validatedCart);
+        jest.spyOn(Stripe.prototype.charges, 'retrieve').mockResolvedValue({} as Stripe.Response<Stripe.Charge>);
+        jest
+          .spyOn(StripePaymentService.prototype, 'updateCartAddress')
+          .mockRejectedValue(new Error('InvalidField: Address.state — the CT 400 body echoes PII'));
+        const createOrderSpy = jest.spyOn(StripePaymentService.prototype, 'createOrder').mockResolvedValue();
+
+        await expect(
+          stripePaymentService.processStripeEvent(mockEvent__paymentIntent_succeeded_captureMethodManual),
+        ).resolves.not.toThrow();
+
+        // Order created from the ORIGINAL (un-mutated) cart.
+        expect(createOrderSpy).toHaveBeenCalledTimes(1);
+        expect(createOrderSpy).toHaveBeenCalledWith(expect.objectContaining({ cart: validatedCart }));
+        // The best-effort failure was logged, redacted (message only — no raw error object / PII body).
+        expect(Logger.log.error).toHaveBeenCalledWith(
+          expect.stringContaining('charge-address copy failed'),
+          expect.objectContaining({ error: expect.objectContaining({ message: expect.any(String) }) }),
+        );
       });
     });
 
@@ -4026,8 +4103,17 @@ describe('stripe-payment.service', () => {
   });
 
   describe('updateCartAddress method', () => {
-    test('should update cart address using shipping details when available', async () => {
-      const mockCart = mockGetCartResult();
+    // A cart that has NOT yet been given a complete shipping address, so the charge-address copy
+    // actually runs (SB3-227 only copies onto a cart that is still missing one). customerEmail is
+    // retained so the copied address can carry a contact email.
+    const cartWithoutShippingAddress = (): Cart => ({
+      ...mockGetCartResult(),
+      cartState: 'Active',
+      shippingAddress: undefined,
+    });
+
+    test('should update cart address using shipping details when available (SB3-227 name/key mapping)', async () => {
+      const mockCart = cartWithoutShippingAddress();
 
       // Mock shipping details in the Stripe charge
       const mockCharge = {
@@ -4053,12 +4139,15 @@ describe('stripe-payment.service', () => {
         },
       } as Stripe.Charge;
 
-      // Mock the expected cart update actions
+      // SB3-227: the full name is split into firstName/lastName, the email is carried from the cart,
+      // and `key` is NOT the human name (it is omitted).
       const expectedActions = [
         {
           action: 'setShippingAddress' as const,
           address: {
-            key: 'John Doe Shipping',
+            firstName: 'John',
+            lastName: 'Doe Shipping',
+            email: 'test@example.com',
             country: 'GB',
             city: 'London',
             postalCode: 'SW1A 1AA',
@@ -4079,12 +4168,16 @@ describe('stripe-payment.service', () => {
       // Verify cart update was called with correct actions
       expect(updateCartByIdMock).toHaveBeenCalledWith(mockCart, expectedActions);
 
+      // The address key must NOT be the shopper's full name (the SB3-227 bug).
+      const sentAddress = updateCartByIdMock.mock.calls[0][1][0] as { address: { key?: string } };
+      expect(sentAddress.address.key).toBeUndefined();
+
       // Verify returned cart
       expect(result).toEqual({ ...mockCart, shippingAddress: expectedActions[0].address });
     });
 
     test('should use billing details when shipping is not available', async () => {
-      const mockCart = mockGetCartResult();
+      const mockCart = cartWithoutShippingAddress();
 
       // Mock charge with only billing details (no shipping)
       const mockCharge = {
@@ -4101,12 +4194,14 @@ describe('stripe-payment.service', () => {
         // No shipping property
       } as Stripe.Charge;
 
-      // Mock the expected cart update actions using billing details
+      // Mapped via SB3-227 rules (firstName/lastName split, carried email, no name-in-key).
       const expectedActions = [
         {
           action: 'setShippingAddress' as const,
           address: {
-            key: 'Jane Smith',
+            firstName: 'Jane',
+            lastName: 'Smith',
+            email: 'test@example.com',
             country: 'US',
             city: 'Chicago',
             postalCode: '60601',
@@ -4129,6 +4224,158 @@ describe('stripe-payment.service', () => {
 
       // Verify returned cart
       expect(result).toEqual({ ...mockCart, shippingAddress: expectedActions[0].address });
+    });
+
+    test('should split a multi-token name into firstName/lastName and not write the full name into key (SB3-227)', async () => {
+      const mockCart = cartWithoutShippingAddress();
+
+      const mockCharge = {
+        shipping: {
+          name: 'John Q Doe',
+          address: {
+            country: 'US',
+            city: 'Seattle',
+            postal_code: '98101',
+            state: 'WA',
+            line1: '400 Broad St',
+            line2: 'Suite 200',
+          },
+        },
+      } as Stripe.Charge;
+
+      const updateCartByIdMock = jest
+        .spyOn(CartClient, 'updateCartById')
+        .mockImplementation(async (cart) => cart as Cart);
+
+      await stripePaymentService.updateCartAddress(mockCharge, mockCart);
+
+      expect(updateCartByIdMock).toHaveBeenCalledTimes(1);
+      const sentAddress = updateCartByIdMock.mock.calls[0][1][0] as {
+        address: { firstName?: string; lastName?: string; key?: string; additionalStreetInfo?: string };
+      };
+      expect(sentAddress.address.firstName).toBe('John');
+      expect(sentAddress.address.lastName).toBe('Q Doe');
+      // The human name must never land in the CT address key.
+      expect(sentAddress.address.key).toBeUndefined();
+      expect(sentAddress.address.key).not.toBe('John Q Doe');
+      // Stripe line2 (apt/suite) belongs in additionalStreetInfo, not streetNumber.
+      expect(sentAddress.address.additionalStreetInfo).toBe('Suite 200');
+    });
+
+    test('should return the cart unchanged when it already has a complete shipping address (SB3-227 safer default)', async () => {
+      // mockGetCartResult() already carries a complete, merchant-validated shipping address.
+      const mockCart = mockGetCartResult();
+      const mockCharge = {
+        shipping: {
+          name: 'Wallet Name',
+          address: {
+            country: 'US',
+            city: 'Seattle',
+            postal_code: '98101',
+            state: 'WA',
+            line1: '400 Broad St',
+          },
+        },
+      } as Stripe.Charge;
+
+      const updateCartByIdMock = jest.spyOn(CartClient, 'updateCartById');
+
+      // opt-in skip (the one-time succeeded path). The validated checkout address must be preserved.
+      const result = await stripePaymentService.updateCartAddress(mockCharge, mockCart, {
+        preserveExistingAddress: true,
+      });
+
+      // The validated checkout address must be preserved: no update is issued.
+      expect(updateCartByIdMock).not.toHaveBeenCalled();
+      expect(result).toBe(mockCart);
+    });
+
+    test('a DE cart with a complete validated address but NO state still skips the copy (SB3-227 Fix 2)', async () => {
+      // Fix 2: hasCompleteCartShippingAddress must not hard-require `state`. A validated DE/GB address
+      // (country/city/postalCode/streetName, no state) must count as complete so the wallet copy is
+      // skipped and does not overwrite it.
+      const mockCart = {
+        ...mockGetCartResult(),
+        shippingAddress: {
+          country: 'DE',
+          city: 'Berlin',
+          postalCode: '10115',
+          streetName: 'Torstrasse 1',
+          // no state — legitimately absent for DE
+        },
+      } as Cart;
+      const mockCharge = {
+        shipping: {
+          name: 'Wallet Name',
+          address: {
+            country: 'US',
+            city: 'Seattle',
+            postal_code: '98101',
+            state: 'WA',
+            line1: '400 Broad St',
+          },
+        },
+      } as Stripe.Charge;
+
+      const updateCartByIdMock = jest.spyOn(CartClient, 'updateCartById');
+
+      const result = await stripePaymentService.updateCartAddress(mockCharge, mockCart, {
+        preserveExistingAddress: true,
+      });
+
+      expect(updateCartByIdMock).not.toHaveBeenCalled();
+      expect(result).toBe(mockCart);
+    });
+
+    test('without preserveExistingAddress the skip guards do NOT fire — the subscription paths still copy (SB3-227 Fix 3 scope)', async () => {
+      // Fix 3: the skip guards are scoped to the one-time succeeded caller. The subscription/invoice
+      // paths call updateCartAddress WITHOUT the option, so even a cart that already has a complete
+      // shipping address still gets the charge copied.
+      const mockCart = mockGetCartResult(); // already has a complete shipping address
+      const mockCharge = {
+        shipping: {
+          name: 'John Q Doe',
+          address: {
+            country: 'US',
+            city: 'Seattle',
+            postal_code: '98101',
+            state: 'WA',
+            line1: '400 Broad St',
+          },
+        },
+      } as Stripe.Charge;
+
+      const updateCartByIdMock = jest
+        .spyOn(CartClient, 'updateCartById')
+        .mockImplementation(async (cart) => cart as Cart);
+
+      // No options → subscription-path behaviour: the copy runs regardless of flag / cart completeness.
+      await stripePaymentService.updateCartAddress(mockCharge, mockCart);
+
+      expect(updateCartByIdMock).toHaveBeenCalledTimes(1);
+    });
+
+    test('should no-op when the charge address has no state (regression — hasCompleteAddress is false)', async () => {
+      const mockCart = cartWithoutShippingAddress();
+      const mockCharge = {
+        shipping: {
+          name: 'John Doe',
+          address: {
+            country: 'US',
+            city: 'Seattle',
+            postal_code: '98101',
+            // no state
+            line1: '400 Broad St',
+          },
+        },
+      } as Stripe.Charge;
+
+      const updateCartByIdMock = jest.spyOn(CartClient, 'updateCartById');
+
+      const result = await stripePaymentService.updateCartAddress(mockCharge, mockCart);
+
+      expect(updateCartByIdMock).not.toHaveBeenCalled();
+      expect(result).toBe(mockCart);
     });
 
     test('should return cart unchanged when address details are missing', async () => {

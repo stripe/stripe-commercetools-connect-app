@@ -42,7 +42,13 @@ import { getCartIdFromContext, getMerchantReturnUrlFromContext } from '../libs/f
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
 import { StripeEventConverter } from './converters/stripeEventConverter';
-import { convertPaymentResultCode, paidAmountMatchesTotal } from '../utils';
+import {
+  convertPaymentResultCode,
+  isConcurrentModificationError,
+  isRetryableCtError,
+  paidAmountMatchesTotal,
+  redactError,
+} from '../utils';
 import { CtPaymentCreationService } from './ct-payment-creation.service';
 import { stripeCustomerIdFieldName } from '../custom-types/custom-types';
 import { StripeCustomerService } from './stripe-customer.service';
@@ -87,6 +93,27 @@ const ZERO_TRANSACTION_PERSIST_EVENTS: readonly StripeEvent[] = [
   StripeEvent.CHARGE__SUCCEEDED,
   StripeEvent.PAYMENT_INTENT__PARTIALLY_FUNDED,
 ];
+
+/**
+ * Raised on the `payment_intent.succeeded` path when the cart-address update or the order creation
+ * fails. The payment is already captured at this point, so swallowing the failure (HTTP 200) would
+ * leave money collected with no order and no retry — a silent paid-without-order state (SB3-227).
+ *
+ * `processStripeEvent` re-throws this out of its catch so the webhook responds non-2xx and Stripe
+ * redelivers the event. The scope is deliberately narrow: only this specific failure escapes, so the
+ * global catch behaviour for every other (non-async) event is unchanged and async settlement events —
+ * which have their own re-throw rule — are unaffected. The intentional "order NOT created" guards
+ * (underpayment / version pin) `return` rather than throw, so they never produce this error.
+ */
+class PaidWithoutOrderError extends Error {
+  readonly originalError: unknown;
+
+  constructor(message: string, originalError: unknown) {
+    super(message);
+    this.name = 'PaidWithoutOrderError';
+    this.originalError = originalError;
+  }
+}
 
 export class StripePaymentService extends AbstractPaymentService {
   private stripeEventConverter: StripeEventConverter;
@@ -1257,7 +1284,13 @@ export class StripePaymentService extends AbstractPaymentService {
       // it writes no transaction, so losing it costs an audit line rather than correctness,
       // and re-throwing would cause a retry storm on a frequent event. Other event types keep
       // the existing behavior (log and return).
-      if ((ASYNC_PENDING_EVENTS as readonly string[]).includes(event.type)) {
+      //
+      // PaidWithoutOrderError is also re-thrown, for any event type: it is only produced by the
+      // payment_intent.succeeded path when the captured payment could not be turned into an order, and
+      // surfacing it (non-2xx → Stripe retry) is the whole point of SB3-227. It is a distinct type so
+      // this does NOT widen the generic succeeded-path catch — unrelated succeeded-path errors still
+      // log-and-return as before.
+      if ((ASYNC_PENDING_EVENTS as readonly string[]).includes(event.type) || e instanceof PaidWithoutOrderError) {
         throw e;
       }
       return;
@@ -1509,9 +1542,31 @@ export class StripePaymentService extends AbstractPaymentService {
       return;
     }
 
+    // Address copy: best-effort, NON-fatal (SB3-227 / ADR-020 reconciled with ADR-015). The charge
+    // address is a nice-to-have enrichment of an already-captured payment; a failure here (a charge
+    // retrieve error, or a terminal CT 400 such as MissingTaxRateForCountry / InvalidField on an
+    // unnormalized wallet address) must NEVER lose the order. On failure, fall back to the original,
+    // un-mutated checkout cart — which is already tax-valid — and create the order from it. This is
+    // also why a bad wallet `state`/tax can never block order creation: the order is minted from the
+    // validated checkout cart, not from the wallet address. Scoped to the one-time succeeded caller via
+    // `preserveExistingAddress` so the subscription/invoice paths keep their current copy behaviour.
     const { latest_charge } = paymentIntent;
-    const charge = await stripeApi().charges.retrieve(latest_charge as string);
-    const updatedCart = await this.updateCartAddress(charge, ctCart);
+    let updatedCart: Cart = ctCart;
+    try {
+      const charge = await stripeApi().charges.retrieve(latest_charge as string);
+      updatedCart = await this.updateCartAddress(charge, ctCart, { preserveExistingAddress: true });
+    } catch (e) {
+      log.error(
+        'payment_intent.succeeded: charge-address copy failed; creating the order from the original validated cart (best-effort copy). (SB3-227)',
+        {
+          ctCartId: ctCart.id,
+          paymentId: updateData.id,
+          pspReference: updateData.pspReference,
+          error: redactError(e),
+        },
+      );
+      updatedCart = ctCart;
+    }
 
     // Post-address underpayment guard (KI-047/KI-050 residual). updateCartAddress may have set the
     // shopper-controlled shipping address; in Platform tax mode commercetools recomputes taxedPrice for
@@ -1567,7 +1622,51 @@ export class StripePaymentService extends AbstractPaymentService {
     // Pinning unconditionally is only safe with the retry below. Without it, the /confirmPayments freeze
     // that races this webhook lands between the read and the POST, commercetools answers 409, and a
     // legitimate paid order is dropped — which is why the pin was made conditional in the first place.
-    await this.createOrderPinned(updatedCart, updateData.pspReference, paymentIntent);
+    // Order creation (SB3-227 / ADR-020 reconciled with ADR-015). The payment is already captured, so a
+    // failure here cannot simply be swallowed — but it also must not poison-retry. A TRANSIENT/retryable
+    // failure (ConcurrentModification/409/429/502/503/ETIMEDOUT/ECONNRESET — the single 409 race
+    // createOrderPinned already resolves internally; anything beyond it is genuine contention) is
+    // re-thrown as PaidWithoutOrderError so the webhook returns non-2xx and Stripe redelivers. A TERMINAL/
+    // deterministic failure (a validation 400, a missing resource — redelivery would fail identically for
+    // three days and can disable the shared webhook endpoint) is logged as a visible paid-without-order
+    // and returned, mirroring the `return` precedent of the underpayment/version-pin guards above.
+    try {
+      await this.createOrderPinned(updatedCart, updateData.pspReference, paymentIntent);
+    } catch (e) {
+      if (isRetryableCtError(e)) {
+        throw this.paidWithoutOrder('create the order', e, updatedCart, updateData, { retrying: true });
+      }
+      this.paidWithoutOrder('create the order', e, updatedCart, updateData, { retrying: false });
+      return;
+    }
+  }
+
+  /**
+   * Logs a paid-without-order failure on the succeeded path at error with the correlating ids, and
+   * builds the PaidWithoutOrderError to re-throw. Centralised so every failure site logs identically and
+   * with redacted error detail (never the raw CT body — it can echo address PII; SB3-227). When
+   * `retrying` is false the caller logs-and-returns (terminal error, no poison-retry) and discards the
+   * returned error. See SB3-227, ADR-020 and the PaidWithoutOrderError docblock.
+   */
+  private paidWithoutOrder(
+    stage: string,
+    error: unknown,
+    cart: Cart,
+    updateData: StripeEventUpdatePayment,
+    { retrying }: { retrying: boolean },
+  ): PaidWithoutOrderError {
+    log.error(
+      `payment_intent.succeeded: failed to ${stage}; the payment is captured but the order was NOT created — ${
+        retrying ? 'surfacing to Stripe for retry (transient error)' : 'terminal error, NOT retrying'
+      } (SB3-227).`,
+      {
+        ctCartId: cart.id,
+        paymentId: updateData.id,
+        pspReference: updateData.pspReference,
+        error: redactError(error),
+      },
+    );
+    return new PaidWithoutOrderError(`payment_intent.succeeded failed to ${stage} for cart ${cart.id}`, error);
   }
 
   /**
@@ -1592,8 +1691,11 @@ export class StripePaymentService extends AbstractPaymentService {
       await this.createOrder({ cart, paymentIntentId: pspReference, expectedVersion: cart.version });
       return;
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : JSON.stringify(e);
-      if (!/ConcurrentModification|409/i.test(message)) {
+      // Classify by the CT error's STRUCTURED fields (code/statusCode), not its human message: a real
+      // ConcurrentModification carries message "Object <id> has a different version than expected…",
+      // which contains neither "ConcurrentModification" nor "409", so the old message-only test never
+      // fired and the 409 escaped to the outer classifier as a terminal paid-without-order (SB3-227).
+      if (!isConcurrentModificationError(e)) {
         throw e;
       }
 
@@ -1997,9 +2099,36 @@ export class StripePaymentService extends AbstractPaymentService {
     }
   }
 
-  public async updateCartAddress(charge: Stripe.Charge, ctCart: Cart): Promise<Cart> {
+  /**
+   * Copies the Stripe charge (wallet / billing) address onto the commercetools cart via
+   * `setShippingAddress`.
+   *
+   * @param options.preserveExistingAddress SB3-227 skip behaviour, OPT-IN. Only the one-time
+   *   `payment_intent.succeeded` path sets this. When true, the copy is skipped if the cart already
+   *   carries a complete shipping address (the merchant's validated checkout address is authoritative
+   *   for wallet flows). Default false — the subscription-invoice paths keep their pre-existing
+   *   always-copy behaviour untouched.
+   */
+  public async updateCartAddress(
+    charge: Stripe.Charge,
+    ctCart: Cart,
+    options: { preserveExistingAddress?: boolean } = {},
+  ): Promise<Cart> {
     if (!charge) {
       return ctCart;
+    }
+
+    if (options.preserveExistingAddress) {
+      // SB3-227 — safer default. Wallet flows (e.g. Apple Pay) reach the succeeded webhook with the
+      // cart's shipping address already validated at checkout. Overwriting it with the charge address
+      // discarded that validation (and could flip a tax-relevant state). Only copy when the cart does
+      // NOT already carry a complete shipping address.
+      if (this.hasCompleteCartShippingAddress(ctCart)) {
+        log.info('Skipping charge-address copy onto the cart: the cart already has a complete shipping address.', {
+          ctCartId: ctCart.id,
+        });
+        return ctCart;
+      }
     }
 
     const { billing_details, shipping } = charge;
@@ -2015,18 +2144,36 @@ export class StripePaymentService extends AbstractPaymentService {
     const cartToUpdate = await this.unfreezeCartIfNeeded(ctCart);
     const wasFrozen = isCartFrozen(ctCart);
 
+    // Wallets deliver a single display name, not first/last. Split it the same way the storefront does:
+    // first token → firstName, the remainder → lastName. Never write the full name into `key` (a CT
+    // address key must match ^[A-Za-z0-9_-]+$ and is an identifier, not a human name) — `key` is omitted.
+    const { firstName, lastName } = this.splitFullName(addressSource?.name);
+
     // Stripe has complete address → update the cart
     const actions: CartUpdateAction[] = [
       {
         action: 'setShippingAddress',
         address: {
-          key: addressSource?.name ?? undefined,
+          firstName,
+          lastName,
+          // Carry a contact email onto the shipping address. For a guest wallet checkout (the SB3-227
+          // target case) the cart has neither a shippingAddress email nor a customerEmail, so fall back
+          // to the charge's own email: billing_details.email, then the receipt_email.
+          email:
+            ctCart.shippingAddress?.email ??
+            ctCart.customerEmail ??
+            charge.billing_details?.email ??
+            charge.receipt_email ??
+            undefined,
           country: address!.country!,
           city: address!.city ?? undefined,
           postalCode: address!.postal_code ?? undefined,
           state: address!.state ?? undefined,
           streetName: address!.line1 ?? undefined,
-          streetNumber: address!.line2 ?? undefined,
+          // Stripe `line2` is apartment/suite/unit info, not a street NUMBER — it maps to CT
+          // `additionalStreetInfo`. (The street number is part of `line1` in Stripe; Stripe does not
+          // expose it separately, so CT `streetNumber` is intentionally left unset.)
+          additionalStreetInfo: address!.line2 ?? undefined,
         },
       },
     ];
@@ -2036,10 +2183,37 @@ export class StripePaymentService extends AbstractPaymentService {
     return wasFrozen ? this.refreezeCart(updatedCart) : updatedCart;
   }
 
+  /**
+   * Splits a wallet-provided display name into CT firstName/lastName: first whitespace-delimited token
+   * is the first name, everything after it is the last name. Returns undefined for each part that is
+   * absent so a blank name never writes an empty string.
+   */
+  private splitFullName(name: string | null | undefined): { firstName?: string; lastName?: string } {
+    const parts = name?.trim().split(/\s+/).filter(Boolean) ?? [];
+    if (parts.length === 0) {
+      return { firstName: undefined, lastName: undefined };
+    }
+    const [firstName, ...rest] = parts;
+    return { firstName, lastName: rest.length > 0 ? rest.join(' ') : undefined };
+  }
+
   private hasCompleteAddress(
     address: Stripe.Address | Stripe.PaymentIntent.Shipping['address'] | null | undefined,
   ): boolean {
     return !!(address?.country && address?.state && address?.city && address?.postal_code && address?.line1);
+  }
+
+  /**
+   * True when the commercetools cart already carries a shipping address complete enough to order and
+   * tax against — the merchant's validated checkout address. Uses CT address semantics:
+   * `country && city && postalCode && streetName`. `state` is deliberately NOT required: it is a
+   * US/CA-style subdivision that most EU/GB addresses legitimately omit (SB3-227's reporting merchant is
+   * DE), so requiring it would wrongly treat a complete, validated DE/GB address as incomplete and let
+   * the wallet address overwrite it. `state` is honoured where applicable but is not a completeness gate.
+   */
+  private hasCompleteCartShippingAddress(cart: Cart): boolean {
+    const a = cart.shippingAddress;
+    return !!(a?.country && a?.city && a?.postalCode && a?.streetName);
   }
 
   private async unfreezeCartIfNeeded(cart: Cart): Promise<Cart> {

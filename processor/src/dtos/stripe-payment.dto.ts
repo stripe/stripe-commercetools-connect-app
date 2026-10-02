@@ -138,7 +138,19 @@ export const SubscriptionUpdateRequestSchema = Type.Object({
 export const SubscriptionPatchRequestSchema = Type.Object({
   id: Type.String(),
   params: Type.Optional(Type.Any()),
-  options: Type.Optional(Type.Any()),
+  // Allowlist the Stripe request options: only `idempotencyKey` may be supplied by the caller.
+  // A caller-controlled `host`/`protocol`/`apiKey`/`headers`/`additionalHeaders` would let the
+  // outbound Stripe request — which carries STRIPE_SECRET_KEY in its Authorization header — be
+  // redirected to an attacker host, exfiltrating the merchant's secret key. `additionalProperties:
+  // false` rejects any other option at the request boundary.
+  options: Type.Optional(
+    Type.Object(
+      {
+        idempotencyKey: Type.Optional(Type.String()),
+      },
+      { additionalProperties: false },
+    ),
+  ),
 });
 
 export const PaymentMethodOptionsSchema = Type.Object({

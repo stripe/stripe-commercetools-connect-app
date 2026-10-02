@@ -48,7 +48,7 @@ import { getMerchantReturnUrlFromContext } from '../libs/fastify/context/context
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
 import { StripeCustomerService } from './stripe-customer.service';
-import { getLocalizedString, paidAmountMatchesTotal, transformVariantAttributes } from '../utils';
+import { getLocalizedString, paidAmountMatchesTotal, RETRYABLE_CT_ERROR, transformVariantAttributes } from '../utils';
 import {
   lineItemStripeSubscriptionIdField,
   productTypeSubscription,
@@ -94,8 +94,8 @@ const stripe = stripeApi();
 // non-2xx and Stripe redelivers. Only transient/retryable CT-write failures — a permanent error
 // (auth, not-found, validation) would just redeliver in vain (a retry storm). Redelivery is safe:
 // order creation is guarded by cartState:Ordered and transaction writes are idempotent via
-// changeTransactionState.
-const RETRYABLE_CT_ERROR = /ConcurrentModification|409|429|50[23]|ETIMEDOUT|ECONNRESET/i;
+// changeTransactionState. The RETRYABLE_CT_ERROR regex is shared from ../utils (ADR-015) so the
+// one-time payment_intent.succeeded path (SB3-227) classifies "retryable" the same way.
 
 export class StripeSubscriptionService {
   private customerService: StripeCustomerService;
@@ -1128,8 +1128,11 @@ export class StripeSubscriptionService {
     await this.validateCustomerSubscription(customerId, subscriptionId);
 
     try {
+      // Never forward the caller-supplied `options` object into the SDK request options: on
+      // stripe-node <22 a caller-controlled `host` redirects this secret-bearing request to an
+      // attacker host. Only the derived idempotencyKey is passed through. (idempotencyKey is
+      // still sourced from options?.idempotencyKey above.)
       const updatedSubscription = await stripe.subscriptions.update(subscriptionId, params, {
-        ...options,
         idempotencyKey: idempotencyKey,
       });
       log.info(

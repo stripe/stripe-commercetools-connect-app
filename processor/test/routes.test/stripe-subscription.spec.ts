@@ -873,7 +873,7 @@ describe('Stripe Subscription and Customer route APIs', () => {
             metadata: { updated: 'true' },
             description: 'Updated subscription',
           },
-          options: { prorate: true },
+          options: { idempotencyKey: 'idem-key-123' },
         };
 
         const mockPatchResponse = {
@@ -909,6 +909,39 @@ describe('Stripe Subscription and Customer route APIs', () => {
           params: payload.params,
           options: payload.options as Stripe.RequestOptions,
         });
+      });
+
+      // SECURITY (bug-bounty theaikoisdead): a caller-supplied options.host would redirect the
+      // outbound Stripe request — carrying STRIPE_SECRET_KEY — to an attacker host. The DTO
+      // allowlist (additionalProperties:false, only idempotencyKey) must strip it at the boundary
+      // so it never reaches the service that forwards options into the SDK.
+      test('it should strip a caller-supplied options.host at the DTO boundary (no secret-key exfil)', async () => {
+        const customerId = 'customer_123';
+        const patchSpy = jest
+          .spyOn(spiedSubscriptionService, 'patchSubscription')
+          .mockResolvedValue({ id: 'sub_123', status: 'active' } as unknown as Stripe.Subscription);
+        const payload = {
+          id: 'sub_123',
+          params: { description: 'x' },
+          options: { host: 'attacker-collector.example', idempotencyKey: 'x' },
+        };
+
+        const response = await fastifyApp.inject({
+          method: 'POST',
+          url: `/subscription-api/advanced/${customerId}`,
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          payload,
+        });
+
+        expect(response.statusCode).toEqual(200);
+        expect(patchSpy).toHaveBeenCalledTimes(1);
+        const arg = patchSpy.mock.calls[0][0] as { options?: { host?: string; idempotencyKey?: string } };
+        // The attacker host is gone; only the allowlisted idempotencyKey survived to the service.
+        expect(arg.options).toEqual({ idempotencyKey: 'x' });
+        expect(arg.options?.host).toBeUndefined();
       });
 
       test('it should handle subscription patch failure', async () => {
