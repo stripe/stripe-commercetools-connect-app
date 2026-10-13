@@ -158,6 +158,25 @@ export class StripeSubscriptionService {
 
       const oneTimeItems = await this.getAllLineItemPrices(cart);
 
+      // SB3-226: never create a second Stripe Subscription for a cart that already has one. The
+      // derived idempotency key below collapses retries that still share the same cart version
+      // (Stripe dedups identical keys); this guard covers the retry-AFTER-persist case where the cart
+      // was re-versioned/frozen so the derived key would differ. A canceled/incomplete_expired
+      // existing subscription is treated as absent, falling through to create a fresh one.
+      const existingSubscription = await this.findExistingSubscriptionForCart(cart, stripeCustomerId, [
+        'latest_invoice.confirmation_secret',
+      ]);
+
+      if (existingSubscription) {
+        return this.reconcileSubscriptionResponse({
+          cart,
+          subscription: existingSubscription,
+          amountPlanned,
+          merchantReturnUrl,
+          billingAddress,
+        });
+      }
+
       const subscription = await stripe.subscriptions.create(
         {
           ...subscriptionParams,
@@ -173,7 +192,7 @@ export class StripeSubscriptionService {
           metadata: this.sealCartTotal(cart, this.paymentCreationService.getPaymentMetadata(cart)),
           discounts: await this.stripeCouponService.getStripeCoupons(cart),
         },
-        { idempotencyKey: randomUUID() },
+        { idempotencyKey: this.buildSubscriptionIdempotencyKey(cart) },
       );
 
       const { clientSecret, paymentIntentId } = this.validateSubscription(subscription);
@@ -247,6 +266,22 @@ export class StripeSubscriptionService {
 
       const oneTimeItems = await this.getAllLineItemPrices(cart);
 
+      // SB3-226: same idempotency guard as createSubscription — reconcile an already-persisted
+      // subscription instead of creating a duplicate on retry; the derived key handles the
+      // retry-before-persist / concurrent case.
+      const existingSubscription = await this.findExistingSubscriptionForCart(cart, stripeCustomerId, [
+        'latest_invoice',
+      ]);
+
+      if (existingSubscription) {
+        return this.reconcileSubscriptionFromSetupIntent(existingSubscription, {
+          cart,
+          amountPlanned,
+          isSendInvoice,
+          hasFreeAnchorDays,
+        });
+      }
+
       const subscription = await stripe.subscriptions.create(
         {
           ...subscriptionParams,
@@ -263,7 +298,7 @@ export class StripeSubscriptionService {
           metadata: this.sealCartTotal(cart, this.paymentCreationService.getPaymentMetadata(cart)),
           discounts: await this.stripeCouponService.getStripeCoupons(cart),
         },
-        { idempotencyKey: randomUUID() },
+        { idempotencyKey: this.buildSubscriptionIdempotencyKey(cart, setupIntentId) },
       );
 
       log.info('Stripe Subscription from Setup Intent created.', {
@@ -274,18 +309,15 @@ export class StripeSubscriptionService {
 
       const invoiceId = (subscription.latest_invoice as Stripe.Invoice)?.id;
 
-      if (isSendInvoice && invoiceId) {
-        const invoiceSent = await stripe.invoices.sendInvoice(invoiceId);
-        if (invoiceSent.status === 'open') {
-          log.info('Stripe Subscription invoice was sent.');
-        } else if (invoiceSent.status === 'paid') {
-          log.info('Stripe Subscription invoice is paid.');
-        } else {
-          log.warn('Stripe Subscription invoice was not sent.');
-        }
-      }
-
+      // SB3-226: persist the subscription id BEFORE the fragile sendInvoice call. If sendInvoice
+      // throws (e.g. the invoice was already sent/paid in send_invoice mode), the id is still on the
+      // line item, so the pre-create guard catches a shopper retry (which would otherwise mint a new
+      // SetupIntent → new key → a second subscription) instead of creating a duplicate.
       await this.saveSubscriptionId(cart, subscription.id);
+
+      if (isSendInvoice && invoiceId) {
+        await this.sendSubscriptionInvoiceAndLog(invoiceId);
+      }
 
       const ctPaymentId = await this.paymentCreationService.handleCtPaymentCreation({
         cart,
@@ -315,6 +347,58 @@ export class StripeSubscriptionService {
       return { subscriptionId: subscription.id, paymentReference: ctPaymentId };
     } catch (error) {
       throw wrapStripeError(error);
+    }
+  }
+
+  /**
+   * SB3-226: reconcile an already-persisted subscription (found by the pre-create idempotency guard)
+   * instead of creating a duplicate on retry. Sends the invoice only when it is still a draft (a
+   * fresh-create whose sendInvoice threw lands here and must still email it; an open/paid invoice was
+   * already sent and must not be re-sent), reuses the original CT payment, and returns its reference.
+   */
+  private async reconcileSubscriptionFromSetupIntent(
+    existingSubscription: Stripe.Subscription,
+    {
+      cart,
+      amountPlanned,
+      isSendInvoice,
+      hasFreeAnchorDays,
+    }: { cart: Cart; amountPlanned: PaymentAmount; isSendInvoice: boolean; hasFreeAnchorDays: boolean },
+  ): Promise<SubscriptionFromSetupIntentResponseSchemaDTO> {
+    const reconciledInvoice = existingSubscription.latest_invoice as Stripe.Invoice | undefined;
+    const reconciledInvoiceId = reconciledInvoice?.id;
+
+    if (isSendInvoice && reconciledInvoiceId && reconciledInvoice?.status === 'draft') {
+      await this.sendSubscriptionInvoiceAndLog(reconciledInvoiceId);
+    }
+
+    // Do NOT create a second CT payment — reuse the one from the original run.
+    const paymentReference = await this.resolveReconciledPaymentReference({
+      cart,
+      subscription: existingSubscription,
+      amountPlanned,
+      interactionId: !hasFreeAnchorDays && reconciledInvoiceId ? reconciledInvoiceId : existingSubscription.id,
+    });
+    log.info('Reconciled existing Stripe Subscription from Setup Intent (SB3-226 guard).', {
+      ctCartId: cart.id,
+      stripeSubscriptionId: existingSubscription.id,
+      ctPaymentReference: paymentReference,
+    });
+    return { subscriptionId: existingSubscription.id, paymentReference };
+  }
+
+  /**
+   * Sends a subscription invoice and logs the outcome by resulting status. Shared by the fresh-create
+   * and the SB3-226 reconcile paths so both classify open/paid/other identically.
+   */
+  private async sendSubscriptionInvoiceAndLog(invoiceId: string): Promise<void> {
+    const invoiceSent = await stripe.invoices.sendInvoice(invoiceId);
+    if (invoiceSent.status === 'open') {
+      log.info('Stripe Subscription invoice was sent.');
+    } else if (invoiceSent.status === 'paid') {
+      log.info('Stripe Subscription invoice is paid.');
+    } else {
+      log.warn('Stripe Subscription invoice was not sent.');
     }
   }
 
@@ -374,6 +458,214 @@ export class StripeSubscriptionService {
     const paymentIntentId = clientSecret.split('_secret_')[0];
 
     return { paymentIntentId, clientSecret };
+  }
+
+  /**
+   * SB3-226: deterministic Stripe idempotency key for subscription creation. Derived purely from
+   * stable CT identifiers (cart id + cart version, plus the setup intent id when the SetupIntent
+   * flow is used) — NO timestamp or random component — so an identical retry produces the same key
+   * and Stripe dedups it instead of creating a second subscription. The price id is deliberately NOT
+   * part of the key: it is not stable across a retry (a brand-new Stripe Price minted inside the
+   * retry window would change it and defeat dedup), while within one cart.version the subscription
+   * price is already fixed by the line item. Mirrors the derived refund key precedent in
+   * stripe-payment.service.ts (`refund-${payment.id}-${amount}-${seq}`).
+   */
+  private buildSubscriptionIdempotencyKey(cart: Cart, setupIntentId?: string): string {
+    const base = `subscription-${cart.id}-${cart.version}`;
+    return setupIntentId ? `${base}-${setupIntentId}` : base;
+  }
+
+  /**
+   * SB3-226 pre-create guard. If the subscription line item already carries a Stripe subscription id
+   * (persisted by a prior, possibly-retried request), retrieve that subscription instead of creating
+   * a new one. A canceled/incomplete_expired subscription is no longer valid, so it is treated as
+   * absent (returns null) and the caller creates a fresh one. Only a genuinely missing subscription
+   * (resource_missing / 404) is treated as absent; a transient retrieval error is rethrown to avoid
+   * creating a duplicate.
+   */
+  private async findExistingSubscriptionForCart(
+    cart: Cart,
+    stripeCustomerId: string | undefined,
+    expand: string[],
+  ): Promise<Stripe.Subscription | null> {
+    const existingId = this.findSubscriptionLineItem(cart).custom?.fields?.[lineItemStripeSubscriptionIdField];
+    if (!existingId || typeof existingId !== 'string') {
+      return null;
+    }
+
+    let existing: Stripe.Subscription;
+    try {
+      existing = await stripe.subscriptions.retrieve(existingId, { expand });
+    } catch (error) {
+      // Only a genuinely missing subscription (deleted / bad id) may fall through to a fresh create.
+      // A transient failure (network, 5xx, rate-limit) must NOT create a second subscription: on a
+      // retry-after-persist the cart was re-versioned, so the derived idempotency key differs and a
+      // fresh create would duplicate. Fail safe by rethrowing so the client can retry the same call.
+      // Classify on the Stripe error's structured fields, never on message text.
+      const stripeError = error as { code?: string; statusCode?: number };
+      const isNotFound = stripeError?.code === 'resource_missing' || stripeError?.statusCode === 404;
+      if (isNotFound) {
+        log.warn('Subscription referenced on cart no longer exists in Stripe; creating a new one.', {
+          ctCartId: cart.id,
+          stripeSubscriptionId: existingId,
+        });
+        return null;
+      }
+      log.error('Transient error retrieving existing Stripe Subscription; aborting to avoid a duplicate.', {
+        ctCartId: cart.id,
+        stripeSubscriptionId: existingId,
+        error,
+      });
+      throw error;
+    }
+
+    // IDOR / CWE-639: `stripeConnector_stripeSubscriptionId` on the line item is client-writable, so a
+    // caller could plant a victim's sub_... to harvest it (including the latest_invoice client_secret).
+    // Only reconcile a subscription that belongs to THIS cart's Stripe customer; otherwise treat it as
+    // absent and create a fresh one. Mirrors the ownership binding in confirmSubscriptionPayment /
+    // validateCustomerSubscription.
+    const existingCustomer = typeof existing.customer === 'string' ? existing.customer : existing.customer?.id;
+    if (!stripeCustomerId || existingCustomer !== stripeCustomerId) {
+      log.warn('Subscription on cart does not belong to the cart customer; ignoring (SB3-226 IDOR guard).', {
+        ctCartId: cart.id,
+        stripeSubscriptionId: existingId,
+      });
+      return null;
+    }
+
+    // SB3-226: the guard must bind to THIS cart, not just to the customer. `replicateCart` (reorder)
+    // copies the `stripeConnector_stripeSubscriptionId` line-item field AND keeps the customer, so a
+    // genuinely separate (replicated) cart would otherwise reconcile onto the OLD subscription and
+    // break the new purchase. The subscription metadata carries the originating cart id (written at
+    // creation via sealCartTotal(getPaymentMetadata(cart))). Strict equality is the fail-safe: the
+    // legitimate same-cart retry matches and still reconciles; a different/replicated cart (or an
+    // absent metadata field) does not, so the caller creates a fresh subscription.
+    if (existing.metadata?.[METADATA_CART_ID_FIELD] !== cart.id) {
+      log.warn('Subscription on cart belongs to a different cart; ignoring (SB3-226 cart-binding guard).', {
+        ctCartId: cart.id,
+        stripeSubscriptionId: existingId,
+        subscriptionCartId: existing.metadata?.[METADATA_CART_ID_FIELD],
+      });
+      return null;
+    }
+
+    if (existing.status === 'canceled' || existing.status === 'incomplete_expired') {
+      log.warn('Existing Stripe Subscription on cart is no longer valid; creating a new one.', {
+        ctCartId: cart.id,
+        stripeSubscriptionId: existingId,
+        status: existing.status,
+      });
+      return null;
+    }
+
+    log.info('Reusing existing Stripe Subscription for cart (SB3-226 duplicate-create guard).', {
+      ctCartId: cart.id,
+      stripeSubscriptionId: existingId,
+      status: existing.status,
+    });
+    return existing;
+  }
+
+  /**
+   * SB3-226 reconcile branch for createSubscription (default_incomplete flow). The subscription
+   * already exists, so we must NOT create a second Stripe subscription NOR a second CT payment. We
+   * return the same response shape pointing at the existing subscription and its already-created CT
+   * payment. An already-active subscription has no confirmation secret to confirm, so clientSecret is
+   * empty; a still-incomplete one returns its real client secret so the client can finish paying.
+   */
+  private async reconcileSubscriptionResponse({
+    cart,
+    subscription,
+    amountPlanned,
+    merchantReturnUrl,
+    billingAddress,
+  }: {
+    cart: Cart;
+    subscription: Stripe.Subscription;
+    amountPlanned: PaymentAmount;
+    merchantReturnUrl: string;
+    billingAddress?: string;
+  }): Promise<SubscriptionResponseSchemaDTO> {
+    const latestInvoice = subscription.latest_invoice as StripeInvoiceExpanded | string | null;
+    const invoiceId = typeof latestInvoice === 'object' ? latestInvoice?.id : undefined;
+
+    // An active subscription has no confirmation_secret — calling validateSubscription would throw
+    // "missing Payment Intent". Only a still-incomplete sub carries a resumable client secret.
+    let clientSecret = '';
+    let paymentIntentId: string | undefined;
+    const hasConfirmationSecret =
+      typeof latestInvoice === 'object' && !!latestInvoice?.confirmation_secret?.client_secret;
+    if (hasConfirmationSecret) {
+      ({ clientSecret, paymentIntentId } = this.validateSubscription(subscription));
+    }
+
+    const paymentReference = await this.resolveReconciledPaymentReference({
+      cart,
+      subscription,
+      amountPlanned,
+      interactionId: invoiceId || paymentIntentId,
+      paymentIntentId,
+    });
+
+    log.info('Reconciled existing Stripe Subscription (SB3-226 guard); skipped duplicate create.', {
+      ctCartId: cart.id,
+      stripeSubscriptionId: subscription.id,
+      ctPaymentReference: paymentReference,
+      status: subscription.status,
+    });
+
+    return {
+      subscriptionId: subscription.id,
+      cartId: cart.id,
+      clientSecret,
+      paymentReference,
+      merchantReturnUrl,
+      billingAddress,
+    };
+  }
+
+  /**
+   * SB3-226: recover the CT payment already created for a reconciled subscription instead of creating
+   * a duplicate. Preference order: the payment id Stripe stored on the subscription metadata (written
+   * at original creation via updatePaymentMetadata), then any payment already attached to the cart,
+   * and only if neither exists (the original run never got that far) create one now — which is not a
+   * duplicate because none was ever persisted.
+   */
+  private async resolveReconciledPaymentReference({
+    cart,
+    subscription,
+    amountPlanned,
+    interactionId,
+    paymentIntentId,
+  }: {
+    cart: Cart;
+    subscription: Stripe.Subscription;
+    amountPlanned: PaymentAmount;
+    interactionId?: string;
+    paymentIntentId?: string;
+  }): Promise<string> {
+    const fromMetadata = subscription.metadata?.[METADATA_PAYMENT_ID_FIELD];
+    if (fromMetadata) {
+      return fromMetadata;
+    }
+
+    const attachedPayments = cart.paymentInfo?.payments ?? [];
+    const fromCart = attachedPayments[attachedPayments.length - 1]?.id;
+    if (fromCart) {
+      return fromCart;
+    }
+
+    log.warn('Reconciled subscription has no associated CT payment; creating one (no duplicate exists).', {
+      ctCartId: cart.id,
+      stripeSubscriptionId: subscription.id,
+    });
+    return this.paymentCreationService.handleCtPaymentCreation({
+      cart,
+      amountPlanned,
+      subscriptionId: subscription.id,
+      interactionId: interactionId ?? subscription.id,
+      paymentIntentId,
+    });
   }
 
   public async getCreateSubscriptionPriceId(cart: Cart, amount: PaymentAmount): Promise<string> {
