@@ -231,7 +231,7 @@ export class StripeSubscriptionService {
         });
       } catch (error) {
         log.error(`Error freezing cart after Subscription creation.`, {
-          error,
+          errorMessage: error instanceof Error ? error.message : String(error),
           ctCartId: cart.id,
           stripeSubscriptionId: subscription.id,
         });
@@ -337,7 +337,7 @@ export class StripeSubscriptionService {
         });
       } catch (error) {
         log.error(`Error freezing cart after Subscription from Setup Intent creation.`, {
-          error,
+          errorMessage: error instanceof Error ? error.message : String(error),
           ctCartId: cart.id,
           stripeSubscriptionId: subscription.id,
         });
@@ -514,7 +514,7 @@ export class StripeSubscriptionService {
       log.error('Transient error retrieving existing Stripe Subscription; aborting to avoid a duplicate.', {
         ctCartId: cart.id,
         stripeSubscriptionId: existingId,
-        error,
+        errorMessage: error instanceof Error ? error.message : String(error),
       });
       throw error;
     }
@@ -1150,7 +1150,7 @@ export class StripeSubscriptionService {
 
       return 'subscription';
     } catch (error) {
-      log.error('Error getting payment mode', { error });
+      log.error('Error getting payment mode', { errorMessage: error instanceof Error ? error.message : String(error) });
       return 'payment';
     }
   }
@@ -1226,7 +1226,9 @@ export class StripeSubscriptionService {
       log.info(`Retrieved ${subscriptions.data.length} subscriptions for customer ${customerId}`);
       return subscriptions.data;
     } catch (error) {
-      log.error(`Failed to retrieve subscriptions for customer ${customerId}`, { error });
+      log.error(`Failed to retrieve subscriptions for customer ${customerId}`, {
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
       throw new Error(`Failed to retrieve subscriptions for customer ${customerId}: ${error}`);
     }
   }
@@ -1263,7 +1265,9 @@ export class StripeSubscriptionService {
         message: `Subscription ${subscriptionId} has been successfully canceled.`,
       };
     } catch (error) {
-      log.error(`Failed to cancel subscription ${subscriptionId}`, { error });
+      log.error(`Failed to cancel subscription ${subscriptionId}`, {
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
       throw wrapStripeError(error);
     }
   }
@@ -1369,7 +1373,7 @@ export class StripeSubscriptionService {
       return updatedSubscription;
     } catch (error) {
       log.error(`Failed to update subscription ${subscriptionId}`, {
-        error,
+        errorMessage: error instanceof Error ? error.message : String(error),
         customerId,
         newVariantId: newSubscriptionVariantId,
         newPriceId: newSubscriptionPriceId,
@@ -1438,7 +1442,9 @@ export class StripeSubscriptionService {
 
       return updatedSubscription;
     } catch (error) {
-      log.error(`Failed to update subscription ${subscriptionId}`, { error });
+      log.error(`Failed to update subscription ${subscriptionId}`, {
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
       throw wrapStripeError(error);
     }
   }
@@ -1487,9 +1493,11 @@ export class StripeSubscriptionService {
       });
     } catch (error) {
       log.error(`Failed to update subscription metadata for subscription ${subscriptionId}`, {
-        error,
+        errorMessage: error instanceof Error ? error.message : String(error),
         subscriptionId,
-        metadata: { cart, ctPaymentId, customerId },
+        ctPaymentId,
+        customerId,
+        cartId: cart?.id,
       });
       throw wrapStripeError(error);
     }
@@ -1909,7 +1917,7 @@ export class StripeSubscriptionService {
           {
             ctCartId: updatedCart.id,
             invoiceId,
-            error: conflictMessage,
+            errorMessage: conflictMessage,
           },
         );
         return false;
@@ -2216,7 +2224,9 @@ export class StripeSubscriptionService {
         subscriptionId: subscription.id,
       });
     } catch (error) {
-      log.error('Error unfreezing cart after subscription cancellation.', { error });
+      log.error('Error unfreezing cart after subscription cancellation.', {
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -2258,7 +2268,9 @@ export class StripeSubscriptionService {
         paymentIntentId: paymentIntent.id,
       });
     } catch (error) {
-      log.error('Error flagging subscription payment for a late ACH return.', { error });
+      log.error('Error flagging subscription payment for a late ACH return.', {
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -2460,7 +2472,7 @@ export class StripeSubscriptionService {
 
       await this.synchronizeSubscriptionPrice(subscription);
     } catch (e) {
-      log.error(`Error processing upcoming subscription notification: ${JSON.stringify(e, null, 2)}`);
+      log.error(`Error processing upcoming subscription notification: ${e instanceof Error ? e.message : String(e)}`);
       return;
     }
   }
@@ -2522,7 +2534,9 @@ export class StripeSubscriptionService {
         newPriceId: ${newPriceId}
         `);
     } catch (error) {
-      log.error(`Error synchronizing subscription price ${subscription.id} ${JSON.stringify(error, null, 2)}`);
+      log.error(
+        `Error synchronizing subscription price ${subscription.id} ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -2548,7 +2562,10 @@ export class StripeSubscriptionService {
 
       return price;
     } catch (error) {
-      log.error('Error getting commercetools product price', { error, productId });
+      log.error('Error getting commercetools product price', {
+        errorMessage: error instanceof Error ? error.message : String(error),
+        productId,
+      });
       return undefined;
     }
   }
@@ -2624,7 +2641,9 @@ export class StripeSubscriptionService {
 
       return newPrice.id;
     } catch (error) {
-      log.error(`Error getting or creating Stripe price ${ctProductId} ${JSON.stringify(error, null, 2)}`);
+      log.error(
+        `Error getting or creating Stripe price ${ctProductId} ${error instanceof Error ? error.message : String(error)}`,
+      );
       throw error;
     }
   }
@@ -2669,7 +2688,9 @@ export class StripeSubscriptionService {
 
       return matchingPrice || undefined;
     } catch (error) {
-      log.error(`Error searching for existing Stripe price ${ctProductId} ${JSON.stringify(error, null, 2)}`);
+      log.error(
+        `Error searching for existing Stripe price ${ctProductId} ${error instanceof Error ? error.message : String(error)}`,
+      );
       return undefined;
     }
   }
@@ -2704,7 +2725,11 @@ export class StripeSubscriptionService {
         newPriceId: ${newPriceId}
         `);
     } catch (error) {
-      log.error('Error updating subscription price', { error, subscriptionId, newPriceId });
+      log.error('Error updating subscription price', {
+        errorMessage: error instanceof Error ? error.message : String(error),
+        subscriptionId,
+        newPriceId,
+      });
       throw error;
     }
   }
@@ -2837,7 +2862,9 @@ export class StripeSubscriptionService {
 
       return newCart;
     } catch (error) {
-      log.error(`Failed to create cart from order ${originalOrder.id} ${JSON.stringify(error, null, 2)}`);
+      log.error(
+        `Failed to create cart from order ${originalOrder.id} ${error instanceof Error ? error.message : String(error)}`,
+      );
       throw error;
     }
   }
@@ -3016,7 +3043,7 @@ export class StripeSubscriptionService {
         billing_cycle_anchor: 'unchanged',
       });
     } catch (error) {
-      log.error(`Error getting subscription price ${JSON.stringify(error, null, 2)}`);
+      log.error(`Error getting subscription price ${error instanceof Error ? error.message : String(error)}`);
     }
 
     return newCart;
