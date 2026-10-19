@@ -62,4 +62,28 @@ export default [
       ],
     },
   },
+  {
+    // ADR-023 guard: on the files hardened for the SB3-236 webhook log-leak, never let a raw
+    // Stripe error reach the logs. A StripeError exposes payload / payment_intent / setup_intent as
+    // own-enumerable props (→ client_secret), so log `errorMessage: error instanceof Error ?
+    // error.message : String(error)` instead. Scoped to the files this PR fixed; the processor-wide
+    // sweep is tracked separately.
+    files: ['**/routes/stripe-payment.route.ts', '**/services/stripe-subscription.service.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "CallExpression[callee.object.name='log'] Property[key.name='error']",
+          message:
+            'Do not log a raw `error` field — use `errorMessage: error instanceof Error ? error.message : String(error)` (ADR-023).',
+        },
+        {
+          selector:
+            "CallExpression[callee.object.name='log'] CallExpression[callee.object.name='JSON'][callee.property.name='stringify'][arguments.0.name=/^(e|err|error)$/]",
+          message:
+            'Do not JSON.stringify a caught error into a log — use `error instanceof Error ? error.message : String(error)` (ADR-023).',
+        },
+      ],
+    },
+  },
 ];

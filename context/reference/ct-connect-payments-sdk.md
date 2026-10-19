@@ -1,8 +1,18 @@
 # Reference — CT Connect Payments SDK
 
-Package: `@commercetools/connect-payments-sdk@0.27.2`
+Package: `@commercetools/connect-payments-sdk@1.2.2`
 
 Same base as [ct-connect-stripe-checkout reference](../../ct-connect-stripe-checkout/context/reference/ct-connect-payments-sdk.md).
+
+> **Migrated 0.27.2 → 1.2.2** (see `decisions/adr-022-sdk-1.2.2-migration.md`). The SDK has no
+> own-API breaking change across that range; the impact is transitive — it pins
+> `@commercetools/platform-sdk@9.4.0`, `@commercetools/ts-client@5.0.2`,
+> `@commercetools-backend/loggers@27.9.3`, and `jwks-rsa@4` → `jose@6` (ESM-only). Consequences:
+> the processor declares `engines.node >=20.19.0` (floor to `require()` jose@6), `jest.config.ts`
+> transforms jose's ESM entry, and the local dev JWT harness is a native JWKS mock
+> (`jwt-server/server.js`, `use:"sig"`) because jose@6 rejects the old `jwt-mock-server` JWKS
+> (`key_ops:["sign"]`) with 401. `ts-client@5` also defaults `maskSensitiveHeaderData` to `true`,
+> so `Authorization` headers are redacted in request/response error logs.
 
 ## Composable-Specific Custom Types
 

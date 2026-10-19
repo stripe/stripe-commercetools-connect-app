@@ -208,6 +208,59 @@ describe('Stripe Payment APIs', () => {
       expect(spiedPaymentService.processStripeEvent).toHaveBeenCalledTimes(1);
     });
 
+    test('it must NOT log the raw webhook body when signature verification fails (CWE-532).', async () => {
+      setupMockConfig({
+        stripeSecretKey: 'stripeSecretKey',
+        stripeWebhookSigningSecret: 'stripeWebhookSigningSecret',
+        authUrl: 'https://auth.europe-west1.gcp.commercetools.com',
+      });
+
+      // A real StripeSignatureVerificationError carries the raw request body as an own-enumerable
+      // `payload` (and the signature header as `header`). Reproduce that exact shape so the test
+      // fails if the handler ever serializes the error object back into the logs.
+      const SENTINEL_SECRET = 'pi_SENTINEL_secret_DO_NOT_LOG';
+      const SENTINEL_HEADER = 't=1,v1=SENTINEL_SIGNATURE';
+      const rawBody = JSON.stringify({ data: { object: { client_secret: SENTINEL_SECRET } } });
+      const sigError = Object.assign(new Error('No signatures found matching the expected signature for payload.'), {
+        type: 'StripeSignatureVerificationError',
+        payload: rawBody,
+        header: SENTINEL_HEADER,
+      });
+
+      Stripe.prototype.webhooks = { constructEvent: jest.fn() } as unknown as Stripe.Webhooks;
+      jest.spyOn(Stripe.prototype.webhooks, 'constructEvent').mockImplementation(() => {
+        throw sigError;
+      });
+
+      // When
+      const response = await fastifyApp.inject({
+        method: 'POST',
+        url: `/stripe/webhooks`,
+        headers: {
+          'stripe-signature': SENTINEL_HEADER,
+        },
+      });
+
+      // Then — the request is rejected...
+      expect(response.statusCode).toEqual(400);
+      // ...the failure is still logged (so it stays diagnosable)...
+      expect(Logger.log.error).toHaveBeenCalled();
+      // ...but NO log call may carry the client_secret or the signature header. (The raw body
+      // appears only JSON-escaped in the serialized calls, so these quote-free sentinels are the
+      // reliable detectors — a revert to JSON.stringify(err) still fails on SENTINEL_SECRET.)
+      const loggedBlob = (Logger.log.error as jest.Mock).mock.calls.map((args) => JSON.stringify(args)).join('\n');
+      expect(loggedBlob).not.toContain(SENTINEL_SECRET);
+      expect(loggedBlob).not.toContain(SENTINEL_HEADER);
+      // ...and only the safe diagnostic shape is used.
+      expect(Logger.log.error).toHaveBeenCalledWith(
+        'Stripe webhook signature verification failed',
+        expect.objectContaining({
+          errorType: 'StripeSignatureVerificationError',
+          errorMessage: expect.stringContaining('No signatures found'),
+        }),
+      );
+    });
+
     test('it should handle a charge.refunded event gracefully with enhanced multirefund tracking.', async () => {
       setupMockConfig({
         stripeSecretKey: 'stripeSecretKey',
@@ -973,6 +1026,17 @@ describe('Stripe Payment APIs', () => {
       expect(responseGetConfig.body).toEqual(JSON.stringify({ outcome: 'rejected' }));
       expect(responseGetConfig.body).not.toContain('sensitive stripe detail');
       expect(spiedPaymentService.updatePaymentIntentStripeSuccessful).toHaveBeenCalled();
+
+      // The raw error object must not reach the log — only a safe message field (defense-in-depth
+      // parity with the webhook catch). A revert to logging `{ error }` must fail this assertion.
+      expect(Logger.log.error).toHaveBeenCalledWith(
+        'confirmPayments rejected the confirmation.',
+        expect.objectContaining({ errorMessage: 'sensitive stripe detail' }),
+      );
+      const confirmLogArgs = (Logger.log.error as jest.Mock).mock.calls.find(
+        (args) => args[0] === 'confirmPayments rejected the confirmation.',
+      );
+      expect(confirmLogArgs?.[1]).not.toHaveProperty('error');
     });
   });
 

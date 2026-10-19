@@ -113,7 +113,9 @@ export const paymentRoutes = async (fastify: FastifyInstance, opts: FastifyPlugi
         log.error('confirmPayments rejected the confirmation.', {
           paymentReference: id,
           paymentIntentId: request.body.paymentIntent,
-          error,
+          // Log the message, not the raw error object — defense-in-depth parity with the
+          // webhook catch below, so a Stripe error's own-enumerable props never reach the log.
+          errorMessage: error instanceof Error ? error.message : String(error),
         });
         return reply.status(400).send({ outcome: PaymentModificationStatus.REJECTED });
       }
@@ -290,7 +292,17 @@ export const stripeWebhooksRoutes = async (fastify: FastifyInstance, opts: Strip
         );
       } catch (error) {
         const err = error as Error;
-        log.error(JSON.stringify(err));
+        // Log only the diagnostic fields — never JSON.stringify the error. On a signature
+        // failure the thrown StripeSignatureVerificationError carries the raw request body as
+        // an own-enumerable `payload` (and the signature header as `header`), so serializing it
+        // would write the unredacted webhook body — a live client_secret, and IBAN/BIC on a
+        // bank-transfer event — into the Connect application logs, bypassing the redaction
+        // choke point in StripeEventConverter. err.message is the diagnostic string and carries
+        // no payload. (Ported from the checkout sibling connector.)
+        log.error('Stripe webhook signature verification failed', {
+          errorType: (err as { type?: string }).type ?? err.name,
+          errorMessage: err.message,
+        });
         return reply.status(400).send(`Webhook Error: ${err.message}`);
       }
 

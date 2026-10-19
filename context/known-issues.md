@@ -702,3 +702,17 @@ Where commercetools computes tax **on top of** the price (`taxedPrice.totalGross
 **Tests:** `processor/test/services/stripe-payment.service.spec.ts` — `updateCartAddress method` (name split, no name-in-key, `additionalStreetInfo` mapping, cart-already-complete, no-state regression) and `version pin — ... surfaces a non-version-conflict order-creation failure to Stripe without retrying`.
 
 **Status:** ✅ resolved. Cross-reference KI-002, ADR-020.
+
+---
+
+## KI-059: Webhook signature-verification failure logged the raw webhook body (client_secret, IBAN/BIC) to Connect logs — ✅ RESOLVED (2026-10-15, `fix/composable-SB3-236-webhook-logleak`)
+
+**Status:** RESOLVED. The webhook signature-verification catch logs only `errorType` + `errorMessage`; the `confirmPayments` catch and the raw-error sinks in `stripe-subscription.service.ts` log field-scoped messages only. Guarded by a directed regression test that fails on `JSON.stringify(err)` and passes after, plus an ESLint `no-restricted-syntax` rule (scoped to the webhook route + subscription service) that forbids a raw `error` log field or `JSON.stringify(<caught error>)`.
+
+**Problem (pre-fix):** On a Stripe webhook signature-verification failure, `processor/src/routes/stripe-payment.route.ts:293` ran `log.error(JSON.stringify(err))`. `stripe-node@20.4.1` attaches the raw request body to `StripeSignatureVerificationError` as an own-enumerable `payload` (and the signature header as `header`), so `JSON.stringify` serialized the entire unredacted webhook body into the commercetools Connect application logs (stdout, 30-day retention): a live `client_secret` on any PaymentIntent/SetupIntent event, and the merchant IBAN/BIC + `hosted_instructions_url` on `customer_balance` bank-transfer events. The connector's redaction choke point `StripeEventConverter.buildPspInteractionResponse` only runs on the persistence path, so the error path bypassed it. Triggered by routine operational states — signing-secret rotation/mismatch, clock skew > 5 min, a body mangled in transit, or Stripe's retries — not just attacker probes.
+
+**Root cause:** `processor/src/routes/stripe-payment.route.ts` webhook catch serialized the raw error object; `stripe-node` `cjs/Error.js:157-162` exposes `payload`/`header` as own-enumerable instance properties while the top-level `message` is non-enumerable.
+
+**Rule:** A webhook signature-verification failure must log only the error **type** and **message** — never the error object, `payload`, or `header`. Any catch that may receive a Stripe error must log field-scoped data only (`error instanceof Error ? error.message : String(error)`), never `{ error }` nor `JSON.stringify(error)`. Hub rule: "Never log sensitive data: Stripe payloads".
+
+**Implementation note:** Fixed on `fix/composable-SB3-236-webhook-logleak` (all 19 raw-error sinks in `stripe-subscription.service.ts` converted, including the `invoice.upcoming` path the reporter named). The `stripe-subscription.service.ts` sinks carried Stripe **API** errors on Subscription/Price/Cart requests, which *generally* carry no PaymentIntent and hence no `client_secret`/IBAN — but a Stripe error can carry `payment_intent`/`setup_intent` (and therefore a `client_secret`) on any request that involves one, so the field-scoped fix is the correct default, not merely parity. See ADR-023, HackerOne #4062079 / SB3-236. The sibling Checkout connector shipped the same fix earlier.

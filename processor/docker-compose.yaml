@@ -4,11 +4,12 @@ services:
   jwt-server:
     image: node:alpine
     restart: always
-    command: 
-      - npx
-      - --package
-      - jwt-mock-server
-      - -y
-      - start
+    # Native zero-dependency JWT mock (see ../jwt-server/server.js). Replaces the
+    # unmaintained jwt-mock-server package, whose JWKS used key_ops:["sign"] and
+    # was rejected by jose@6 (connect-payments-sdk 1.2.2 -> jwks-rsa@4).
+    volumes:
+      - ../jwt-server:/srv:ro
+    working_dir: /srv
+    command: node server.js
     ports:
       - 9000:9000
