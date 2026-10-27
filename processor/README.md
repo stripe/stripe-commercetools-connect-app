@@ -182,7 +182,7 @@ Because the payment method is chosen client-side after the PaymentIntent is crea
 - `STRIPE_CAPTURE_METHOD` is `automatic` — crypto does **not** support manual capture.
 - Saved payment methods are **not** enabled (`STRIPE_SAVED_PAYMENT_METHODS_CONFIG` without `payment_method_save_usage`) — crypto cannot be saved for future use (`setup_future_usage`).
 
-If a merchant configures manual capture or saved payment methods, crypto is silently not offered — this is expected Stripe behavior, not a bug. No connector-side guard is needed for this.
+If a merchant configures manual capture or saved payment methods, crypto is not offered — this is expected Stripe behavior.
 
 ### Pending state during `processing`
 
@@ -191,7 +191,7 @@ While a crypto payment settles, the connector reflects it as a **`Authorization`
 The `payment_intent.processing` webhook is subscribed in `enabled_events` (`connectors/actions.ts`). Its handling:
 
 - **Order/dedup guard**: the `Pending` transaction is skipped if a `Charge/Success` already exists (Stripe does not guarantee event order — `succeeded` may arrive first) or if an `Authorization/Pending` already exists (event redelivery).
-- **No silent divergence**: unlike other events, a commercetools write failure while handling `payment_intent.processing` is **re-thrown** so the webhook responds non-2xx and Stripe retries (avoids leaving CT diverged). Other event types keep their existing behavior.
+- **Write-failure handling**: a commercetools write failure while handling `payment_intent.processing` is **re-thrown** so the webhook responds non-2xx and Stripe retries.
 
 ### Testing locally
 
@@ -214,9 +214,7 @@ value. The connector uses `automatic_payment_methods`, so Stripe surfaces the me
 
 ### Pending state on subscriptions
 
-`POST /subscription/confirm` was originally written for synchronous cards and wrote `Charge/Success`
-unconditionally — which marked a subscription order paid before any money had moved. It now retrieves the
-real PaymentIntent status and branches:
+`POST /subscription/confirm` retrieves the real PaymentIntent status and branches:
 
 | PaymentIntent status | CT transaction written |
 | --- | --- |
@@ -236,29 +234,20 @@ Micro-deposit verification confirms to `requires_action` with `next_action.type 
 verify_with_microdeposits` and settles days later, during which the cart would otherwise stay editable.
 Two protections cover this:
 
-- **Cart freeze**: `isMicrodepositNextAction` (`utils.ts`) freezes the cart on that `requires_action`. It
-  is kept **separate** from `isBankTransferNextAction` on purpose, so the 3DS/Boleto release-gate tests
-  that pin the bank-transfer predicate stay green. Like bank transfer, the event runs `processStripeEvent`
-  and the converter writes one **Authorization: Pending** for `pi.amount` (`stripeEventConverter.ts`, case
-  `PAYMENT_INTENT__REQUIRED_ACTION`) — the two rails differ only in the freeze predicate, not in whether a
-  CT transaction is written.
+- **Cart freeze**: `isMicrodepositNextAction` (`utils.ts`) freezes the cart on that `requires_action`. Like
+  bank transfer, the event runs `processStripeEvent` and the converter writes one **Authorization: Pending**
+  for `pi.amount` (`stripeEventConverter.ts`, case `PAYMENT_INTENT__REQUIRED_ACTION`).
 - **Order-creation backstop**: `handlePaymentIntentSucceededFlow` refuses to create the order unless
   `pi.amount` equals the cart's *current* total, `pi.amount_received` equals `pi.amount`, and the currency
   matches (integer minor-unit comparison, so JPY is correct). On mismatch it logs at `error` and returns.
-  This layer is universal — it also covers boleto, OXXO, konbini and multibanco, which have no freeze.
-
-> A blocked order leaves a **paid-without-order** state: the `Charge/Success` has already persisted, and by
-> hub rule the divergence is surfaced for manual reconciliation, never auto-corrected. There is no
-> auto-refund. Watch the processor logs for it.
+  This layer is universal — it also covers boleto, OXXO, konbini and multibanco.
 
 On subscriptions, micro-deposit verification is **not** supported: the confirm throws on `requires_action`.
 
 ### Late returns (post-settlement reversal)
 
 A settled ACH debit can be reversed by the customer's bank for up to ~60 days. Stripe fires
-`payment_intent.payment_failed` / `charge.failed` but does **not** re-fire `invoice.payment_failed`, so the
-invoice-driven subscription handlers never saw it and the CT order stayed paid while the funds were clawed
-back.
+`payment_intent.payment_failed` / `charge.failed` but does **not** re-fire `invoice.payment_failed`.
 
 A subscription-invoice `payment_intent.payment_failed` is now routed to `processSubscriptionEventLateReturn`,
 which sets the native `paymentStatus.interfaceCode = 'ach_late_return'` (plus `interfaceText`) — and only
@@ -266,17 +255,13 @@ when the payment already carries a `Charge/Success` proving the money had settle
 is an ordinary failure owned by `invoice.payment_failed`. No transaction, order-state or custom-field
 change: the financial correction is made in the Stripe Dashboard, like a dispute.
 
-> **The handler is best-effort and never throws.** If the CT write fails the error is logged, the webhook
-> still returns 200, and Stripe does not redeliver — the flag is simply absent. This flag is the only
-> in-connector signal that money was clawed back, so wire it to an alerting channel.
+> This flag is the only in-connector signal that money was clawed back, so wire it to an alerting channel.
 
 ### Webhook write failures
 
 On `invoice.paid` / `invoice.payment_failed`, a commercetools write failing with a **transient** error
 (`ConcurrentModification`/409, 429, 502, 503, `ETIMEDOUT`, `ECONNRESET`) is rethrown so the webhook responds
-non-2xx and Stripe redelivers. Permanent errors — bad credentials, a missing customer — stay logged and
-swallowed: rethrowing everything was tried first and turned a permanent failure into a days-long redelivery
-storm. The split is a regex on error text, so an unrecognised transient error is still swallowed.
+non-2xx and Stripe redelivers.
 
 ### Testing locally
 
@@ -640,12 +625,9 @@ This section provides a comprehensive reference for all environment variables us
     `pi_first` creates the PaymentIntent **before** the Element mounts and initializes Elements with its
     `clientSecret`, which bank transfers (`customer_balance`) and BLIK require — they cannot render in
     the deferred flow at all.
-  - **Do not set `pi_first` yet.** Two open risks, both processor-side: opening the payment page is
-    enough to create a PaymentIntent and a commercetools Payment, and there is no deterministic
-    idempotency key, so any remount orphans the previous pair; and an unfunded bank transfer makes the
-    cart read as paid in full. See KI-044 and KI-049.
+  - **Do not set `pi_first` yet.**
   - An invalid value does **not** abort startup — it is reported to the deploy log and falls back to
-    `deferred`, which also silently disables bank transfers and BLIK. Check that log after changing it.
+    `deferred`. Check that log after changing it.
   - Per-cart override: `flowType` in `STRIPE_PAYMENT_BEHAVIOR_RULES`.
 - **`STRIPE_PAYMENT_BEHAVIOR_RULES`**: JSON map of per-market payment behavior overrides
   - Default: unset (no overrides — the flat variables above are always the default)
@@ -663,10 +645,9 @@ This section provides a comprehensive reference for all environment variables us
     which of your IBANs a EUR shopper is told to wire to (omit it and Stripe shows an Irish IBAN, which
     works for every eurozone shopper — SEPA is a single payment area). A market already on the default
     automatic capture needs no entry here at all.
-  - **Two failure modes.** Malformed JSON, a non-object map or a non-object rule **abort startup** —
-    there is no per-field fallback, so the alternative is silently losing every rule at once. An unknown
-    field or an invalid **value** does not abort: it is reported to the deploy log and ignored, so that
-    one setting falls back to its default and the deployment survives a typo.
+  - **Two failure modes.** Malformed JSON, a non-object map or a non-object rule **abort startup**. An
+    unknown field or an invalid **value** does not abort: it is reported to the deploy log and ignored, so
+    that one setting falls back to its default and the deployment survives a typo.
 - **`STRIPE_API_VERSION`**: Stripe API version
   - Default: `2025-12-15.clover`
   - Allows merchants to pin to specific Stripe API versions for stability
@@ -830,7 +811,7 @@ Afterwards, session ID can be obtained from the response, which is necessary to 
 
 ### JSON web token (JWT)
 
-`jwt` needs some workaround to be able to test locally as it depends on the merchant center forward-to proxy.
+`jwt` needs additional setup to be able to test locally as it depends on the merchant center forward-to proxy.
 
 In order to make it easy to run the application locally, the following commands help to build up a jwt mock server:
 
@@ -1067,8 +1048,6 @@ Additionally, the webhook handler identifies subscription invoice-related events
 ### Order Creation
 
 The order is created during the processing of the `payment_intent.succeeded` webhook. Before creating the order, the cart must include shipment information.
-
-Note: If the cart does not have shipment information, the order creation will fail. The connector does not handle the case where the cart is missing shipment information.
 
 #### Endpoint
 `POST /stripe/webhooks`
@@ -1466,7 +1445,7 @@ When `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true` is enabled, this method works
 - Maintains consistency between manual updates and automatic synchronization
 
 #### Patch Customer Subscription
-Updates a specific Stripe subscription related to a customer, according to the Stripe [update subscription](https://docs.stripe.com/api/subscriptions/update?api-version=2025-02-24.acacia) functionality. This method doesn't provide data consistency between systems, unlike the `updateSubscription` method, which is why its recommended to use it carefully when updating subscription data that may cause inconsistencies (such as prices and products). Examples of safe subscription data to update include descriptions, quantity of items, and the like.
+Updates a specific Stripe subscription related to a customer, according to the Stripe [update subscription](https://docs.stripe.com/api/subscriptions/update?api-version=2025-02-24.acacia) functionality. This method doesn't provide data consistency between systems, unlike the `updateSubscription` method, which is why it's recommended to use it carefully when updating subscription data such as prices and products. Examples of safe subscription data to update include descriptions, quantity of items, and the like.
 
 ##### Endpoint
 `POST /subscription-api/advanced/:customerId`

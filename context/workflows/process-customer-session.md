@@ -92,4 +92,3 @@ The `features` object in the session comes from `STRIPE_SAVED_PAYMENT_METHODS_CO
 | CT customer not found | Returns `undefined` — same as guest |
 | `stripeCustomerId` param invalid or deleted | Falls through to next resolution step |
 | Stripe search returns no results | New customer created and saved |
-| `saveStripeCustomerId()` fails | Error thrown — no partial state (customer exists in Stripe but ID not persisted in CT) |

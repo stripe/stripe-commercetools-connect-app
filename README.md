@@ -144,11 +144,8 @@ Subscription payment and order handling was corrected so that each recurring cyc
 
 - **`invoice.paid` is the single source of truth for subscription payments.** Stripe also emits `charge.succeeded` / `payment_intent.succeeded` for the same subscription invoice, but the webhook route now ignores those via `isFromSubscriptionInvoice()` to prevent duplicate CT payments/orders. `processSubscriptionEventCharged` is deprecated and no longer wired.
 - **Transactions are keyed by the Stripe invoice id (`in_…`)** rather than the PaymentIntent id, and recurring mixed-cart order composition was fixed.
-- **First-cycle order is created from the frozen cart** instead of cloning a non-existent order, and **first-cycle payment failure** is handled correctly (no spurious paid order).
-- **Product sale prices are honored**: subscription line items charge `price.discounted ?? price.value`, not the list price. (Cart-level coupon `duration` mapping remains a known gap — see `context/known-issues.md` KI-016.)
-- **Security**: processor and enabler dependency vulnerabilities resolved via `npm audit fix`.
-
-See `docs/CHANGELOG.md` and `context/business-rules/recurring-billing.md` (Rule 4) for details.
+- **First-cycle order is created from the frozen cart**, and **first-cycle payment failure** is handled correctly.
+- **Product sale prices are honored**: subscription line items charge `price.discounted ?? price.value`, not the list price.
 
 ### Multiple Refunds and Multicapture Implementation - OPT-IN FEATURE
 
@@ -159,7 +156,7 @@ The payment processing system has been significantly enhanced with advanced mult
 - **Prerequisites**:
   - Multicapture must be enabled in your Stripe account
   - Set `STRIPE_CAPTURE_METHOD=manual`
-  - Webhook endpoint must include `charge.updated` and `charge.refunded` events. `charge.refunded` is registered by post-deploy; **`charge.updated` is not** — add it to the endpoint by hand in the Stripe Dashboard, or multicapture events never arrive
+  - Webhook endpoint must include `charge.updated` and `charge.refunded` events. `charge.refunded` is registered by post-deploy; add `charge.updated` to the endpoint by hand in the Stripe Dashboard
 - **Default Behavior**: When disabled, webhook events are gracefully skipped with logging
 - **Backward Compatible**: Existing merchants experience no disruption
 
@@ -251,12 +248,11 @@ For enabler and payment service improvements, see the [Enabler Improvements Guid
 # Webhooks
 
 The following webhooks are registered by the post-deploy script (`processor/src/connectors/actions.ts`,
-`enabled_events`) and routed in `processor/src/routes/stripe-payment.route.ts`. This list must stay in
-sync with `enabled_events` — a handler that exists without its event registered never fires.
+`enabled_events`) and routed in `processor/src/routes/stripe-payment.route.ts`.
 
 **One-time payments**
 
-- **payment_intent.succeeded**: Creates a payment transaction Charge: Success, and creates the commercetools order. Order creation is refused unless the PaymentIntent's `amount` matches the cart's *current* total, `amount_received` equals `amount`, and the currency matches — the backstop against a cart edited while an async payment settled (see ACH below). On a mismatch it logs an error and returns; the Charge: Success already written leaves a paid-without-order state for manual reconciliation. An already-`Ordered` cart is skipped idempotently.
+- **payment_intent.succeeded**: Creates a payment transaction Charge: Success, and creates the commercetools order. Order creation is refused unless the PaymentIntent's `amount` matches the cart's *current* total, `amount_received` equals `amount`, and the currency matches. An already-`Ordered` cart is skipped idempotently.
 - **payment_intent.canceled**: Modified the payment transaction Authorization to Failure and create a payment transaction CancelAuthorization: Success
 - **payment_intent.payment_failed**: Modify the payment transaction Authorization to Failure. **Note (subscriptions):** on a subscription-invoice PaymentIntent that had *already* settled this is an ACH late return and is routed instead to `processSubscriptionEventLateReturn` — see below.
 - **payment_intent.requires_action**: Behavior depends on the rail. Both a **bank transfer** (`next_action.type = display_bank_transfer_instructions`) and an **ACH micro-deposit** (`next_action.type = verify_with_microdeposits`) pass the gate, run `processStripeEvent`, and write **one Authorization: Pending for the full PaymentIntent amount** — the converter (`stripeEventConverter.ts`, case `PAYMENT_INTENT__REQUIRED_ACTION`) does not branch by `next_action.type`. The only difference between the two rails is the freeze predicate (`isBankTransferNextAction` vs `isMicrodepositNextAction`); both freeze the cart. For a bank transfer the order is created only when funds arrive; the micro-deposit freeze holds the cart during the multi-day verification window. Everything else — card 3DS, Boleto — keeps the log-only path (no transaction). A subscription-invoice event logs and stops.
@@ -264,16 +260,15 @@ sync with `enabled_events` — a handler that exists without its event registere
 - **payment_intent.partially_funded**: The shopper wired part of a bank transfer amount. Deliberately writes **no** commercetools transaction — only the interface interaction — so the single Authorization: Pending for the full amount stays the truth.
 - **charge.succeeded**: Create the payment transaction to 'Authorization:Success' if charge is not captured, and update the payment method type that was used to pay. **Note (subscriptions):** when the charge belongs to a subscription invoice it is ignored (`isFromSubscriptionInvoice`, keyed on the connector's own `subscription_id` metadata); recurring subscription payments are recorded solely from `invoice.paid` to avoid duplicate commercetools payments/orders.
 - **charge.captured**: Logs the information in the connector app inside the Processor logs.
-- **charge.updated**: **The route handler exists but the event is NOT in `enabled_events`**, so Stripe never delivers it and the handler does not currently run. When wired, it handles multicapture scenarios by creating Charge: Success transactions with incremental captured amounts, and only when `STRIPE_ENABLE_MULTI_OPERATIONS=true`. Registering it is an open item — see `context/known-issues.md`.
 
 **Refunds**
 
 - **charge.refunded**: Creates payment transactions Refund: Success and Chargeback: Success with accurate refund amounts fetched from Stripe API. **Note**: Only processed when `STRIPE_ENABLE_MULTI_OPERATIONS=true`; gracefully skipped when disabled.
-- **refund.updated** / **refund.failed**: `charge.refunded` fires when the Refund object is *created*, which on a delayed rail is not the same as succeeded — a bank-transfer refund is created `pending`. These two events write a correcting Refund: Failure when Stripe later rejects the refund, which previously stayed recorded as successful forever.
+- **refund.updated** / **refund.failed**: `charge.refunded` fires when the Refund object is *created*, which on a delayed rail is not the same as succeeded — a bank-transfer refund is created `pending`. These two events write a correcting Refund: Failure when Stripe later rejects the refund.
 
 **Bank transfer cash balance**
 
-- **customer_cash_balance_transaction.created**: Observability only — never writes to commercetools. Logs a field-by-field payload, at `error` level for `funding_reversed` and `adjusted_for_overdraft` and at `info` otherwise. The raw event is never logged: it carries `sender_name`, `iban_last4`, `account_number_last4` and `sort_code`. This is the **only** signal for a bank-transfer clawback; wire it to an alerting channel.
+- **customer_cash_balance_transaction.created**: Observability only — never writes to commercetools. Logs a field-by-field payload, at `error` level for `funding_reversed` and `adjusted_for_overdraft` and at `info` otherwise. The raw event is never logged. This is the **only** signal for a bank-transfer clawback; wire it to an alerting channel.
 
 **Subscriptions**
 
@@ -284,8 +279,7 @@ sync with `enabled_events` — a handler that exists without its event registere
 
 > On `invoice.paid` and `invoice.payment_failed`, a commercetools write that fails with a **transient**
 > error (`ConcurrentModification`/409, 429, 502, 503, `ETIMEDOUT`, `ECONNRESET`) is rethrown so the webhook
-> responds non-2xx and Stripe redelivers. Permanent errors are logged and swallowed, so a bad credential
-> does not turn into a days-long retry storm.
+> responds non-2xx and Stripe redelivers. Permanent errors are logged and swallowed.
 
 ## ACH Direct Debit (`us_bank_account`)
 
@@ -305,7 +299,7 @@ drives the webhook behavior above.
   signals this with `payment_intent.payment_failed` but does **not** re-fire `invoice.payment_failed`, so
   the connector flags the commercetools payment with the native `paymentStatus.interfaceCode =
   'ach_late_return'` and leaves the financial correction to the Stripe Dashboard — no transaction, order
-  or custom-field change. The flag is best-effort and never throws, so **it is the only in-connector
+  or custom-field change. The flag never throws, so **it is the only in-connector
   signal that money was clawed back; wire it to an alerting channel.**
 
 
@@ -559,7 +553,7 @@ deployAs:
           description: Stripe capture method (example - manual|automatic).
           default: automatic
         - key: STRIPE_PAYMENT_FLOW
-          description: 'Optional. Stripe Elements initialization strategy - deferred|pi_first. Unset means deferred. pi_first creates the PaymentIntent before the Element mounts and initializes Elements with its clientSecret, which bank transfers (customer_balance) and BLIK need. STILL DO NOT SET pi_first - opening the payment page alone creates a PaymentIntent and a commercetools Payment with no deterministic idempotency key, so a remount orphans the previous pair, and an unfunded bank transfer makes the cart read as paid in full. An invalid value does not abort startup - it is reported to the deploy log and falls back to deferred, which also disables bank transfers and BLIK. Per-cart override - flowType in STRIPE_PAYMENT_BEHAVIOR_RULES.'
+          description: 'Optional. Stripe Elements initialization strategy - deferred|pi_first. Unset means deferred. pi_first creates the PaymentIntent before the Element mounts and initializes Elements with its clientSecret, which bank transfers (customer_balance) and BLIK need. Do not set pi_first. An invalid value does not abort startup - it is reported to the deploy log and falls back to deferred, which also disables bank transfers and BLIK. Per-cart override - flowType in STRIPE_PAYMENT_BEHAVIOR_RULES.'
         - key: STRIPE_PAYMENT_BEHAVIOR_RULES
           description: 'Optional JSON map of cart country or commercetools store key to payment behavior overrides. Contains exceptions only - the flat variables are always the default and there is no wildcard key. Each rule may set flowType, captureMethod, setupFutureUsage and euBankTransferCountry (DE|FR|IE|NL). Malformed JSON or a rule that is not an object aborts startup; an unknown field or an invalid value does not - it is reported to the deploy log and ignored. Example - {"DE":{"captureMethod":"automatic","euBankTransferCountry":"DE"},"MX":{"captureMethod":"manual"}}'
         - key: STRIPE_WEBHOOK_ID
@@ -642,7 +636,7 @@ Here, you can see the details about various variables in the configuration
 - `CTP_JWT_ISSUER`: The issuer inside JSON Web Token, required in the JWT validation process. The default value is `https://mc-api.europe-west1.gcp.commercetools.com`
 - `STRIPE_CAPTURE_METHOD`: Stripe capture method (manual or automatic), default value: automatic.
 - `STRIPE_APPEARANCE_PAYMENT_ELEMENT`: Stripe Elements supports visual customization, which allows you to match the design of your site with the `appearance` option. This value has the specific appearance of the Payment Element component. The value needs to be a valid stringified JSON. More information about the properties can be found [here](https://docs.stripe.com/elements/appearance-api).
-- `STRIPE_APPEARANCE_EXPRESS_CHECKOUT`: Stripe Elements supports visual customization, which allows you to match the design of your site with the `appearance` option. This value has the specific appearance of the Express Checkout component.
+- `STRIPE_APPEARANCE_EXPRESS_CHECKOUT`: Stripe Elements supports visual customization, which allows you to match the design of your site with the `appearance` option. This value has the specific appearance of the Express Checkout component.
 - `STRIPE_LAYOUT`: Stripe allows you to customize the Payment Element's Layout to fit your checkout flow (accordions or tabs). Default value is `{"type":"tabs","defaultCollapsed":false}`
 - `STRIPE_APPLE_PAY_WELL_KNOWN`: Domain association file from Stripe. We can find more information in this [link](https://stripe.com/files/apple-pay/apple-developer-merchantid-domain-association).
 - `CTP_CLIENT_SECRET`: The client secret of commercetools composable commerce user account. It is used in commercetools for clients to communicate with commercetools composable commerce via SDK.
@@ -661,15 +655,15 @@ Here, you can see the details about various variables in the configuration
   - `true`: Subscription prices are automatically synchronized with current commercetools product prices **before** each invoice is created via `invoice.upcoming` webhook events (price changes take effect in current billing cycle)
   - `false` (default): Price updates happen **after** invoice payment via `createOrder` method (price changes take effect in next billing cycle)
 - `STRIPE_PAYMENT_FLOW`: Stripe Elements initialization strategy — `deferred` (default) or `pi_first`, case-sensitive. `deferred` creates Elements with `{ mode, amount, currency }` and the PaymentIntent at submit time. `pi_first` creates the PaymentIntent **before** the Element mounts and initializes Elements with its `clientSecret`, which bank transfers (`customer_balance`) and BLIK require — they cannot render in the deferred flow at all.
-  - **Do not set `pi_first` yet.** Opening the payment page alone creates a PaymentIntent and a commercetools Payment, and creation has no deterministic idempotency key, so any remount orphans the previous pair. An unfunded bank transfer also makes the cart read as paid in full, so a shopper reloading the page gets an error instead of an "awaiting your transfer" state.
-  - An invalid value does **not** abort startup — it is reported to the deploy log and falls back to `deferred`, which also silently disables bank transfers and BLIK. Check that log after changing it.
+  - **Do not set `pi_first` yet.**
+  - An invalid value does **not** abort startup — it is reported to the deploy log and falls back to `deferred`, which also disables bank transfers and BLIK. Check that log after changing it.
   - Under `pi_first` the Element shows and saves **no** saved payment methods: Stripe's `clientSecret`-based Elements options cannot carry `setupFutureUsage`, and `customerOptions` is deliberately omitted.
   - Per-cart override: `flowType` in `STRIPE_PAYMENT_BEHAVIOR_RULES`.
-- `STRIPE_PAYMENT_BEHAVIOR_RULES`: Optional JSON map of per-market payment behavior overrides, keyed by cart country (`"DE"`) or commercetools store key (`"store-mx"`). Contains exceptions only — the flat variables above are always the default, and there is no wildcard key. Ported from `ct-connect-stripe-checkout` so one map can serve both connectors.
+- `STRIPE_PAYMENT_BEHAVIOR_RULES`: Optional JSON map of per-market payment behavior overrides, keyed by cart country (`"DE"`) or commercetools store key (`"store-mx"`). Contains exceptions only — the flat variables above are always the default, and there is no wildcard key.
   - Rule fields: `flowType`, `captureMethod` (`automatic` | `automatic_async` | `manual`), `setupFutureUsage` (`off_session` | `on_session` | `""` | `none` | `null` | `undefined`) and `euBankTransferCountry` (`DE` | `FR` | `IE` | `NL`).
   - Example: `{"DE":{"captureMethod":"automatic","euBankTransferCountry":"DE"},"MX":{"captureMethod":"manual"}}`
   - **Bank transfers have no enable flag here, by design.** Whether the rail is offered at all is a Stripe Dashboard setting for the whole account; whether the widget can render it is `STRIPE_PAYMENT_FLOW`. This map resolves only the two conflicts the Dashboard cannot see: `captureMethod`, because manual capture and an `off_session`/`on_session` mandate each remove `customer_balance` from the methods Stripe resolves; and `euBankTransferCountry`, which only chooses which of your IBANs a EUR shopper is told to wire to. Omit the latter and Stripe shows an Irish IBAN, valid for every eurozone shopper since SEPA is a single payment area.
-  - **Two failure modes.** Malformed JSON, a non-object map or a non-object rule **abort startup** — there is no per-field fallback, so the alternative is silently losing every rule at once. An unknown field or an invalid **value** does not abort: it is reported to the deploy log and ignored, so that one setting falls back to its default and the deployment survives a typo.
+  - **Two failure modes.** Malformed JSON, a non-object map or a non-object rule **abort startup** — there is no per-field fallback. An unknown field or an invalid **value** does not abort: it is reported to the deploy log and ignored, so that one setting falls back to its default and the deployment survives a typo.
 - `STRIPE_ENABLE_MULTI_OPERATIONS`: **Opt-in Feature** - Enables multicapture and multirefund support.
   - `true`: Enables multiple partial captures and multiple refunds on payments. Sets `request_multicapture: 'if_available'` on payment intents. Processes `charge.updated` and `charge.refunded` webhook events.
   - `false` (default): Standard single-capture payment processing. Webhook events are gracefully skipped with informative logging.

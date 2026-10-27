@@ -3,9 +3,6 @@
 **Trigger:** Stripe sends `invoice.upcoming` webhook (~1 hour before next invoice is generated).
 **Actors:** Stripe (initiator), Processor, CT API, Stripe API.
 **Precondition:** `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true`.
-**Outcome:** Stripe subscription updated to use a Stripe price matching the current CT product price for next invoice.
-
-> **Known defects in this flow** — the reuse/lookup step described below does not work as intended; see `known-issues.md` KI-013 and KI-032, and `business-rules/price-sync.md` Rule 3. This document describes actual current behavior, including the defects.
 
 ---
 
@@ -17,9 +14,7 @@ Stripe                    Processor                        Stripe          CT
   | POST /stripe/webhooks     |                                |              |
   | invoice.upcoming          |                                |              |
   |-------------------------->|                                |              |
-  |   200 OK                  |                                |              |
-  |<--------------------------|                                |              |
-  |                           | if !PRICE_SYNC_ENABLED → stop  |              |
+  |                           | if price-sync flag off → stop  |              |
   |                           |                                |              |
   |                           | processSubscriptionEventUpcoming()             |
   |                           |                                |              |
@@ -48,27 +43,14 @@ Stripe                    Processor                        Stripe          CT
   |         IF SAME AMOUNT — no action needed — stop           |              |
   |                           |                                |              |
   |         IF DIFFERENT AMOUNT:                               |              |
-  |                           |                                |              |
-  |                           | findStripePriceByProductAndPrice() searches   |
-  |                           | metadata['ct_variant_sku'] == ctProductId     |
-  |                           | (see defect below — this never matches       |
-  |                           |  a checkout-created price)                    |
-  |                           |-------------------------------->|              |
-  |                           |                                |              |
-  |         NO defect-free reuse in practice — falls through to create:       |
-  |                           |                                |              |
-  |                           | products.retrieve for stripeProductId         |
+  |                           | findStripeProductById(ctProductId):           |
+  |                           | products.search metadata       |              |
+  |                           |   ['ct_product_id'] == ctProductId            |
   |                           |-------------------------------->|              |
   |                           | prices.create({                |              |
   |                           |   amount: new CT amount,       |              |
   |                           |   interval: from subscription  |              |
-  |                           |     item's current price,      |              |
-  |                           |   metadata: {                  |              |
-  |                           |     ct_variant_sku: ctProductId,  ← a product ID,
-  |                           |       not a real SKU (KI-032)     |              |
-  |                           |     ct_price_id: `price_${Date.now()}` ← not a
-  |                           |       real CT price ID (KI-013)   |              |
-  |                           |   }})                          |              |
+  |                           |     item's current price })    |              |
   |                           |-------------------------------->|              |
   |                           | subscriptions.update(id,       |              |
   |                           |   { items: [new price ID],     |              |
@@ -76,38 +58,42 @@ Stripe                    Processor                        Stripe          CT
   |                           |     billing_cycle_anchor:      |              |
   |                           |       'unchanged' })           |              |
   |                           |-------------------------------->|              |
-  |                           | (old Stripe price is NOT       |              |
-  |                           |  deactivated — remains active  |              |
-  |                           |  and orphaned)                 |              |
+  |                           |                                |              |
+  |   200 OK                                                   |              |
+  |<--------------------------|                                |              |
 ```
+
+The webhook route awaits `processSubscriptionEventUpcoming()` and replies `200` only after it returns
+(`processor/src/routes/stripe-payment.route.ts:370-373`, `processor/src/routes/stripe-payment.route.ts:383`).
+The Stripe Product used for `prices.create` is found by `findStripeProductById()` — a
+`stripe.products.search` on `metadata['ct_product_id']`
+(`processor/src/services/stripe-subscription.service.ts:859-871`), not a `products.retrieve`.
 
 ---
 
 ## Steps Detail
 
 ### 1. Guard check
-- If `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=false` → return immediately (no-op). `processSubscriptionEventUpcoming()`, `stripe-subscription.service.ts:1786-1793`.
+- If `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=false` → return immediately (no-op). `processSubscriptionEventUpcoming()`, `stripe-subscription.service.ts:2452-2459`.
 
 ### 2. Subscription retrieval
-- Extract the subscription ID from `invoice.parent.subscription_details.subscription` (`:1797-1798`) — not from a top-level `invoice.subscription` field.
-- Retrieve the current subscription from Stripe (`:1805`) to get its items and current price.
+- Extract the subscription ID from `invoice.parent.subscription_details.subscription` (`:2463-2464`) — not from a top-level `invoice.subscription` field.
+- Retrieve the current subscription from Stripe (`:2471`) to get its items and current price.
 
 ### 3. CT price lookup — via the Stripe **Product**, not the Price
-- Take `subscriptionItem.price.product` (a Stripe **Product** id) from the current subscription item (`:1826-1827`).
-- Retrieve that Stripe Product (`stripe.products.retrieve()`, `:1828`) and read its `ct_product_id` metadata (`METADATA_PRODUCT_ID_FIELD`, `:1835`) — **not** a `ct_price_id` read off the Price's own metadata.
-- Call `getCommercetoolsProductPrice(ctProductId)` (`:1841`), which internally calls `getProductMasterPrice(ctProductId)` — a real CT lookup by product ID, not by a price ID.
+- Take `subscriptionItem.price.product` (a Stripe **Product** id) from the current subscription item (`:2491-2493`).
+- Retrieve that Stripe Product (`stripe.products.retrieve()`, `:2494`) and read its `ct_product_id` metadata (`METADATA_PRODUCT_ID_FIELD`, `:2501`) — **not** a `ct_price_id` read off the Price's own metadata.
+- Call `getCommercetoolsProductPrice(ctProductId)` (`:2507`), which internally calls `getProductMasterPrice(ctProductId)` — a CT lookup by product ID, not by a price ID.
 
 ### 4. Price comparison
-- Compare `currentStripePrice.unit_amount` vs the CT master price's `centAmount` (`:1855`).
+- Compare `currentStripePrice.unit_amount` vs the CT master price's `centAmount` (`:2521`).
 - Same → log "already synchronized", return. Different → proceed.
 
-### 5. Reuse attempt, then price creation (`getOrCreateStripePriceForProduct()`, `:1909-1976`)
-- `findStripePriceByProductAndPrice()` (`:1984-2010`) searches Stripe prices where `metadata['ct_variant_sku'] == ctProductId` — comparing a metadata field meant to hold a variant SKU against a **product ID** value. Checkout-time prices (`createStripePrice()`, `getLineItemPriceId()`) store the actual variant SKU under that same key, so this search can never match them — see KI-032. A prior sync-created price *can* match (both write and read use `ctProductId` under that key within this function), but only if its interval also still matches the subscription item's current interval.
-- When no match is reused, a new Stripe price is created (`:1947-1962`) with `unit_amount` = the new CT amount, `recurring.interval`/`interval_count` copied from the current subscription item's price, and metadata `ct_variant_sku = ctProductId` (not a real SKU) and `ct_price_id = price_${Date.now()}` (not a real CT price ID — see KI-013).
-- **The old Stripe price is never deactivated in this path.** Unlike `getCreateSubscriptionPriceId()` and `getLineItemPriceId()` (which both call `disableStripePrice()` on a stale match), `getOrCreateStripePriceForProduct()` has no equivalent call. The previous price is left `active` and becomes an orphan once the subscription stops referencing it.
+### 5. Price creation (`getOrCreateStripePriceForProduct()`, `:2580-2649`)
+- When the amount differs, a new Stripe price is created (`:2618-2634`) with `unit_amount` = the new CT amount, and `recurring.interval`/`interval_count` copied from the current subscription item's price.
 
 ### 6. Subscription update
-- `updateSubscriptionPrice()` (`:2029-2046`) updates the subscription item to the new price ID with `proration_behavior: 'none'` and `billing_cycle_anchor: 'unchanged'`.
+- `updateSubscriptionPrice()` (`:2704-2735`) updates the subscription item to the new price ID with `proration_behavior: 'none'` and `billing_cycle_anchor: 'unchanged'`.
 
 ---
 
@@ -126,18 +112,7 @@ This is an inherent limitation of the Stripe event model. It is not an error —
 
 | Point | Condition | Path |
 |---|---|---|
-| Feature flag | `PRICE_SYNC_ENABLED=false` | No-op; return |
+| Feature flag | `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED` not `'true'` (`processor/src/config/config.ts:338`) | No-op; return |
 | Price comparison | CT amount == Stripe amount | No action |
-| Price comparison | CT amount != Stripe amount | Attempt reuse (see KI-032 — rarely succeeds against a checkout-created price) → create + update |
+| Price comparison | CT amount != Stripe amount | Create new Stripe price + update subscription |
 | CT product not found | Product deleted in CT | `getCommercetoolsProductPrice()` returns `undefined`; `synchronizeSubscriptionPrice()` logs a warning and returns |
-
----
-
-## Error Paths
-
-| Error | Cause | Effect |
-|---|---|---|
-| No `ct_product_id` on the Stripe Product | Product created without this metadata | `synchronizeSubscriptionPrice()` logs a warning and returns; sync skipped for this subscription |
-| CT product not found | Product deleted | Sync skipped; old price used for next cycle |
-| Stripe price creation fails | Stripe API error | Old price remains; subscriber charged old amount |
-| Subscription update fails | Stripe API error | New price created but not applied; orphaned Stripe price exists (in addition to the old price, which is never deactivated even on success — see Step 5) |

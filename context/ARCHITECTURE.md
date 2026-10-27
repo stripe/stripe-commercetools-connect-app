@@ -1,315 +1,369 @@
-# Architecture — ct-connect-stripe-composable
+# Architecture — stripe-commercetools-connect-app
 
-Extends `ct-connect-stripe-checkout` with subscription billing, mixed carts (one-time + recurring items), price synchronization, coupon sync, and setup intents. Everything documented in [checkout's ARCHITECTURE.md](../../ct-connect-stripe-checkout/context/ARCHITECTURE.md) applies here unless explicitly overridden below.
+## At a glance
 
-## What's Different from Checkout
-
-| Capability | Checkout | Composable |
+| # | Section | Read it when |
 | --- | --- | --- |
-| Payment model | One-time charges | One-time + recurring subscriptions |
-| Cart lifecycle | Active until order | **Frozen at payment commitment** — confirmation for instant rails, funding-instruction issuance for bank transfer, subscription initiation for subscriptions |
-| Payment method capture | Direct via PaymentIntent | Also via SetupIntent (save now, charge later) |
-| Webhooks handled | `payment_intent.*`, `charge.*` | + `invoice.paid`, `invoice.payment_failed`, `invoice.upcoming`, `charge.refunded` (always registered), `charge.captured` (always registered), `payment_intent.requires_action` (bank transfer only, gated on `next_action.type`), `payment_intent.partially_funded` (interface interaction only, no CT transaction), `customer_cash_balance_transaction.created` (observability only), `payment_intent.processing` (async settlement, e.g. crypto/stablecoin → `Authorization/Pending`). `charge.succeeded` for a subscription invoice is registered but deliberately **dropped** (`isFromSubscriptionInvoice()` guard) — `invoice.paid` is the sole source of truth for recurring payments, see `business-rules/recurring-billing.md` Rule 4. `customer.subscription.deleted` is now **registered and handled** (`processSubscriptionEventDeleted` unfreezes the cart on terminal cancellation — KI-009 RESOLVED). A subscription-invoice `payment_intent.payment_failed` arriving after the invoice was paid is routed to `processSubscriptionEventLateReturn` (ACH late return). `charge.updated` route handler exists but NOT registered in `actions.ts` enabled events. |
-| Order creation | Once per cart | Configurable: once or per recurring event |
-| Price management | Not applicable | CT → Stripe price sync (optional) |
-| Customer API | Session only | + Subscription management endpoints |
+| 1 | [Overview](#1-overview) | you need the one-paragraph picture |
+| 2 | [Projects and placement](#2-projects-and-placement) | you need to know what deploys and why there is one `context/` |
+| 3 | [Processor](#3-processor) | you are changing a route, a service or its caller |
+| 4 | [Webhook events](#4-webhook-events) | you are adding, routing or debugging a Stripe event |
+| 5 | [Enabler](#5-enabler) | you are changing the browser bundle or what it calls |
+| 6 | [Cross-module and cross-application contracts](#6-cross-module-and-cross-application-contracts) | you change a response shape, a metadata key or a custom field |
+| 7 | [commercetools data model](#7-commercetools-data-model) | you touch custom types, the subscription product type or Stripe metadata |
+| 8 | [Elements initialization: `deferred` and `pi_first`](#8-elements-initialization-deferred-and-pi_first) | you touch `flowType`, bank transfer or the cart freeze |
+| 9 | [Key Configuration](#9-key-configuration) | you set or read an environment variable |
+| 10 | [Out of Scope](#10-out-of-scope) | someone asks "does it do X?" |
+
+Every `file:line` is relative to the repository root.
 
 ---
 
-## Additional Components
+## 1. Overview
 
-### Processor internals (additions to checkout)
+A commercetools Connect payment connector for Stripe. It takes one-time payments through the Stripe
+Payment Element and Express Checkout, sells recurring Stripe subscriptions from a commercetools cart
+(including mixed carts of subscription and one-time items), saves payment methods through SetupIntents,
+and mirrors every outcome back onto commercetools Payments and Orders from Stripe webhooks. It also
+syncs commercetools discount codes to Stripe coupons, optionally syncs commercetools prices onto running
+subscriptions, and exposes merchant-side capture, cancel and refund operations and a subscription
+management API. Two modules ship together: a backend **processor** and a browser **enabler**.
+
+---
+
+## 2. Projects and placement
+
+| Project | Type | Stack | Purpose |
+| --- | --- | --- | --- |
+| `processor/` | service (`applicationType: service`, `connect.yaml:4-6`) | TypeScript on Node `>=24.22.1` (`processor/package.json:22-24`), Fastify 5, `@commercetools/connect-payments-sdk` 1.2.2, `stripe` ^20.1.0 | Every Stripe and commercetools call; webhooks; post-deploy and pre-undeploy |
+| `enabler/` | ui (browser bundle) | TypeScript, Vite library build, `@stripe/stripe-js`; Node `>=24.22.1` at build time | Mounts the Payment Element or Express Checkout Element in the host's page and calls the processor |
+| `jwt-server/` | local development utility (`server.js`), no manifest | Node | Not deployed; not a module |
+
+**One `context/` for both modules, at the repository root.** Both are deployed by the single
+`connect.yaml`. The enabler has no function without the processor: it reads its configuration, customer
+session, PaymentIntents and subscriptions only from processor routes, at the URL the commercetools
+session supplies (`processorUrl`, read in `processor/src/libs/fastify/context/context.ts:42-65`).
+Deployed alone, every enabler call targets a service that does not exist. The processor is partly
+operable alone (webhooks, the subscription management API, merchant operations), but the enabler's
+contract with it — twelve HTTP endpoints and their response shapes — means a change on either side has
+to be read against the other.
+
+```text
+stripe-commercetools-connect-app/
+├── connect.yaml          # deploys processor (service) and enabler (assets)
+├── processor/            # backend
+│   └── src/
+│       ├── routes/       # Fastify routes (stripe-payment, stripe-subscription, stripe-shipping, stripe-customer, operation)
+│       ├── services/     # payment, subscription, coupon, shipping, customer, ct-payment-creation, converters/, commerce-tools/
+│       ├── connectors/   # post-deploy, pre-undeploy, actions (webhook endpoint, custom types, product type)
+│       ├── config/       # config.ts — every environment variable
+│       ├── custom-types/ # commercetools type and product-type drafts
+│       ├── mappers/      # subscription, bank transfer
+│       └── utils.ts      # predicates and shared guards (isFromSubscriptionInvoice, paidAmountMatchesTotal, retry classifier)
+├── enabler/              # browser bundle
+│   └── src/
+│       ├── main.ts       # export { MockPaymentEnabler as Enabler }
+│       ├── payment-enabler/  # construction, Elements creation, flowType handling
+│       ├── dropin/       # DropinEmbeddedBuilder — mount, submit, Express events
+│       └── services/     # api-service (processor calls), stripe-service (Stripe.js confirms)
+├── jwt-server/           # local development only
+└── docs/                 # team design notes and diagrams
+```
+
+---
+
+## 3. Processor
+
+### Layout
 
 | Layer | Path | Purpose |
 | --- | --- | --- |
-| Service | `src/services/stripe-subscription.service.ts` | All subscription logic (2,300+ lines): creation, cancellation, update, price sync, recurring invoice handling |
-| Service | `src/services/stripe-coupon.service.ts` | CT discount → Stripe coupon sync |
-| Service | `src/services/stripe-shipping.service.ts` | Express Checkout shipping address and rate sync |
-| Service | `src/services/ct-payment-creation.service.ts` | CT payment object creation for subscription flows |
-| Service | `src/services/stripe-customer.service.ts` | Customer session by Stripe ID |
-| Mapper | `src/mappers/subscription-mapper.ts` | Product variant attributes → Stripe subscription params |
-| Converter | `src/services/converters/subscriptionEventConverter.ts` | Stripe invoice events → CT transactions |
-| Price client | `src/services/commerce-tools/price-client.ts` | CT product/price lookups for sync |
-| Cart client | `src/services/commerce-tools/cart-client.ts` | Adds `freezeCart()` / `unfreezeCart()` |
-| Routes | `src/routes/stripe-subscription.route.ts` | Subscription creation and management |
-| Routes | `src/routes/stripe-customer.route.ts` | Customer session by Stripe ID |
+| Routes | `processor/src/routes/stripe-payment.route.ts` | payments, confirm, config-element, Apple Pay file, the Stripe webhook dispatcher |
+| Routes | `processor/src/routes/stripe-subscription.route.ts` | subscription creation and the `/subscription-api` management API |
+| Routes | `processor/src/routes/stripe-shipping.route.ts` | Express Checkout shipping |
+| Routes | `processor/src/routes/stripe-customer.route.ts` | Stripe customer session |
+| Routes | `processor/src/routes/operation.route.ts` | `/operations/*` — config, status, components, payment modifications |
+| Service | `processor/src/services/stripe-payment.service.ts` | one-time payments, confirm gate, webhook processing (`processStripeEvent`), order creation, refunds, multicapture |
+| Service | `processor/src/services/stripe-subscription.service.ts` | subscription create/confirm/update/cancel/list, `invoice.*` handlers, price sync, recurring orders |
+| Service | `processor/src/services/stripe-coupon.service.ts` | discount code → Stripe coupon |
+| Service | `processor/src/services/stripe-shipping.service.ts` | shipping methods, rate selection, freeze/unfreeze around them |
+| Service | `processor/src/services/stripe-customer.service.ts` | Stripe customer resolution, ephemeral key, CustomerSession |
+| Service | `processor/src/services/ct-payment-creation.service.ts` | commercetools Payment creation and Stripe metadata linking |
+| Resolver | `processor/src/services/payment-behavior-resolver.ts` | per-cart overrides from `STRIPE_PAYMENT_BEHAVIOR_RULES` |
+| Converters | `processor/src/services/converters/stripeEventConverter.ts`, `subscriptionEventConverter.ts` | Stripe events → commercetools transactions |
+| Clients | `processor/src/services/commerce-tools/*.ts` | raw commercetools API calls (cart freeze/unfreeze, orders, types, prices) |
+
+### Entry points
+
+All HTTP routes listen on `0.0.0.0:8080` (`processor/src/main.ts:9-14`). Only the operations routes carry
+a prefix, `/operations` (`processor/src/server/plugins/operation.plugin.ts:8`); every other route is at
+the root. **Caller** is read from the auth hook and from the enabler's call sites, never from the route
+name.
+
+| Method and path | Handler | Auth | Caller | File |
+| --- | --- | --- | --- | --- |
+| `GET /operations/config` | `config()` → `{ environment, publishableKey }` | session header | enabler (`enabler/src/services/api-service.ts:80`) | `processor/src/routes/operation.route.ts:30` |
+| `GET /operations/status` | health: commercetools permissions + Stripe `paymentMethods.list` | JWT (Merchant Center issuer) | host platform | `operation.route.ts:46` |
+| `GET /operations/payment-components` | `{ dropins: [{type:'embedded'}], components: [] }` | JWT | host platform | `operation.route.ts:62` |
+| `POST /operations/payment-intents/:id` | `modifyPayment` — capture, cancel, refund, reverse; one action per call | OAuth2 + `manage_project`, `manage_checkout_payment_intents` | host platform or a project OAuth2 client | `operation.route.ts:78` |
+| `GET /customer/session` | Stripe customer + ephemeral key + CustomerSession, or 204 | session header | enabler (`api-service.ts:58`) | `stripe-customer.route.ts:14` |
+| `POST /setupIntent` | `createSetupIntent()` | session header | enabler (`api-service.ts:144`) | `stripe-subscription.route.ts:39` |
+| `POST /subscription` | `createSubscription()` | session header | enabler (`api-service.ts:162`) | `stripe-subscription.route.ts:49` |
+| `POST /subscription/withSetupIntent` | `createSubscriptionFromSetupIntent()` | session header | enabler (`api-service.ts:182`) | `stripe-subscription.route.ts:59` |
+| `POST /subscription/confirm` | `confirmSubscriptionPayment()` → 200 `approved` / 400 `rejected` | session header | enabler (`api-service.ts:204`) | `stripe-subscription.route.ts:82` |
+| `GET /subscription-api/:customerId` | list the customer's Stripe subscriptions (one page) | OAuth2 | a host backend | `stripe-subscription.route.ts:109` |
+| `DELETE /subscription-api/:customerId/:subscriptionId` | `cancelSubscription` — Stripe only | OAuth2 + `manage_project`, `manage_subscriptions` | a host backend | `stripe-subscription.route.ts:152` |
+| `POST /subscription-api/:customerId` | `updateSubscription` — new variant/price | OAuth2 + scopes | a host backend | `stripe-subscription.route.ts:199` |
+| `POST /subscription-api/advanced/:customerId` | `patchSubscription` — caller-supplied Stripe `params` | OAuth2 + scopes | a host backend | `stripe-subscription.route.ts:252` |
+| `GET /payments`, `POST /payments` | `createPaymentIntent()` | session header | enabler (`api-service.ts:105-113`) | `stripe-payment.route.ts:44`, `:61` |
+| `POST /confirmPayments/:id` | confirm gate → 200 `approved` / 202 `pending` / 400 `rejected` | session header | enabler (`api-service.ts:128-133`) | `stripe-payment.route.ts:82` |
+| `POST /stripe/webhooks` | Stripe event dispatcher (section 4) | `constructEvent` signature check, 400 on failure | Stripe | `stripe-payment.route.ts:277` |
+| `GET /config-element/:payment` | `initializeCartPayment()` — Elements config, `paymentMode`, `flowType` | session header | enabler (`api-service.ts:79`) | `stripe-payment.route.ts:393` |
+| `GET /applePayConfig` | returns `STRIPE_APPLE_PAY_WELL_KNOWN` | — | Apple, through a redirect the host serves — see `host-integration.md` §3a | `stripe-payment.route.ts:417` |
+| `POST /shipping-methods` | set shipping address, list methods | session header | enabler (`api-service.ts:219`) | `stripe-shipping.route.ts:32` |
+| `POST /shipping-methods/update` | set shipping method | session header | enabler (`api-service.ts:242`) | `stripe-shipping.route.ts:57` |
+| `GET /shipping-methods/remove` | unfreeze cart, clear shipping method | session header | enabler (`api-service.ts:264`) | `stripe-shipping.route.ts:81` |
+| CLI `post-deploy` | webhook endpoint, custom types, product type, Launchpad type check | — | Connect, at deploy (`connect.yaml:8`) | `processor/src/connectors/post-deploy.ts:43-55` |
+| CLI `pre-undeploy` | removes the subscription product type and two custom types | — | Connect, at undeploy (`connect.yaml:9`) | `processor/src/connectors/pre-undeploy.ts:11-21` |
+
+### Payment confirmation by mode
+
+| Mode | Path | What decides the outcome |
+| --- | --- | --- |
+| One-time (`payment`) | `POST /payments` → Stripe.js confirm → `POST /confirmPayments/:id` | `updatePaymentIntentStripeSuccessful` (`processor/src/services/stripe-payment.service.ts:942`) retrieves the real PaymentIntent and fails closed on a retrieve error (`:971-979`); allows only `succeeded`, `requires_capture`, `processing` (`:982`); compares amount and currency against the cart's live total, `taxedPrice.totalGross ?? totalPrice` (`:1021-1034`); freezes the cart (`:1048-1060`); answers `APPROVED` or, for `processing`, writes `Authorization/Pending` and answers `PENDING` (HTTP 202) |
+| Subscription | `POST /subscription` → Stripe.js confirm → `POST /subscription/confirm` | `confirmSubscriptionPayment` reads the real PaymentIntent: `succeeded`/`requires_capture` → `Charge/Success`; `processing` (ACH) → `Charge/Pending`, settled later by `invoice.paid` or `invoice.payment_failed`; any other status throws. `send_invoice` and trials are Pending by type and skip the status read (`processor/src/services/stripe-subscription.service.ts:1063-1070`) |
+| Setup | `POST /setupIntent` → Stripe.js confirm → `POST /subscription/withSetupIntent` → `POST /subscription/confirm` | as Subscription |
+
+Asynchronous rails never reach the confirm gate on the one-time path: a bank transfer or ACH
+micro-deposit confirm returns `requires_action`, and the webhook does the work (section 4). The full flows
+are in `workflows/`.
 
 ---
 
-## Additional API Endpoints
+## 4. Webhook events
 
-### Subscription creation (`stripe-subscription.route.ts` — SessionHeader auth)
+**Registered** — the `enabled_events` array post-deploy sends to Stripe, `processor/src/connectors/actions.ts:66-87`
+(16 events).
 
-| Endpoint | Purpose |
-| --- | --- |
-| `POST /setupIntent` | Creates Stripe SetupIntent to save payment method without charging |
-| `POST /subscription` | Creates subscription from cart; freezes cart; returns `clientSecret` |
-| `POST /subscription/withSetupIntent` | Creates subscription using a previously saved payment method |
-| `POST /subscription/confirm` | Confirms subscription after client-side Stripe confirmation |
+**Dispatched** — the `switch (event.type)` in `processor/src/routes/stripe-payment.route.ts:309-381`.
+The route answers 200 after the switch (`:383`); a handler that throws reaches the error handler and the
+response is non-2xx, which is what makes Stripe redeliver.
 
-### Subscription management (OAuth2 auth)
+| Event | Registered | Dispatch (`stripe-payment.route.ts`) | Effect |
+| --- | --- | --- | --- |
+| `payment_intent.succeeded` | `:69` | `:320` → `processStripeEvent` unless the event belongs to a subscription invoice (`:324`) | `Charge/Success`; promotes a lingering `Authorization/Pending` to Success; creates the order behind the amount, currency, already-`Ordered`, post-address and version-pin guards (`stripe-payment.service.ts:1493-1641`) |
+| `payment_intent.canceled`, `payment_intent.payment_failed` | `:77`, `:78` | `:320` → `processStripeEvent`; a subscription-invoice `payment_failed` goes to `processSubscriptionEventLateReturn` (`:327-331`) | Failure transaction and cart unfreeze; for a subscription invoice that was already paid, the ACH late-return flag only |
+| `charge.succeeded` | `:67` | `:320` → `processStripeEvent` unless subscription invoice | captured: payment fields + `Authorization Initial→Success` fixup; uncaptured: an Authorization transaction |
+| `payment_intent.processing` | `:80` | `:339` → `processStripeEvent` unless subscription invoice | `Authorization/Pending` for the full `pi.amount`; re-throws on failure |
+| `payment_intent.requires_action` | `:79` | `:313` → `handleBankTransferPendingEvent` (`:186-216`) | skipped for subscription invoices; processed only when `isBankTransferNextAction` **or** `isMicrodepositNextAction` (`:204`); then `processStripeEvent` writes `Authorization/Pending` for the full `pi.amount` **for both rails** (`processor/src/services/converters/stripeEventConverter.ts:164-178`) and `freezeCartForBankTransfer` freezes the cart (`:215`). Card 3DS and Boleto stay log-only |
+| `payment_intent.partially_funded` | `:81` | `:314` → same handler and predicate | no transaction; only the interface interaction is persisted |
+| `customer_cash_balance_transaction.created` | `:82` | `:317` → `logCustomerCashBalanceTransaction` (`:140-166`) | log only, built field by field; `funding_reversed` and `adjusted_for_overdraft` logged at `error` (`:161-163`) |
+| `charge.refunded` | `:70` | `:355` → `handleChargeRefundedEvent` (`:265-273`) | multi-operations off: `processStripeEvent`; on: `processStripeEventRefunded` |
+| `refund.updated`, `refund.failed` | `:75`, `:76` | `:358-359` → `handleRefundOutcomeEvent` (`:241-249`) | acts only on status `failed`/`canceled`; re-throws on write failure |
+| `charge.captured` | `:68` | `:310` | log only |
+| `invoice.paid` | `:83` | `:362` → `processSubscriptionEventPaid` | transactions, then the order (`createOrder`) or a payment added to the first order (`addPaymentToOrder`); sole source of truth for subscription money |
+| `invoice.payment_failed` | `:84` | `:366` → `processSubscriptionEventFailed` | failure transaction; cart stays frozen |
+| `invoice.upcoming` | `:86` | `:370` → `processSubscriptionEventUpcoming` | price sync when enabled |
+| `customer.subscription.deleted` | `:85` | `:374` → `processSubscriptionEventDeleted` | unfreezes the cart |
 
-| Endpoint | Auth | Purpose |
-| --- | --- | --- |
-| `GET /subscription-api/:customerId` | OAuth2 | Lists customer's active Stripe subscriptions |
-| `DELETE /subscription-api/:customerId/:subscriptionId` | OAuth2 + Authorization | Cancels subscription in Stripe (does NOT update CT — see `known-issues.md` KI-010) |
-| `POST /subscription-api/:customerId` | OAuth2 + Authorization | Updates subscription to new variant/price |
-| `POST /subscription-api/advanced/:customerId` | OAuth2 + Authorization | Advanced subscription update (raw Stripe params) |
+Subscription-invoice `payment_intent.succeeded`, `canceled` and `charge.succeeded` are dropped without
+processing (`:324-338`): `invoice.paid` is the single source of truth for recurring money
+(`business-rules/recurring-billing.md` Rule 4). The drop is keyed on the connector's own
+`subscription_id` metadata (`processor/src/utils.ts:71-83`).
 
-### Shipping (`stripe-shipping.route.ts` — SessionHeader auth)
-
-| Endpoint | Purpose |
-| --- | --- |
-| `POST /shipping-methods` | Fetches CT shipping methods for an address; used by Express Checkout |
-| `POST /shipping-methods/update` | Updates selected shipping rate on CT cart |
-| `GET /shipping-methods/remove` | Removes shipping selection from CT cart |
-
-### Customer session (`stripe-customer.route.ts`)
-
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /customer/session?stripeCustomerId=cus_xxx` | Returns stored Stripe customer for a known Stripe ID |
-
-### Operations (`operation.route.ts` — connect-payments-sdk)
-
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /status` | SDK health/status probe (`paymentService.status()`) |
-| `GET /payment-components` | Lists supported payment components (`getSupportedPaymentComponents()`); note the hardcoded empty `supportedMethods` map — see `known-issues.md` KI-025 |
-| `POST /payment-intents/:id` | Merchant operations endpoint — capture / refund / cancel via `modifyPayment()`. The operations themselves are documented in `business-rules/multi-operations.md` and `business-rules/refunds-and-disputes.md` |
+**What re-throws.** `processStripeEvent` (`stripe-payment.service.ts:1231`) re-throws for
+`payment_intent.processing`, `payment_intent.requires_action` (`ASYNC_PENDING_EVENTS`, `:83-86`) and a
+`PaidWithoutOrderError` (`:1293-1295`). The subscription handlers re-throw when the error *message*
+matches the transient pattern.
 
 ---
 
-## CT Data Model (additions to checkout)
+## 5. Enabler
 
-### Custom types installed by `post-deploy`
+**Exported:** one symbol, `MockPaymentEnabler` re-exported as `Enabler` (`enabler/src/main.ts:3`).
+`DropinEmbeddedBuilder` is used internally and not exported. **Built** as a Vite library, formats `es`
+and `umd`, global name `Connector`, files `connector-enabler.{es,umd}.js` (`enabler/vite.config.ts:14-17`).
+How a host loads and drives it is in `host-integration.md` §4.
 
-| Custom type | Applied to | Purpose |
-| --- | --- | --- |
-| `payment-connector-subscription-information` (`CT_PRODUCT_TYPE_SUBSCRIPTION_KEY`) | Product type | Subscription attributes on product variants — 15 attributes with `stripeConnector_` prefix |
-| `payment-connector-subscription-line-item-type` (`CT_CUSTOM_TYPE_SUBSCRIPTION_LINE_ITEM_KEY`) | Line item | Fields: `stripeConnector_productSubscriptionId`, `stripeConnector_stripeSubscriptionId`, `stripeConnector_stripeSubscriptionError` |
-| `payment-connector-stripe-customer-id` (`CT_CUSTOM_TYPE_STRIPE_CUSTOMER_KEY`) | Customer | Stores `stripeConnector_stripeCustomerId` |
-| `payment-launchpad-purchase-order` (`CT_CUSTOM_TYPE_LAUNCHPAD_PURCHASE_ORDER_KEY`) | Payment | Existence check only — must be pre-created by merchant; fields: `launchpadPurchaseOrderNumber`, `launchpadPurchaseOrderInvoiceMemo` |
+### Initialization
 
-**Post-deploy product type lifecycle risk:** `updateProductType()` uses delete-then-create. If create fails after delete, the product type is permanently removed from the CT project. See `known-issues.md` KI-012.
+```text
+getConfigData(paymentElementType)   GET /config-element/{paymentElementType} + GET /operations/config
+getCustomerOptions()                GET /customer/session
+loadStripe(publishableKey)
+[pi_first only, see section 8]      GET|POST /payments before mount → clientSecret
+getElements(...)                    elements({ mode, amount, currency, ... }) or elements({ clientSecret })
+getPaymentElement(...)              elements.create('expressCheckout' | 'payment')
+createDropinBuilder('embedded')
+```
 
-### Subscription product type attributes
-
-Products used as subscription items must belong to a product type with these attributes:
-
-| Attribute | Required | Values |
-| --- | --- | --- |
-| `stripeConnector_recurring_interval` | Yes | `day`, `week`, `month`, `year` |
-| `stripeConnector_recurring_interval_count` | Yes | integer |
-| `stripeConnector_off_session` | Yes | boolean |
-| `stripeConnector_collection_method` | Yes | `charge_automatically`, `send_invoice` |
-| `stripeConnector_description` | No | string |
-| `stripeConnector_trial_period_days` | No | integer — **mutually exclusive with `trial_end_date`** |
-| `stripeConnector_trial_end_date` | No | datetime — **mutually exclusive with `trial_period_days`** |
-| `stripeConnector_billing_cycle_anchor_day` | No | integer (1–31) |
-| `stripeConnector_billing_cycle_anchor_time` | No | string (HH:MM UTC) |
-| `stripeConnector_billing_cycle_anchor_date` | No | datetime — overrides day + time |
-| `stripeConnector_cancel_at_period_end` | No | boolean |
-| `stripeConnector_cancel_at` | No | datetime |
-| `stripeConnector_proration_behavior` | No | `none`, `create_prorations`, `always_invoice` |
-| `stripeConnector_days_until_due` | No | integer (only when `collection_method=send_invoice`; default: 1) |
-| `stripeConnector_missing_payment_method_at_trial_end` | No | `cancel`, `create_invoice`, `pause` |
-
-### Stripe metadata fields written by this connector
-
-| Field | On | Value |
-| --- | --- | --- |
-| `subscription_id` | Stripe Subscription item metadata | CT subscription line item custom field value |
-| `ct_price_id` | Stripe Price metadata | CT price ID |
-| `ct_variant_sku` | Stripe Price metadata | CT variant SKU |
-| `ct_shipping_price_amount` | Stripe Price metadata | CT shipping cost in cents |
-| `cart_id` | Stripe objects | CT cart ID |
-| `ct_project_key` | Stripe objects | CT project key |
-| `ct_payment_id` | Stripe objects | CT payment ID |
-| `ct_customer_id` | Stripe objects | CT customer ID |
-| `ct_product_id` | Stripe objects | CT product ID |
-| `ct_order_id` | Stripe objects | CT order ID |
-
----
-
-## Webhook Event Subscriptions
-
-Events registered in `processor/src/connectors/actions.ts` (in addition to checkout events):
-
-| Event | Handled | Effect |
-| --- | --- | --- |
-| `invoice.paid` | ✅ | Creates CT order or adds payment per `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING` |
-| `invoice.payment_failed` | ✅ | Updates CT payment state |
-| `invoice.upcoming` | ✅ | Triggers price sync when `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true` |
-| `charge.succeeded` (subscription invoice) | ⚠️ Registered, deliberately dropped | `isFromSubscriptionInvoice()` guard in `stripe-payment.route.ts` stops it before processing — `invoice.paid` is the single source of truth for recurring payments (`business-rules/recurring-billing.md` Rule 4), avoiding the duplicate CT payments/orders this used to cause |
-| `charge.refunded` | ✅ Always registered | Multi-refund behavior |
-| `charge.captured` | ✅ Always registered | Multi-capture behavior |
-| `payment_intent.requires_action` | ✅ Handled — bank transfer + ACH micro-deposit | Three-way gate in `stripe-payment.route.ts`. Subscription-invoice events log and stop. Otherwise two **separate** predicates in `utils.ts` decide, kept apart deliberately so the 3DS/Boleto release gates stay green. `isBankTransferNextAction()`: only a PI whose `next_action.type` is exactly `display_bank_transfer_instructions` **and** that carries the instructions object reaches `processStripeEvent`, writing one `Authorization/Pending` for the **full `pi.amount`** — never `populateAmount()`, which reads `amount_received` (0 while awaiting funds), and freezing the cart at that commitment point. `isMicrodepositNextAction()` (`verify_with_microdeposits`): **freezes the cart only** — no CT transaction — so it cannot be edited during the multi-day verification window (KI-050, ADR-016). Card 3DS (`use_stripe_sdk`, `redirect_to_url`) and Boleto (`boleto_display_details`) fail both predicates and keep their pre-existing log-only path; both fail closed on a `null`/unrecognized `next_action`. Release-gate tested. |
-| `payment_intent.partially_funded` | ✅ Handled — no CT transaction | Same three-way gate as `requires_action`. Writes **zero** transactions by design (`business-rules` rationale: a second Pending breaks the dedup invariant; a partial `Charge/Success` books revenue not on the platform balance; `Charge/Pending` collides with KI-019). Persists only the interface interaction, via `ZERO_TRANSACTION_PERSIST_EVENTS` — the nested `Authorization Initial→Success` fixup in that branch stays scoped to `charge.succeeded`. Errors are swallowed and 200 returned deliberately (KI-035). |
-| `customer_cash_balance_transaction.created` | ✅ Registered — observability only | Never reaches `processStripeEvent`; `convert()` throws if it ever does. `logCustomerCashBalanceTransaction` logs a field-by-field payload — `funding_reversed` / `adjusted_for_overdraft` at `log.error`, everything else at `log.info`. The raw event is never logged: the payload carries `sender_name`, `iban_last4`, `account_number_last4` and `sort_code`. **No CT write of any kind** — see `failure-modes.md`. |
-| `payment_intent.processing` | ✅ Handled | Async settlement (crypto/stablecoin): writes `Authorization/Pending`; resolved by `payment_intent.succeeded` (→ Success) or `payment_intent.payment_failed`/`canceled` (→ Failure). Guarded against out-of-order/duplicate events (`hasTransactionInState`) — the guard is now shared with `requires_action` via `ASYNC_PENDING_EVENTS`, and both re-throw on CT write failure so Stripe retries. |
-| `customer.subscription.deleted` | ✅ Registered & handled | Registered in `actions.ts`, dispatched in `stripe-payment.route.ts`, handled by `processSubscriptionEventDeleted` — resolves the cart via `ct_payment_id` subscription metadata and **unfreezes it** at terminal cancellation (Dashboard cancel / Dunning exhaustion). Best-effort, never throws. Does not clear `stripeConnector_stripeSubscriptionId` (residual). KI-009 RESOLVED. |
-| `payment_intent.payment_failed` (subscription invoice, post-settlement) | ✅ Handled — ACH late return | A subscription-invoice PI failure arriving *after* the invoice was already paid is an **ACH late return** (the bank reverses an already-settled debit; Stripe does **not** re-fire `invoice.payment_failed`). Routed to `processSubscriptionEventLateReturn`, which — only when an existing `Charge/Success` proves the money had settled — sets the native `paymentStatus.interfaceCode='ach_late_return'` for team attention. No transaction/order/custom-field change; handled in the Stripe Dashboard like a dispute. Best-effort, never throws. |
-| `charge.updated` | ❌ Route handler exists, NOT registered | Must be manually added to `actions.ts` enabled events |
-
----
-
-## Enabler (Frontend)
-
-The enabler extends the checkout enabler with subscription payment modes.
-
-### Entry point
-
-`enabler/src/main.ts` re-exports `MockPaymentEnabler` (as `Enabler`). `DropinEmbeddedBuilder` is used internally but not re-exported.
+`enabler/src/payment-enabler/payment-enabler-mock.ts:98-101` (config and customer), `:199-204`
+(`loadStripe`), `:327-391` (`getElements`), `:417-433` (`getPaymentElement`). The element **created**
+is chosen by the `paymentElementType` option (`=== "expressCheckout"`, `:422`); the **mount** branch is
+chosen by the processor's `webElements` value (`=== "paymentElement"`, `enabler/src/dropin/dropin-embedded.ts:64`).
 
 ### Payment modes
 
-| Mode | `paymentMode` value | Flow |
-| --- | --- | --- |
-| One-time | `payment` | `getPayment()` → `confirmStripePayment()` → `confirmPaymentIntent()`. The confirm gate (`updatePaymentIntentStripeSuccessful`) retrieves the real PI (fail-closed), validates status (`succeeded`/`requires_capture`/`processing`) plus amount/currency, and returns `APPROVED` (HTTP 200) or — when the PI is still `processing` (async settlement) — `PENDING` (HTTP 202) after writing `Authorization/Pending`. |
-| Subscription | `subscription` | `createSubscription()` → `confirmStripePayment()` → `confirmSubscriptionPayment()`. For invoice-backed modes `confirmSubscriptionPayment` retrieves the real PaymentIntent status: `succeeded`/`requires_capture` → `Charge/Success`; **`processing` (async ACH `us_bank_account`) → `Charge/Pending`** (`isAsyncProcessing`), with settlement landing later via `invoice.paid` (→ Success) / `invoice.payment_failed` (→ Failure); any other status (e.g. `requires_action` micro-deposit verification — out of scope **on the subscription path only**; the one-time path supports it) throws. `send_invoice`/trial modes are Pending by type and skip the PI status check. |
-| Setup intent | `setup` | `createSetupIntent()` → `confirmStripeSetupIntent()` → `createSubscriptionFromSetupIntent()` → `confirmSubscriptionPayment()` |
-
-### Initialization sequence
-
-```text
-getConfigData(paymentElementType)        # fetches appearance, layout, publishableKey from processor
-getCustomerOptions()                     # fetches stripeCustomerId, ephemeralKey, sessionId
-loadStripe(publishableKey)               # loads Stripe.js
-elements({ customer, appearance, ... })  # creates Stripe Elements instance
-elements.create('payment' | 'expressCheckout', elementOptions)
-element.mount('#target')
-```
-
-### Express Checkout event flow (additions)
-
-| Stripe event | Processor call | Effect |
-| --- | --- | --- |
-| `shippingaddresschange` | `POST /shipping-methods` | Fetch CT shipping methods for address |
-| `shippingratechange` | `POST /shipping-methods/update` | Update selected shipping rate on CT cart |
-| `cancel` | `GET /shipping-methods/remove` | Remove shipping selection |
-
----
-
-## Stripe Tax Integration
-
-This connector reads Stripe Tax calculation references from the CT cart when `ct-stripe-tax` is deployed in the same CT project.
-
-| Constant | CT field | Direction |
-| --- | --- | --- |
-| `CT_CUSTOM_FIELD_TAX_CALCULATIONS` | `connectorStripeTax_calculationReferences` | Read-only (written by `ct-stripe-tax`) |
-
-The field is a `String[]` of Stripe Tax calculation IDs. If absent or empty, the connector proceeds without tax. See `business-rules/tax-integration.md`.
-
----
-
-## Launchpad B2B Integration
-
-The `payment-launchpad-purchase-order` custom type must be **pre-created by the merchant** in CT before deploy — the connector checks for its existence on deploy but does not create it.
-
-| Field | Type | Purpose |
-| --- | --- | --- |
-| `launchpadPurchaseOrderNumber` | String | Purchase order number from the buyer |
-| `launchpadPurchaseOrderInvoiceMemo` | String | Memo line for the generated invoice |
-
-Fields are optional — B2C payments carry no Launchpad data. See `business-rules/launchpad-integration.md`.
-
----
-
-## Additional Configuration
-
-| Variable | Default | Effect |
-| --- | --- | --- |
-| `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED` | `false` | When `true`, syncs CT product price changes to Stripe on `invoice.upcoming`. High-risk: misconfiguration silently changes prices on active subscriptions. |
-| `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING` | `createOrder` | `createOrder`: new CT order per recurring event. `addPaymentToOrder`: adds payment to existing order. |
-| `CT_CUSTOM_TYPE_SUBSCRIPTION_LINE_ITEM_KEY` | `payment-connector-subscription-line-item-type` | Custom type key for subscription line items. |
-| `CT_PRODUCT_TYPE_SUBSCRIPTION_KEY` | `payment-connector-subscription-information` | Product type key identifying subscription products. |
-| `STRIPE_ENABLE_MULTI_OPERATIONS` | `false` | When `true`, enables multicapture and multirefund. Requires multicapture enabled in Stripe account. |
-| `STRIPE_CAPTURE_METHOD` | `automatic` | `automatic` or `manual`. Note `manual` excludes `customer_balance`, `us_bank_account` and `crypto` from the resolved payment method list (measured). |
-| `STRIPE_PAYMENT_FLOW` | `deferred` | Stripe Elements initialization strategy — `deferred` or `pi_first`, case-sensitive. See "Elements initialization strategies" below. An invalid value does **not** abort startup: it is reported to the deploy log and falls back to `deferred`, which also silently disables bank transfers and BLIK — check that log after changing it (ADR-012). Blank or whitespace reads as unset. Change requires redeployment. **Processor side only today — do not set `pi_first`**, see the caveat below. |
-| `STRIPE_PAYMENT_BEHAVIOR_RULES` | _(empty)_ | Optional JSON map from cart country or CT store key to per-cart overrides of `flowType`, `captureMethod`, `setupFutureUsage` and `euBankTransferCountry`. Exceptions only — the flat variables are always the default and there is no wildcard key. **Only malformed JSON, a non-object map or a non-object rule aborts startup**; an unknown field or an invalid value does **not** — it is reported to the deploy log, ignored, and startup continues (ADR-012). There is deliberately **no** `bankTransfer` enable flag: an earlier design had one and it was removed, because whether the rail is offered is a Stripe Dashboard setting the connector cannot decide. A matching rule's field wins over the flat variable; a rule that omits a field falls back to it. Two discriminators by trust level: policy fields (`captureMethod`, `setupFutureUsage`) resolve through `cart.country` → `cart.billingAddress.country` → `cart.store.key`; fields that change PaymentIntent parameters (`flowType`, `euBankTransferCountry`) resolve through `cart.country` → `cart.store.key` only, because billing country is shopper-supplied (KI-046). A rule setting both `flowType: 'pi_first'` and an `off_session`/`on_session` `setupFutureUsage` is self-defeating — `applyPiFirstOverride` would discard the mandate — so the mandate is dropped and reported, again without aborting (KI-045). |
-| `STRIPE_API_VERSION` | `2025-12-15.clover` | Stripe API version sent on all requests. |
-| `STRIPE_LAYOUT` | `{"type":"tabs","defaultCollapsed":false}` | Payment Element layout config (JSON string). |
-| `STRIPE_APPEARANCE_PAYMENT_ELEMENT` | _(empty)_ | Custom CSS appearance config for the Payment Element (JSON string). |
-| `STRIPE_APPEARANCE_EXPRESS_CHECKOUT` | _(empty)_ | Custom CSS appearance config for Express Checkout (JSON string). |
-| `STRIPE_COLLECT_BILLING_ADDRESS` | `auto` | `auto`, `never`, or `required`. |
-| `STRIPE_SAVED_PAYMENT_METHODS_CONFIG` | _(empty)_ | JSON config for saved payment method visibility. Parse errors are silently swallowed — see `known-issues.md` KI-017. Its `payment_method_save_usage` key is the value `pi_first` suppresses at the Elements level; it is **not** set in the in-repo environment, but `connect.yaml`'s own example includes it. |
-
----
-
-## Elements Initialization Strategies
-
-`STRIPE_PAYMENT_FLOW` (or a rule's `flowType`) selects how the enabler initializes Stripe Elements.
-
-| | `deferred` — default | `pi_first` — implemented end to end |
-| --- | --- | --- |
-| `elements()` receives | `{ mode, amount, currency, appearance, captureMethod, … }`, no `clientSecret` | `{ clientSecret }` from a PaymentIntent created **before** mount |
-| PaymentIntent created | at submit, via `GET`/`POST /payments` | eagerly, before the Element renders |
-| Compatible with | every payment method currently in scope | required by methods that must bind to a PaymentIntent before rendering — bank transfers (`customer_balance`) and BLIK |
-
-**Why `pi_first` exists.** Stripe's bank transfer documentation requires Elements initialized with a
-`clientSecret` and states the deferred flow is unsupported. Measured on a developer account: a
-PaymentIntent created with `automatic_payment_methods` **and** a customer does include
-`customer_balance`, yet the deferred Element shows no bank-transfer tab even with an authenticated
-cart, a resolved Stripe Customer, `capture_method: automatic` and `setup_future_usage` unset. The
-initialization flow is the cause, not the PaymentIntent configuration.
-
-### `pi_first` is implemented end to end — and ships disabled
-
-Both sides exist: the processor resolves `flowType` and creates the PaymentIntent before mount
-(`139b685`), and the enabler reads it from `/config-element` and initialises Elements with the
-`clientSecret` (`3120046`). Verified live on 2026-08-06 — a German EUR cart rendered the bank transfer
-tab and Stripe returned a German IBAN for a connector-supplied
-`eu_bank_transfer: {country: "DE"}`.
-
-**It is still off by default**, and enabling it should be a deliberate decision rather than a side
-effect of deploying. `STRIPE_PAYMENT_FLOW` is unset in `connect.yaml` and an unset value means
-`deferred`.
-
-**Two consequences of moving PaymentIntent creation to mount**, both since resolved, are worth knowing
-because they explain code that would otherwise look arbitrary:
-
-- **The cart is no longer frozen at PaymentIntent creation.** Under `deferred` the PaymentIntent was
-  created at submit, so freezing there was harmless. Under `pi_first` it is created at mount, which
-  froze the cart before the shopper chose anything and left no way back — KI-044, resolved. Each rail
-  now freezes at its own commitment point: instant rails in `updatePaymentIntentStripeSuccessful`, bank
-  transfer in the `payment_intent.requires_action` handler. The split is forced rather than chosen —
-  a bank transfer confirm returns `requires_action`, which the confirm gate's status allowlist rejects,
-  and the enabler does not call that endpoint on this path.
-- **Confirmation validates the cart's live total**, not the amount snapshot taken at creation. Under
-  `deferred` the snapshot was milliseconds old; under `pi_first` it can be as old as the page, and the
-  shipping-methods endpoints can move the total inside that window — KI-047, resolved. This is what
-  makes the freeze change safe, and the two must not be reverted separately.
-
-**Still open:** the PaymentIntent and commercetools Payment created at mount are orphaned when a
-shopper abandons the page. Carts are no longer affected; the Stripe-side litter needs a deterministic
-idempotency key at creation.
-
-### Response shape
-
-`GET /config-element/:payment` returns `flowType` unconditionally. The field is declared on
-`ConfigElementResponseSchema`, which is the Fastify 200 response schema for that route — Fastify strips
-properties a response schema does not declare, so without the declaration the service would return the
-field and the wire would silently drop it. The TypeScript type alone is not sufficient; both come from
-the same object, and only the schema registration puts the field on the wire.
-
-The subscription path cannot reach the suppression on the PaymentIntent: `StripeSubscriptionService`
-never calls `resolvePaymentBehavior` and does not touch `setup_future_usage` at all (verified by grep).
-It runs its own SetupIntent flow with `usage: off_session | on_session`, a distinct parameter on a
-distinct object. `initializeCartPayment` **does** serve subscription carts, but what it suppresses there
-is the widget's save-for-future-use hint, not the mandate that establishes the recurring charge.
-
----
-
-## Out of Scope (Composable-Specific)
-
-| Feature | Status |
+| `paymentMode` (from `/config-element`) | Submit path |
 | --- | --- |
-| Subscription pause | Not implemented |
-| Free trial without collecting a payment method | Payment method required at subscription creation |
-| CT update after explicit API cancellation (`cancelSubscription()`) | Still open — cancels in Stripe only; CT cart stays frozen with a stale subscription ID. See KI-010. (The `customer.subscription.deleted` **webhook** path — Dashboard/Dunning cancellation — now unfreezes the cart; KI-009 RESOLVED.) |
-| ACH late return — CT financial-state correction | Only a native `paymentStatus.interfaceCode='ach_late_return'` flag is written for team attention; the reversal is handled in the Stripe Dashboard. No transaction/order rollback in CT. |
-| Subscription quantity changes | Not documented or implemented |
-| `charge.updated` event for subscriptions | Route handler exists but not registered — requires manual addition to `actions.ts` |
+| `payment` | `GET/POST /payments` (deferred only) → `stripe.confirmPayment` → `POST /confirmPayments/:id` |
+| `subscription` | `POST /subscription` → `stripe.confirmPayment` → `POST /subscription/confirm` |
+| `setup` | `POST /setupIntent` → `stripe.confirmSetup` → `POST /subscription/withSetupIntent` → `POST /subscription/confirm` |
 
-For the full list of unsupported Stripe features shared with the checkout connector, see `../../ct-connect-stripe-checkout/context/ARCHITECTURE.md → Out of Scope`.
+An outcome of `pending` reaches `onComplete({ isSuccess: false })` (`dropin-embedded.ts:178-181`).
+
+### Express Checkout events
+
+| Stripe Element event | Processor call | Effect |
+| --- | --- | --- |
+| `shippingaddresschange` | `POST /shipping-methods` | sets the address, returns methods and line items |
+| `shippingratechange` | `POST /shipping-methods/update` | sets the method (unfreeze → update → re-freeze) |
+| `cancel` | `GET /shipping-methods/remove` | unfreezes and clears the method |
+
+The freeze/unfreeze contract of these endpoints is in `workflows/process-shipping.md`.
+
+---
+
+## 6. Cross-module and cross-application contracts
+
+**Enabler → processor (HTTP).** Twelve endpoints.
+
+**Processor ← commercetools session.** `cartId`, `allowedPaymentMethods`, `paymentInterface`,
+`processorUrl`, `merchantReturnUrl` from the session principal (`processor/src/libs/fastify/context/context.ts:42-65`).
+
+**Processor ← a tax connector, through the cart.** The processor reads
+`connectorStripeTax_calculationReferences` (`processor/src/constants.ts:18`, read at
+`stripe-payment.service.ts:544`), a `String[]` of Stripe Tax calculation ids that nothing in this
+repository writes. When the array has exactly one element it is passed to the PaymentIntent; zero or
+several are dropped (`business-rules/tax-integration.md` Rule 3). The subscription path never reads it.
+
+**Processor → Stripe metadata** — the keys in `processor/src/constants.ts:1-15`, listed in section 7.
+
+---
+
+## 7. commercetools data model
+
+### Types post-deploy creates or checks
+
+| Type (default key) | Resource | Fields | Post-deploy |
+| --- | --- | --- | --- |
+| `payment-connector-stripe-customer-id` (`CT_CUSTOM_TYPE_STRIPE_CUSTOMER_KEY`) | customer | `stripeConnector_stripeCustomerId` | created when its key is absent (`processor/src/services/commerce-tools/custom-type-helper.ts:42-73`) |
+| `payment-connector-subscription-line-item-type` (`CT_CUSTOM_TYPE_SUBSCRIPTION_LINE_ITEM_KEY`) | line item | `stripeConnector_productSubscriptionId`, `stripeConnector_stripeSubscriptionId`, `stripeConnector_stripeSubscriptionError` | created when its key is absent, for line-item types |
+| `payment-connector-subscription-information` (`CT_PRODUCT_TYPE_SUBSCRIPTION_KEY`) | product type | 15 attributes below | created if absent; updated by delete-then-create only when no product uses it (`actions.ts:146-159`) |
+| `payment-launchpad-purchase-order` (`CT_CUSTOM_TYPE_LAUNCHPAD_PURCHASE_ORDER_KEY`) | payment | `launchpadPurchaseOrderNumber`, `launchpadPurchaseOrderInvoiceMemo` | existence check only — never created (`actions.ts:42-47`); must be created by the merchant |
+
+Subscription line items are detected by the product type's **name**, not by the configurable key
+(`processor/src/services/stripe-subscription.service.ts:782`, `:1186`; `business-rules/subscription-lifecycle.md` Rule 3).
+
+### Subscription product type attributes
+
+Declared in `processor/src/custom-types/custom-types.ts:83-368`.
+
+| Attribute | Required | Values |
+| --- | --- | --- |
+| `stripeConnector_recurring_interval` | yes | `day`, `week`, `month`, `year` |
+| `stripeConnector_recurring_interval_count` | yes | number |
+| `stripeConnector_off_session` | yes | boolean |
+| `stripeConnector_collection_method` | yes | `charge_automatically`, `send_invoice` |
+| `stripeConnector_description` | no | text |
+| `stripeConnector_days_until_due` | no | number; only for `send_invoice`, default 1 (`processor/src/mappers/subscription-mapper.ts:22`) |
+| `stripeConnector_cancel_at_period_end` | no | boolean |
+| `stripeConnector_cancel_at` | no | date-time |
+| `stripeConnector_billing_cycle_anchor_day` | no | number |
+| `stripeConnector_billing_cycle_anchor_time` | no | time |
+| `stripeConnector_billing_cycle_anchor_date` | no | date-time |
+| `stripeConnector_trial_period_days` | no | number |
+| `stripeConnector_trial_end_date` | no | date-time |
+| `stripeConnector_missing_payment_method_at_trial_end` | no | `cancel`, `create_invoice`, `pause` |
+| `stripeConnector_proration_behavior` | no | `none`, `create_prorations`, `always_invoice` |
+
+### Stripe metadata written by the connector
+
+| Key (`processor/src/constants.ts`) | Meaning |
+| --- | --- |
+| `cart_id`, `ct_project_key`, `ct_payment_id`, `ct_customer_id`, `ct_order_id` | commercetools identities on PaymentIntents and Subscriptions; `ct_payment_id` is how every webhook finds its Payment |
+| `subscription_id` | set on a subscription's PaymentIntent; the key `isFromSubscriptionInvoice` reads |
+| `ct_product_id` | on Stripe Products only |
+| `ct_variant_sku`, `ct_price_id` | on Stripe Prices |
+| `ct_shipping_price_amount` | on shipping Prices; part of the reuse search |
+| `ct_cart_total_amount`, `ct_cart_total_currency` | the cart total sealed onto a Subscription at creation; read back at `invoice.paid` (`business-rules/payment-confirmation.md` Rule 7) |
+
+---
+
+## 8. Elements initialization: `deferred` and `pi_first`
+
+`STRIPE_PAYMENT_FLOW`, or a matching rule's `flowType`, chooses how Elements is initialized.
+
+| | `deferred` (default) | `pi_first` |
+| --- | --- | --- |
+| `elements()` receives | `{ mode, amount, currency, captureMethod, … }` | `{ clientSecret }` |
+| PaymentIntent created | at submit | before mount, by the enabler |
+| Needed by | every method in scope except below | bank transfer (`customer_balance`) and BLIK |
+
+- **The processor resolves `flowType` from the trusted rule** — `cart.country`, then the store key, never
+  the billing country — at both places it is read, so `/config-element` and the PaymentIntent cannot
+  disagree (`stripe-payment.service.ts:513-514`, `:1148-1149`). `euBankTransferCountry` uses the same
+  trusted rule (`:567`).
+- **The enabler fetches the PaymentIntent early only when** `flowType` is `pi_first`, `paymentElementType`
+  is exactly `paymentElement` and `paymentMode` is `payment` (`enabler/src/payment-enabler/payment-enabler-mock.ts:239-287`).
+  Otherwise it stays deferred.
+- **Under `pi_first` the cart is frozen at each rail's commitment point, not at PaymentIntent creation.**
+  Instant rails freeze in the confirm gate (`stripe-payment.service.ts:1048-1060`); bank transfer and ACH
+  micro-deposits freeze in the `requires_action` handler (`freezeCartForBankTransfer`, `:1857-1886`);
+  subscriptions freeze at creation. The confirm gate compares against the cart's live total.
+- **The subscription path does not use the PaymentIntent behaviour rules:** `StripeSubscriptionService`
+  never calls `resolvePaymentBehavior` and runs its own SetupIntent `usage`
+  (`processor/src/services/stripe-subscription.service.ts:965`).
+
+---
+
+## 9. Key Configuration
+
+Read in `processor/src/config/config.ts` unless stated. The only startup abort is a structurally
+malformed `STRIPE_PAYMENT_BEHAVIOR_RULES`. `connect.yaml` marks some keys required for the deploy form.
+
+| Variable | Module | Default | Effect |
+| --- | --- | --- | --- |
+| `CTP_PROJECT_KEY`, `CTP_CLIENT_ID`, `CTP_CLIENT_SECRET` | processor | placeholders (`:287-289`) | commercetools access |
+| `CTP_AUTH_URL`, `CTP_API_URL`, `CTP_SESSION_URL`, `CTP_CHECKOUT_URL` | processor | europe-west1 URLs (`:292-295`) | platform endpoints |
+| `CTP_JWKS_URL`, `CTP_JWT_ISSUER` | processor | Merchant Center europe-west1 (`:290-291`) | JWT auth of `/operations/status` and `/operations/payment-components` |
+| `STRIPE_SECRET_KEY` | processor | `'stripeSecretKey'` (`:306`) | every Stripe call |
+| `STRIPE_WEBHOOK_SIGNING_SECRET` | processor | `''` (`:307`) | webhook signature; missing → every webhook 400 |
+| `STRIPE_PUBLISHABLE_KEY` | processor → enabler | `''` (`:312`) | returned by `/operations/config` for Stripe.js |
+| `STRIPE_CAPTURE_METHOD` | processor | `automatic` (`:308`) | `capture_method` for carts without a rule; `manual` excludes `customer_balance`, `us_bank_account` and `crypto` from the resolved methods |
+| `STRIPE_PAYMENT_FLOW` | processor | `deferred` (`:421-438`) | `deferred` or `pi_first`, case-sensitive; blank or invalid → deferred |
+| `STRIPE_PAYMENT_BEHAVIOR_RULES` | processor | unset (`:241-275`) | JSON map from cart country or store key to overrides of `flowType`, `captureMethod`, `setupFutureUsage`, `euBankTransferCountry`. Exceptions only; no wildcard. Malformed JSON, a non-object map or a non-object rule abort startup; an unknown field or invalid value is reported and dropped |
+| `STRIPE_SAVED_PAYMENT_METHODS_CONFIG` | processor | unset → `{}`; `connect.yaml:62` default `{"payment_method_save":"disabled"}` | saved-method features |
+| `STRIPE_COLLECT_BILLING_ADDRESS` | processor → enabler | `auto` (`:316`) | `auto`, `never` or `if_required` (`enabler/src/dtos/mock-payment.dto.ts:52`) |
+| `STRIPE_LAYOUT` | processor → enabler | `{"type":"tabs","defaultCollapsed":false}` (`:311`) | Payment Element layout JSON |
+| `STRIPE_APPEARANCE_PAYMENT_ELEMENT`, `STRIPE_APPEARANCE_EXPRESS_CHECKOUT` | processor → enabler | unset (`:309-310`) | appearance JSON strings |
+| `STRIPE_APPLE_PAY_WELL_KNOWN` | processor | `'mockWellKnown'` (`:313`) | body of `GET /applePayConfig` |
+| `STRIPE_API_VERSION` | processor | `2025-12-15.clover` (`:314`) | API version on every request |
+| `MERCHANT_RETURN_URL` | processor | `''` (`:319`) | fallback; the session's value wins |
+| `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING` | processor | `createOrder` (`:328-329`) | `createOrder`: a new order per `invoice.paid`; `addPaymentToOrder`: a payment added to the first order |
+| `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED` | processor | `false` (`:338`) | only the string `true` enables price sync on `invoice.upcoming` |
+| `STRIPE_ENABLE_MULTI_OPERATIONS` | processor | `false` (`:351`) | only `true` enables multicapture and multirefund routing |
+| `CT_CUSTOM_TYPE_STRIPE_CUSTOMER_KEY`, `CT_CUSTOM_TYPE_SUBSCRIPTION_LINE_ITEM_KEY`, `CT_PRODUCT_TYPE_SUBSCRIPTION_KEY`, `CT_CUSTOM_TYPE_LAUNCHPAD_PURCHASE_ORDER_KEY` | processor | the default keys in section 7 (`processor/src/custom-types/custom-types.ts:5`, `:13`, `:41`, `:85`) | type keys |
+| `HEALTH_CHECK_TIMEOUT`, `LOGGER_LEVEL`, `MOCK_ENVIRONMENT`, `MOCK_CLIENT_KEY` | processor | `5000`, `info`, `TEST`, `stripe` (`:296-303`) | — |
+| `CONNECT_SERVICE_URL` | processor, post-deploy | platform-injected | webhook URL = this + `stripe/webhooks` (`post-deploy.ts:31`) |
+| `STRIPE_WEBHOOK_ID` | processor, post-deploy | `''` | the endpoint post-deploy updates (`post-deploy.ts:22-28`) |
+
+---
+
+## 10. Out of Scope
+
+| Not supported | What the code shows |
+| --- | --- |
+| Subscription pause | no pause route among the subscription routes (`processor/src/routes/stripe-subscription.route.ts:108-297`) |
+| A free trial without collecting a payment method | both create paths need a payment method: a `default_incomplete` PaymentIntent (`stripe-subscription.service.ts:189`) or the SetupIntent's method (`:289`) |
+| Changing a subscription's quantity | updates keep the current quantity (`:1349`, `:2715`, `:3039`) |
+| More than one subscription product per cart | only the first is subscribed |
+| Bank transfer on a subscription | subscription-invoice events are skipped by the bank-transfer handler (`processor/src/routes/stripe-payment.route.ts:190-193`), by decision |
+| ACH micro-deposit verification on a subscription | the subscription confirm throws on `requires_action` |
+| Guest checkout for subscriptions or bank transfer | one-time payments work for a guest cart; subscriptions and bank transfer need a customer (`host-integration.md` §2) |
+| commercetools update after an API cancel | `cancelSubscription` writes nothing to commercetools |
+| Correcting commercetools after an ACH late return | only a `paymentStatus.interfaceCode` flag is written; the reversal is handled in the Stripe Dashboard |
+| Correcting commercetools after a cash-balance clawback | log only |
+| Disputes | no `charge.dispute.*` event is registered or dispatched (`business-rules/refunds-and-disputes.md` Rule 2) |
+| Tax on subscription invoices | no `automatic_tax` or tax rates anywhere on the subscription path |
+| Stripe Terminal | no Terminal call anywhere in `processor/src` |

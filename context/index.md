@@ -1,119 +1,149 @@
-﻿# Knowledge Base Index — ct-connect-stripe-composable
+# Knowledge Base Index — stripe-commercetools-connect-app
 
-**What this connector covers:** Stripe Payment Element + subscriptions + mixed carts for commercetools. Extends ct-connect-stripe-checkout with recurring billing, coupon sync, price sync, and Launchpad B2B integration.
+**What this connector covers:** Stripe Payment Element and Express Checkout for commercetools, plus
+recurring Stripe subscriptions from a cart, mixed carts, SetupIntents, coupon sync, opt-in price sync,
+asynchronous rails (ACH, bank transfer, crypto) and merchant operations.
 
-**What this connector does NOT cover:** Subscription pause, free trials without a payment method, ACH micro-deposit verification on a subscription cart, bank transfer on subscriptions. See `feature-scope.md → Out of Scope` for the full list.
+**What it does NOT cover:** subscription pause, free trials without a payment method, quantity changes, more
+than one subscription product per cart, bank transfer or ACH micro-deposits on subscriptions, subscriptions
+or bank transfer for a guest cart, disputes, tax on subscription invoices. Full list:
+`feature-scope.md` → Out of Scope.
 
-For questions about the Integration as a whole (failure modes, connector selection, shared payment rules), see `../../context/index.md`.
+Routes questions to documents; the documents are listed in [All documents](#all-documents).
 
 ---
 
-## Route by Question Type
+## Route by question
 
-### "Can I / Is it possible to...?"
+### "Can I / is it possible to …?"
 
 | Question | Document |
 | --- | --- |
 | Does this connector support feature X? | `feature-scope.md` |
-| Can I do subscriptions? | `feature-scope.md` — yes, see `business-rules/subscription-lifecycle.md` |
+| Can I do subscriptions? | `feature-scope.md` — yes; then `business-rules/subscription-lifecycle.md` |
 | Can I mix subscription and one-time items in one cart? | `feature-scope.md` + `business-rules/mixed-carts.md` |
-| Can I sync CT prices to Stripe? | `feature-scope.md` + `business-rules/price-sync.md` |
-| Can I sync CT coupons/discounts to Stripe? | `business-rules/coupon-sync.md` |
-| Can I pause a subscription? | `feature-scope.md → Out of Scope` — answer is no |
-| Can a shopper pay a subscription by ACH? | Yes — `decisions/adr-013-async-ach-charge-pending.md`. Micro-deposit verification on a subscription cart is **not** supported |
-| Can a shopper pay by bank transfer? | `adopter-guide.md → Bank transfers` — yes, but it ships disabled behind `STRIPE_PAYMENT_FLOW=pi_first`, and not on subscriptions |
-| Does this connector handle Launchpad B2B purchase orders? | `business-rules/launchpad-integration.md` |
+| Can I sync commercetools prices to Stripe? | `feature-scope.md` + `business-rules/price-sync.md` |
+| Can I sync discount codes to Stripe? | `business-rules/coupon-sync.md` |
+| Can I pause a subscription? | `feature-scope.md` → Out of Scope — no |
+| Can a shopper pay by bank transfer? | `adopter-guide.md` → Bank transfers — yes, but it ships disabled behind `STRIPE_PAYMENT_FLOW=pi_first`, and not on subscriptions |
+| Can a guest check out? | one-time payments only — `host-integration.md` §2 |
+
+### "How do I integrate or deploy it?"
+
+| Question | Document |
+| --- | --- |
+| How do I install and configure it? | `adopter-guide.md` |
+| How does my storefront or backend call this connector? | `host-integration.md` |
+| Environment variable defaults and invalid-value behaviour | `ARCHITECTURE.md` section 9 |
 
 ### "How does X work?"
 
 | Question | Document |
 | --- | --- |
-| How does the payment flow work end to end? | `ARCHITECTURE.md` |
-| How does subscription creation work? | `business-rules/subscription-lifecycle.md` |
-| How are recurring invoice events handled? | `business-rules/recurring-billing.md` |
+| How does the payment flow work end to end? | `ARCHITECTURE.md` sections 3–5 |
+| How does subscription creation work? | `workflows/process-subscription-creation.md` + `business-rules/subscription-lifecycle.md` |
+| How are subscriptions updated and canceled? | `workflows/process-subscription-management.md` |
+| How are recurring invoice events handled? | `workflows/process-recurring-payment.md` + `business-rules/recurring-billing.md` |
+| How does the customer session work? | `workflows/process-customer-session.md` |
+| How does Express Checkout shipping work? | `workflows/process-shipping.md` |
 | How do mixed carts work? | `business-rules/mixed-carts.md` |
 | How does coupon sync work? | `business-rules/coupon-sync.md` |
-| How does price sync work? | `business-rules/price-sync.md` |
+| How does price sync work? | `workflows/process-price-sync.md` + `business-rules/price-sync.md` |
 | How does Stripe Tax integrate? | `business-rules/tax-integration.md` |
 | How does multi-capture / multi-refund work? | `business-rules/multi-operations.md` |
-| How does Launchpad B2B integration work? | `business-rules/launchpad-integration.md` |
-| How does the payment lifecycle map to CT transactions? | `ARCHITECTURE.md` + `../../context/business-rules/payment-lifecycle.md` |
+| How do Stripe events map to commercetools transactions? | `ARCHITECTURE.md` section 4 + `business-rules/payment-confirmation.md` |
 | How is a caller-supplied payment reference authorized before use? | `business-rules/payment-ownership-binding.md` |
+| How does the connect-payments-sdk or the Stripe API behave here? | `reference/ct-connect-payments-sdk.md`, `reference/stripe-v20-payment-intents.md` |
+
+### "How do the asynchronous rails work?"
+
+Bank transfer, ACH and crypto share one problem: the money arrives days after the shopper leaves. Start here
+rather than in the card-shaped documents.
+
+| Question | Document |
+| --- | --- |
+| The full bank transfer funding flow, step by step | `workflows/process-bank-transfer-payment.md` |
+| Why an ACH subscription payment is `Charge/Pending`, not `Success` | `business-rules/subscription-lifecycle.md` Rule 7 |
+| Why a cart whose total changes on address write creates no order | `business-rules/payment-confirmation.md` Rule 5b |
+| Why a subscription order checks the cart against a sealed total | `business-rules/payment-confirmation.md` Rule 7 |
+| Which rails freeze the cart, and when | `workflows/process-shipping.md` |
+| How crypto/stablecoin settlement is modelled | `workflows/process-crypto-payment.md` |
 
 ### "What happens when X fails?"
 
 | Question | Document |
 | --- | --- |
-| What happens when Stripe is down? | `../../context/failure-modes.md` |
-| What happens when CT is down? | `../../context/failure-modes.md` |
-| What are the known technical gotchas? | `known-issues.md` |
-| What happens when a subscription invoice fails? | `business-rules/recurring-billing.md` |
-| What happens when an ACH debit is reversed after it settled? | `failure-modes.md → Stripe ACH — Late return` + `decisions/adr-014-ach-late-return-flag.md` |
-| What happens when a commercetools write fails inside a subscription webhook? | `decisions/adr-015-redeliver-transient-ct-errors.md` — transient errors redeliver, permanent ones are swallowed |
-| What happens when the cart is edited while an async payment settles? | `known-issues.md` KI-050 + `business-rules/payment-confirmation.md` |
+| What happens when a subscription invoice fails? | `business-rules/recurring-billing.md` + `workflows/process-recurring-payment.md` → Payment Failure Flow |
 
 ### "What are the rules for X?"
 
 | Question | Document |
 | --- | --- |
-| Rules for subscription lifecycle | `business-rules/subscription-lifecycle.md` |
+| Rules for the subscription lifecycle | `business-rules/subscription-lifecycle.md` |
+| Rules for recurring billing | `business-rules/recurring-billing.md` |
 | Rules for mixed carts | `business-rules/mixed-carts.md` |
 | Rules for price sync | `business-rules/price-sync.md` |
 | Rules for coupon sync | `business-rules/coupon-sync.md` |
-| Universal Stripe + CT rules | `../../context/business-rules/stripe-ct-shared.md` |
-| Universal refund rules | `../../context/business-rules/refunds.md` |
-| Refund vs chargeback vs ACH revocation — who initiates what | `business-rules/refunds-and-disputes.md` |
-| Rules for authorizing caller-supplied payment references | `business-rules/payment-ownership-binding.md` |
 | Rules for confirming a payment and creating the order (amount gates, cart freeze) | `business-rules/payment-confirmation.md` |
-| Why was architectural decision X made? | `decisions/` |
-
-### "How do the asynchronous rails work?"
-
-Bank transfer, ACH and crypto share one problem: the money arrives days after the shopper leaves. Start
-here rather than in the card-shaped documents.
-
-| Question | Document |
-| --- | --- |
-| The full bank transfer funding flow, step by step | `workflows/process-bank-transfer-payment.md` |
-| Why the Element needs a `clientSecret`, and why `pi_first` ships disabled | `decisions/adr-010-pi-first-elements-initialization.md` |
-| What still blocks enabling bank transfers | `known-issues.md` KI-049, plus the orphaned-PaymentIntent gap in `CHANGELOG.md → Known gaps`. KI-044 and KI-047 are resolved and no longer block it |
-| Why an ACH subscription payment is `Charge/Pending`, not `Success` | `decisions/adr-013-async-ach-charge-pending.md` + `business-rules/subscription-lifecycle.md` |
-| What happens when a settled ACH debit is reversed weeks later | `decisions/adr-014-ach-late-return-flag.md` + `failure-modes.md → Stripe ACH — Late return` |
-| Why an order can be refused after the money was captured | `decisions/adr-016-ach-microdeposit-underpayment-backstop.md` + `business-rules/payment-confirmation.md` |
-| Why a cart whose total moves on address write mints no order | `business-rules/payment-confirmation.md` Rule 5b + `decisions/adr-019-post-address-guard-and-unconditional-version-pin.md` |
-| Why a subscription order checks the cart against a sealed total | `business-rules/payment-confirmation.md` Rule 7 + `decisions/adr-017-subscription-invoice-paid-underpayment-guard.md` addendum |
-| Which rails freeze the cart, and when | `business-rules/payment-confirmation.md` + `known-issues.md` KI-050 |
-| Why a subscription order can be refused after the invoice was paid | `decisions/adr-017-subscription-invoice-paid-underpayment-guard.md` + `business-rules/payment-confirmation.md` Rule 6 |
-| Why the subscription guard compares `totalPrice` while the one-time guard compares `totalGross` | `business-rules/payment-confirmation.md` Rule 6 + `known-issues.md` KI-056 (subscription invoices carry no tax) |
-| Why `/shipping-methods/remove` leaving the cart unfrozen is not treated as the bug | `workflows/process-shipping.md` + `known-issues.md` KI-054, KI-008 |
-| Why a discount code on the cart may never reach the Stripe subscription | `business-rules/coupon-sync.md` Rule 3 + `decisions/adr-018-ct-state-authority-coupon-price-vehicle.md` |
-| Why a discount code's usage cap is not visible on the Stripe Dashboard | `business-rules/coupon-sync.md` Rule 5 + `decisions/adr-018-ct-state-authority-coupon-price-vehicle.md` + `known-issues.md` KI-055 |
-| Why an exhausted Stripe coupon is never deleted and recreated | `business-rules/coupon-sync.md` Rule 4 + `known-issues.md` KI-055 |
-| How crypto/stablecoin settlement is modelled | `workflows/process-crypto-payment.md` |
+| Rules for authorizing caller-supplied payment references | `business-rules/payment-ownership-binding.md` |
+| Refund vs chargeback vs ACH revocation — who initiates what | `business-rules/refunds-and-disputes.md` |
+| Rules for multi-capture and multi-refund | `business-rules/multi-operations.md` |
+| Rules for Stripe Tax | `business-rules/tax-integration.md` |
 
 ---
 
-## Reading Order by Role
+## Reading order by role
 
 ### Adopting this connector (installing for the first time)
 
-1. `adopter-guide.md` — prerequisites, deploy steps, subscription product setup, enabler integration, known gaps
+1. `adopter-guide.md` — prerequisites, deploy steps, subscription product setup
+2. `host-integration.md` — how your storefront and backend call it
 
 ### New to this connector (developer onboarding)
 
-1. `ARCHITECTURE.md` — system overview including what's different from checkout
+1. `ARCHITECTURE.md` — modules, routes, events, configuration
 2. `feature-scope.md` — what's supported and what's not
-3. `business-rules/subscription-lifecycle.md` — the core domain of this connector
-4. `known-issues.md` — gotchas specific to this connector
+3. `business-rules/subscription-lifecycle.md` — the core domain
 
 ### Implementing a subscription feature
-1. Read hub `CLAUDE.md` + `../../context/known-issues.md` first
-2. Read `business-rules/subscription-lifecycle.md`
-3. Read `ARCHITECTURE.md → Additional API Endpoints` for the relevant endpoint
-4. Check `feature-scope.md` to confirm the specific subscription behavior is in scope
+
+1. `business-rules/subscription-lifecycle.md` and `business-rules/recurring-billing.md`
+2. `ARCHITECTURE.md` section 3 for the relevant endpoint, section 4 for the events it touches
+3. `feature-scope.md` — confirm the behaviour is in scope
 
 ### Debugging a subscription issue
-1. `known-issues.md` — connector-specific gotchas
-2. `business-rules/subscription-lifecycle.md` — expected subscription states
-3. `business-rules/recurring-billing.md` — expected invoice handling
-4. `../../context/failure-modes.md` — if the issue looks like an infrastructure failure
+
+1. `business-rules/subscription-lifecycle.md` — expected subscription states
+2. `business-rules/recurring-billing.md` — expected invoice handling
+
+---
+
+## All documents
+
+| File | What it is |
+| --- | --- |
+| `ARCHITECTURE.md` | Modules, routes and their callers, webhook events, contracts, data model, configuration, out of scope |
+| `feature-scope.md` | What is supported, partially supported and out of scope |
+| `index.md` | This router |
+| `adopter-guide.md` | Installing, configuring and verifying the connector |
+| `host-integration.md` | How a storefront or merchant backend calls or embeds the connector |
+| `business-rules/coupon-sync.md` | Discount code → Stripe coupon rules |
+| `business-rules/mixed-carts.md` | Subscription + one-time items in one cart |
+| `business-rules/multi-operations.md` | Multicapture and multirefund |
+| `business-rules/payment-confirmation.md` | Confirm gate, amount guards, cart freeze, order creation |
+| `business-rules/payment-ownership-binding.md` | Authorizing caller-supplied payment references |
+| `business-rules/price-sync.md` | commercetools → Stripe price sync |
+| `business-rules/recurring-billing.md` | Recurring invoice handling and order creation |
+| `business-rules/refunds-and-disputes.md` | Refunds, chargebacks, cash-balance reversals |
+| `business-rules/subscription-lifecycle.md` | Subscription creation, freeze, ACH, late return |
+| `business-rules/tax-integration.md` | Stripe Tax calculation references from the cart |
+| `workflows/process-bank-transfer-payment.md` | Bank transfer (`customer_balance`) funding flow |
+| `workflows/process-crypto-payment.md` | Crypto / stablecoin settlement |
+| `workflows/process-customer-session.md` | `GET /customer/session` and Stripe customer resolution |
+| `workflows/process-price-sync.md` | Price sync on `invoice.upcoming` |
+| `workflows/process-recurring-payment.md` | Subsequent billing cycles |
+| `workflows/process-shipping.md` | Express Checkout shipping and the freeze contract |
+| `workflows/process-subscription-creation.md` | Direct and SetupIntent subscription creation |
+| `workflows/process-subscription-management.md` | Update, cancel, deletion webhook, ACH late return |
+| `reference/ct-connect-payments-sdk.md` | connect-payments-sdk usage in this connector |
+| `reference/stripe-v20-payment-intents.md` | Stripe API v20 PaymentIntents, SetupIntents and subscriptions |
