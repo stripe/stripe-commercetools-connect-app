@@ -1,8 +1,7 @@
-# ct-connect-stripe-composable — Adopter Guide
+# stripe-commercetools-connect-app — Adopter Guide
 
-> Who this is for: teams deploying ct-connect-stripe-composable for subscription payments, mixed carts, or price sync.
+> Who this is for: teams deploying stripe-commercetools-connect-app for subscription payments, mixed carts, or price sync.
 > For connector internals see `context/ARCHITECTURE.md`.
-> Not sure which connector you need? See `ct-stripe/context/adopter-guide.md`.
 
 ---
 
@@ -12,25 +11,26 @@ Before deploying, confirm you have:
 
 **commercetools:**
 - CT project with API client credentials (client ID, client secret, project key)
-- API client scopes: `manage_payments`, `manage_orders`, `manage_customers`, `manage_types`, `manage_products`, `view_products`, `manage_subscriptions` (required for the subscription cancel/update/patch endpoints — see `processor/src/routes/stripe-subscription.route.ts`)
+- API client scopes the connector's client declares (`connect.yaml:100`): `manage_payments`, `manage_orders`, `view_sessions`, `view_api_clients`, `manage_checkout_payment_intents`, `introspect_oauth_tokens`, `manage_types`, `view_types`.
+- `manage_subscriptions` is **not** a scope of this client. The subscription cancel/update/patch routes check the **caller's** OAuth token — the host backend's — with `authorize('manage_project', 'manage_subscriptions')` (`processor/src/routes/stripe-subscription.route.ts:156`, `:203`, `:256`); see `host-integration.md` §2 for that client.
 
 **Stripe:**
 - Stripe account (test or live)
-- Stripe secret key (`sk_test_...` or `sk_live_...`)
-- Stripe publishable key (`pk_test_...` or `pk_live_...`)
-- Stripe webhook signing secret — created automatically by CT Connect post-deploy; do not set before first deploy
+- Stripe secret key
+- Stripe publishable key
+- Stripe webhook endpoint, created by you in Stripe Dashboard → Developers → Webhooks **before the first deploy**: its id is `STRIPE_WEBHOOK_ID` and its signing secret is `STRIPE_WEBHOOK_SIGNING_SECRET`, both `required: true` (`connect.yaml:45-47`, `connect.yaml:105-107`). Post-deploy retrieves the endpoint by `STRIPE_WEBHOOK_ID` and updates it only when its URL differs from the deployed one (`processor/src/connectors/post-deploy.ts:22-34`).
 
-> If you use `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true`, Stripe must already have a product and price corresponding to every CT product variant with subscription attributes. Misconfiguration silently changes prices on live subscriptions.
+> With `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true`, Stripe needs **no pre-existing product or price** — the connector creates them.
 
 ---
 
 ## 2. What This Connector Deploys
 
-Post-deploy creates these resources automatically:
+Post-deploy creates or updates the three commercetools types below, and **updates** — never creates — the Stripe webhook endpoint you created before deploying (`processor/src/connectors/post-deploy.ts:22-40`):
 
 | Component | Type | What it does |
 | --- | --- | --- |
-| Stripe webhook endpoint | Stripe | Receives payment and subscription events; delivers to processor's `/stripe/webhooks` |
+| Stripe webhook endpoint (**yours, updated**) | Stripe | Receives payment and subscription events. Post-deploy retrieves it by `STRIPE_WEBHOOK_ID` and, when its URL differs from the deployed one, points it at the processor's `/stripe/webhooks` and resets its enabled events (`processor/src/connectors/post-deploy.ts:30-34`) |
 | `payment-connector-stripe-customer-id` | CT Custom Type (customer) | Links a CT customer to their Stripe Customer via `stripeConnector_stripeCustomerId` |
 | `payment-connector-subscription-information` | CT Product Type | 15 subscription configuration attributes on product variants (`stripeConnector_*`) |
 | `payment-connector-subscription-line-item-type` | CT Custom Type (line-item) | Stores `stripeConnector_stripeSubscriptionId` on cart line items |
@@ -43,17 +43,15 @@ Post-deploy creates these resources automatically:
 
 ### Step 1 — Deploy via CT Connect
 
-Deploy `ct-connect-stripe-composable` through the CT Connect marketplace. The post-deploy script runs automatically and creates the resources listed above.
+Deploy `stripe-commercetools-connect-app` through the CT Connect marketplace. The post-deploy script runs automatically and creates the resources listed above.
 
 ### Step 2 — Configure environment variables
-
-**Shared with ct-connect-stripe-checkout:**
 
 | Variable | Required | Description |
 | --- | --- | --- |
 | `STRIPE_SECRET_KEY` | **Yes** | Stripe secret API key |
 | `STRIPE_PUBLISHABLE_KEY` | **Yes** | Stripe publishable key — sent to the browser enabler |
-| `STRIPE_WEBHOOK_SIGNING_SECRET` | **Yes** | Copy from Stripe Dashboard after first deploy |
+| `STRIPE_WEBHOOK_SIGNING_SECRET` | **Yes** | The signing secret of the endpoint you create in the Stripe Dashboard **before** the first deploy (`connect.yaml:105-107` marks it required) |
 | `MERCHANT_RETURN_URL` | **Yes** | Full URL of your storefront's payment return page |
 | `CTP_PROJECT_KEY` | **Yes** | CT project key |
 | `CTP_CLIENT_ID` | **Yes** | CT API client ID |
@@ -67,11 +65,11 @@ Deploy `ct-connect-stripe-composable` through the CT Connect marketplace. The po
 | Variable | Required | Description |
 | --- | --- | --- |
 | `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING` | No | `createOrder` (default) or `addPaymentToOrder` — controls how recurring invoices create records in CT |
-| `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED` | No | `true` to sync CT prices to Stripe on `invoice.upcoming`. Use with caution — see prerequisite note above |
-| `STRIPE_PAYMENT_FLOW` | No | `deferred` (default) or `pi_first`. Required by bank transfers and BLIK — **do not set `pi_first` yet**, see below |
+| `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED` | No | `true` to sync CT prices to Stripe for subscriptions |
+| `STRIPE_PAYMENT_FLOW` | No | `deferred` (default) or `pi_first`. Required by bank transfers and BLIK |
 | `STRIPE_PAYMENT_BEHAVIOR_RULES` | No | JSON map of per-market overrides, keyed by cart country or CT store key. Exceptions only; the flat variables above are always the default |
 
-> **After first deploy:** copy `STRIPE_WEBHOOK_SIGNING_SECRET` from Stripe Dashboard → Developers → Webhooks → your endpoint. Redeploy.
+> **Before the first deploy:** create the webhook endpoint in Stripe Dashboard → Developers → Webhooks, then set `STRIPE_WEBHOOK_ID` to its id and `STRIPE_WEBHOOK_SIGNING_SECRET` to its signing secret — both are `required: true` (`connect.yaml:45-47`, `connect.yaml:105-107`). Post-deploy retrieves the endpoint by `STRIPE_WEBHOOK_ID` and, when its URL differs from the deployed one, updates its URL and enabled events (`processor/src/connectors/post-deploy.ts:22-34`).
 
 ### Bank transfers (`customer_balance`)
 
@@ -96,40 +94,28 @@ flag — the rail itself is a Dashboard setting. The optional `euBankTransferCou
 `IE`, `NL`) only chooses which of your IBANs a EUR shopper is told to wire to; omit it and Stripe shows an
 Irish IBAN, which works for every eurozone shopper since SEPA is a single payment area.
 
-> **Not yet ready to enable.** `pi_first` has two open processor-side risks: opening the payment page
-> alone creates a PaymentIntent and a CT Payment with no deterministic idempotency key, so a remount
-> orphans the previous pair (no KI of its own — recorded in `CHANGELOG.md → Known gaps` and in the
-> resolution note of KI-044, which is itself resolved and no longer a blocker); and an unfunded bank
-> transfer makes the cart read as paid in full, so a shopper reloading the page sees an error rather than
-> an "awaiting your transfer" state (KI-049). Subscriptions are out of scope by decision — a renewal
-> debits a cash balance the shopper must keep pre-funded, which needs a top-up flow this connector does
-> not provide.
-
 ### ACH Direct Debit (`us_bank_account`)
 
-ACH needs **no connector configuration** — it is a toggle in your Stripe Dashboard, and none of the
-behavior below is behind a flag. What it does need is an operational decision, because the money moves
-days after the shopper leaves.
+ACH needs **no connector configuration** — it is a toggle in your Stripe Dashboard. It does need an
+operational decision, because the money moves days after the shopper leaves.
 
-- **A subscription payment is `Charge/Pending` for ~2–4 business days.** The confirm no longer writes
-  `Charge/Success` for a rail that has not settled. If anything downstream of you treats a commercetools
-  `Charge` as "money received" regardless of state — fulfillment triggers, reporting, an OMS export — it
-  will now see a Pending charge with no order, and must wait for the transition. `invoice.paid` promotes
-  it to `Success`; `invoice.payment_failed` turns it into `Failure`.
+- **A subscription payment is `Charge/Pending` for ~2–4 business days.** The confirm does not write
+  `Charge/Success` for a rail that has not settled. `invoice.paid` promotes it to `Success`;
+  `invoice.payment_failed` turns it into `Failure`. Anything downstream that treats a commercetools
+  `Charge` as "money received" regardless of state — fulfillment triggers, reporting, an OMS export —
+  must wait for the transition.
 - **Micro-deposit verification is supported for one-time payments only.** On a subscription cart the
   confirm throws — the rail is not offered. On a one-time cart the shopper's cart is frozen for the
   verification window, and the order is created only if the amount collected still matches the cart.
 - **An order can be refused after the money was captured.** If the cart changed between payment and
   settlement, order creation is blocked and the payment is left as a `Charge/Success` with no order, for
-  a human to reconcile. By hub rule the connector never auto-refunds. Watch your processor logs for this;
-  it is logged at `error`.
+  manual reconciliation. The connector never auto-refunds; this is logged at `error`.
 - **Wire `ach_late_return` to an alert.** A settled ACH debit can be reversed by the shopper's bank for
-  up to ~60 days. Stripe does not re-fire `invoice.payment_failed`, so the connector flags the CT payment
-  with the native `paymentStatus.interfaceCode = 'ach_late_return'` and stops there — no transaction,
-  order or refund is written, and the correction happens in your Stripe Dashboard. The write is
-  best-effort and never throws, so **this flag is your only in-connector signal that money was clawed
-  back.** The same applies to `customer_cash_balance_transaction.created` with type `funding_reversed`,
-  the equivalent signal on the bank-transfer rail.
+  up to ~60 days. Stripe does not re-fire `invoice.payment_failed`, so the connector flags the
+  commercetools payment with the native `paymentStatus.interfaceCode = 'ach_late_return'`; no transaction,
+  order or refund is written, and the correction happens in your Stripe Dashboard. The same applies to
+  `customer_cash_balance_transaction.created` with type `funding_reversed`, the equivalent signal on the
+  bank-transfer rail.
 
 ### Step 3 — Verify post-deploy resources
 
@@ -159,7 +145,7 @@ Every CT product variant sold as a subscription must have all required `stripeCo
 | `stripeConnector_cancel_at` | Datetime | No | Specific date/time to cancel the subscription |
 | `stripeConnector_billing_cycle_anchor_day` | Number | No | Day of month for billing anchor |
 | `stripeConnector_billing_cycle_anchor_time` | Time (HH:MM UTC) | No | Time of day for billing anchor |
-| `stripeConnector_billing_cycle_anchor_date` | Datetime | No | Exact date/time for billing anchor; overrides day + time |
+| `stripeConnector_billing_cycle_anchor_date` | Datetime | No | Exact date/time for billing anchor; used only when `billing_cycle_anchor_day` is not set — day (with or without time) is checked first and wins (`processor/src/mappers/subscription-mapper.ts:88-110`) |
 | `stripeConnector_trial_period_days` | Number | No | Trial length in days — mutually exclusive with `trial_end_date` |
 | `stripeConnector_trial_end_date` | Datetime | No | Trial end date/time — mutually exclusive with `trial_period_days` |
 | `stripeConnector_missing_payment_method_at_trial_end` | Enum (`cancel`, `create_invoice`, `pause`) | No | Behavior when trial ends without a saved payment method |
@@ -171,43 +157,25 @@ Every CT product variant sold as a subscription must have all required `stripeCo
 
 ## 5. Integrating the Enabler
 
+The enabler bundle is served from the connector's `enabler` deployment (`connect.yaml:2-3`) and exports
+`Enabler`. For how a storefront loads the bundle, creates the session, drives the drop-in and reads the
+outcome, follow `host-integration.md` (§2–§5).
+
 ### One-time payments
 
-Same as ct-connect-stripe-checkout. There is no `enabler.createDropin()` method — the real API is `createDropinBuilder(type)`, which returns a builder whose `.build(config)` produces the mountable component:
-
-```typescript
-import { Enabler, DropinType } from '@your-scope/ct-connect-stripe-composable-enabler';
-
-const enabler = new Enabler({
-  processorUrl: 'https://your-processor.ct-connect.example.com',
-  sessionId: ctSessionId,
-  locale: 'en-US',
-});
-
-const dropinBuilder = await enabler.createDropinBuilder(DropinType.embedded);
-const dropin = dropinBuilder.build({});
-dropin.mount('#payment-element');
-```
+The API is `createDropinBuilder('embedded')`, which returns a builder whose `.build(config)` produces the
+mountable component; mount it on your payment element.
 
 ### Subscription checkout
 
-There is no `paymentMode` option on `EnablerOptions` or on the drop-in's `build()` config — an adopter cannot select subscription mode directly. It is determined **server-side** from the cart: if the CT cart being checked out contains a subscription line item, the processor's `GET /config-element/:payment` response sets `paymentMode: 'subscription'` internally (`stripe-subscription.service.ts` → `getPaymentMode(cart)`), and the enabler renders the subscription-aware Payment Element automatically. Use the exact same snippet as basic checkout above — the only difference is what's in the cart.
+Subscription mode is determined **server-side** from the cart: when the CT cart being checked out contains
+a subscription line item, the processor's `GET /config-element/:payment` response sets
+`paymentMode: 'subscription'` (`stripe-subscription.service.ts` → `getPaymentMode(cart)`) and the enabler
+renders the subscription-aware Payment Element automatically.
 
 ### Express Checkout (Apple Pay / Google Pay)
 
-Pass `paymentElementType: 'expressCheckout'` to the `Enabler` constructor (not to the drop-in builder):
-
-```typescript
-const enabler = new Enabler({
-  processorUrl: 'https://your-processor.ct-connect.example.com',
-  sessionId: ctSessionId,
-  paymentElementType: 'expressCheckout',
-});
-
-const dropinBuilder = await enabler.createDropinBuilder(DropinType.embedded);
-const dropin = dropinBuilder.build({});
-dropin.mount('#express-checkout-element');
-```
+Pass `paymentElementType: 'expressCheckout'` to the `Enabler` constructor (not to the drop-in builder).
 
 ### B2B Launchpad purchase orders
 
@@ -240,33 +208,16 @@ Before go-live:
 - [ ] Create a product on the `payment-connector-subscription-information` product type with the required `stripeConnector_*` attributes set (see Section 4)
 - [ ] Complete a subscription checkout — CT cart should be frozen; Stripe subscription appears in Dashboard
 - [ ] Receive an `invoice.paid` event — a CT order should be created (or payment added, per `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING`)
-- [ ] Cancel the subscription in Stripe Dashboard — manually verify CT cart state (see known gap below)
 
 ---
 
-## 7. Known Gaps
-
-These behaviors are not bugs in your configuration — they are known limitations of the current connector version:
-
-| Gap | What happens | Workaround |
-| --- | --- | --- |
-| Subscription cancellation does not update CT | `cancelSubscription()` cancels in Stripe but CT cart remains Frozen | Manually unfreeze via CT API: `changeCartState → Active`; clear `stripeConnector_stripeSubscriptionId` on the line item |
-| Stale subscription ID left on the line item after cancellation | `customer.subscription.deleted` now unfreezes the cart automatically, but does not clear `stripeConnector_stripeSubscriptionId` | Clear the custom field manually if you rely on it to detect an active subscription; otherwise check Stripe directly |
-| Cart freeze failure silently swallowed | If cart freeze fails after subscription creation, cart stays modifiable | Check processor logs for freeze errors; manually freeze: `changeCartState → Frozen` |
-
----
-
-## 8. Troubleshooting
+## 7. Troubleshooting
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
 | Stripe webhook events show HTTP 400 | `STRIPE_WEBHOOK_SIGNING_SECRET` wrong or not set | Copy from Stripe Dashboard webhook endpoint; redeploy |
 | Payment succeeds in Stripe but CT not updated | Webhook signing secret mismatch | Same as above |
-| Subscription created but CT cart still Active (not Frozen) | Cart freeze failed silently | Check processor logs; manually freeze cart via CT API |
-| CT cart remains Frozen after subscription canceled | The cancellation was merchant-initiated via `cancelSubscription()`, which cancels in Stripe only. Terminal cancellation *from Stripe* now unfreezes the cart via `customer.subscription.deleted` | Manually unfreeze cart and clear subscription ID on line item |
 | CT cart remains Frozen while dunning retries | Expected — the cart is released only on terminal cancellation, not during the Smart Retry window | Wait for retries to be exhausted, or cancel the subscription in Stripe |
-| Recurring invoice paid but no CT order created | A permanent error during subscription event processing is logged and swallowed (webhook returns 200). Transient errors are retried by Stripe instead | Check processor logs around the `invoice.paid` event timestamp |
 | Subscription order stuck in `Charge/Pending` for days | Expected on ACH — the debit has not settled yet. `invoice.paid` promotes it to `Success` | Wait for settlement; if it never arrives, check the PaymentIntent in the Stripe Dashboard |
 | Payment captured in Stripe but no CT order exists | The order-creation amount gate refused: the cart total, `pi.amount` or `pi.amount_received` diverged | Reconcile manually — the connector never auto-refunds. Search the processor logs for the amount-mismatch error |
-| Price sync changes live subscription prices unexpectedly | `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true` with misconfigured prices | Disable price sync; audit Stripe prices against CT product attributes |
 | All payments fail at startup with auth errors | Placeholder credentials still in env vars | Set all required env vars with real values |

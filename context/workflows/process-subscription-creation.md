@@ -2,9 +2,9 @@
 
 **Trigger:** Customer completes checkout with a cart containing a subscription item.
 **Actors:** Browser (Enabler), Processor, Stripe API, CT API.
-**Outcome:** Stripe subscription active, CT cart frozen, CT Payment in AUTHORIZED state.
+**Outcome:** Stripe subscription active, CT cart frozen, and — once `POST /subscription/confirm` runs — a CT Payment carrying `Authorization/Success` plus a `Charge` (`processor/src/services/ct-payment-creation.service.ts:162-188`). The Charge is `Success` for a settled card PaymentIntent and for free billing-cycle anchor days (amount 0), and `Pending` for a trial, `send_invoice`, or an ACH PaymentIntent still `processing` (`processor/src/services/stripe-subscription.service.ts:1025-1070`).
 
-Two paths exist: **Direct** (card entered at checkout) and **SetupIntent** (payment method saved first, subscription created later).
+Two paths exist, chosen by the cart's subscription variant attributes, not by how the payment method is entered: the processor's `getPaymentMode()` returns `setup` when the variant has a trial, free billing-cycle anchor days or `collection_method: send_invoice`, and `subscription` otherwise (`processor/src/services/stripe-subscription.service.ts:1141-1155`); the enabler's `submit()` dispatches on that mode (`enabler/src/dropin/dropin-embedded.ts:132-144`). **Direct** (`subscription` mode) and **SetupIntent** (`setup` mode — the payment method is saved with `confirmSetup()`, then the subscription is created and confirmed in the same submit, `enabler/src/dropin/dropin-embedded.ts:190-214`).
 
 ---
 
@@ -46,8 +46,12 @@ Browser                    Enabler                 Processor               Strip
   |                          |------------------------>Stripe confirms PI --->|              |
   |                          | POST /subscription/confirm                     |              |
   |                          |------------------------>|                      |              |
-  |                          |                         | validate subscription |              |
-  |                          |                         | updatePayment(AUTHORIZED)            |
+  |                          |                         | cart owns paymentReference?          |
+  |                          |                         | interfaceId matches?  |              |
+  |                          |                         | PI status settled/processing?        |
+  |                          |                         | write Authorization/Success +        |
+  |                          |                         |   Charge/Success (Pending if ACH     |
+  |                          |                         |   processing)                        |
   |                          |                         |------------------------------------------>|
   |   onComplete()           |                         |                      |              |
   |<-------------------------|                         |                      |              |
@@ -55,7 +59,7 @@ Browser                    Enabler                 Processor               Strip
 
 ---
 
-## Path B: SetupIntent (save now, subscribe later)
+## Path B: SetupIntent (save the payment method, then subscribe in the same submit)
 
 ```
 Browser                    Enabler                 Processor               Stripe          CT
@@ -74,8 +78,8 @@ Browser                    Enabler                 Processor               Strip
   |                          |  {setupIntentId}        |                      |              |
   |                          |<------------------------|                      |              |
   |                          |                         |                      |              |
-  | (later — trial ends or   |                         |                      |              |
-  |  merchant triggers sub)  |                         |                      |              |
+  | (same submit, right after|                         |                      |              |
+  |  confirmSetup() returns) |                         |                      |              |
   |                          |                         |                      |              |
   |                          | POST /subscription/withSetupIntent             |              |
   |                          | { setupIntentId }       |                      |              |
@@ -94,9 +98,18 @@ Browser                    Enabler                 Processor               Strip
   |                          |  {subscriptionId,       |                      |              |
   |                          |   paymentReference}     |                      |              |
   |                          |<------------------------|                      |              |
-  |   (no Stripe confirmation |                         |                      |              |
-  |    needed — PM already   |                         |                      |              |
-  |    confirmed)            |                         |                      |              |
+  |                          | POST /subscription/confirm                     |              |
+  |                          | { subscriptionId,       |                      |              |
+  |                          |   paymentReference }    |                      |              |
+  |                          | (no paymentIntentId)    |                      |              |
+  |                          |------------------------>|                      |              |
+  |                          |                         | write Authorization/Success +        |
+  |                          |                         |   Charge (Pending for trial or       |
+  |                          |                         |   send_invoice; Success, amount 0,   |
+  |                          |                         |   for free anchor days)              |
+  |                          |                         |------------------------------------------>|
+  |   onComplete()           |                         |                      |              |
+  |<-------------------------|                         |                      |              |
 ```
 
 ---
@@ -111,7 +124,7 @@ Browser                    Enabler                 Processor               Strip
 5. Call `subscriptions.create()` with:
    - `items`: subscription price + shipping price (if any)
    - `add_invoice_items`: one-time prices
-   - `payment_behavior: default_incomplete` → returns `latest_invoice.payment_intent.client_secret`
+   - `payment_behavior: default_incomplete`, expanding `latest_invoice.confirmation_secret` (`processor/src/services/stripe-subscription.service.ts:189-191`) → the client secret is read from `latest_invoice.confirmation_secret.client_secret`, and the PaymentIntent id is derived from it (`processor/src/services/stripe-subscription.service.ts:451-458`)
    - Trial settings, billing cycle anchor, cancel_at, proration behavior (from variant attributes)
 6. Create CT Payment
 7. **Freeze cart** → prevents further modifications
@@ -132,19 +145,15 @@ Browser                    Enabler                 Processor               Strip
 
 ## Order creation on `invoice.paid` — amount guard
 
-Step 7 above (**freeze cart**) is a convenience, not a control: it is best-effort, and `GET /shipping-methods/remove` releases it and never restores it (`process-shipping.md`). The first invoice, however, was priced once at step 5 and does not move. So between creation and `invoice.paid` the cart can grow while the invoice stays locked — which is how KI-054 produced an order marked `Paid` at €70.00 against €20.00 collected.
+`createSubscriptionOrderFromCart` validates before minting the order:
 
-`createSubscriptionOrderFromCart` therefore validates before minting the order:
-
-1. Cart already `Ordered` → skip (idempotency, unchanged).
-2. Cart not frozen → `log.warn`. Still a useful signal, no longer the only reaction.
+1. Cart already `Ordered` → skip (idempotency).
+2. Cart not frozen → `log.warn`.
 3. `updateCartAddress()` from the Stripe charge's billing details.
 4. **Amount guard** — compare `invoice.amount_paid` / `invoice.currency` against the **post-address** cart's `totalPrice` (the snapshot the order is minted from), via the shared `paidAmountMatchesTotal`.
-   - Guarded configuration (first cycle, `charge_automatically`, no trial, `amount_paid > 0`, undiscounted invoice — all read from Stripe, never from the cart) and a mismatch → **no order**, `log.error`. The `Charge/Success` is already persisted, so this is a paid-without-order state for manual reconciliation; never auto-refunded.
+   - Guarded configuration (first cycle, `charge_automatically`, no trial, `amount_paid > 0`, undiscounted invoice — all read from Stripe, never from the cart) and a mismatch → **no order**, `log.error`.
    - Any other configuration → `log.warn` and the order **is** created: a trial, free anchor days, `send_invoice` or a recurring cycle legitimately bill a first invoice that differs from the cart total.
-5. `createOrder()`, pinning `expectedVersion` to the validated cart version so a cart that moved after step 4 cannot still mint an order (commercetools returns 409, handled as the race it is).
-
-Compared against `totalPrice` and **not** `taxedPrice.totalGross`: the invoice is built from the line items' own price values plus the shipping price, with no tax applied on the subscription path. See `business-rules/payment-confirmation.md` Rule 6, ADR-017, and KI-056 for the tax gap this exposed.
+5. `createOrder()`, pinning `expectedVersion` to the validated cart version so a cart that moved after step 4 cannot still mint an order (commercetools returns 409).
 
 ---
 
@@ -152,13 +161,14 @@ Compared against `totalPrice` and **not** `taxedPrice.totalGross`: the invoice i
 
 | Point | Condition | Path |
 |---|---|---|
-| Payment method | Card entered at checkout | Path A (direct) |
-| Payment method | SetupIntent pre-confirmed | Path B (withSetupIntent) |
+| Payment mode | Variant has no trial, no free billing-cycle anchor days and is not `send_invoice` → `getPaymentMode()` returns `subscription` (`processor/src/services/stripe-subscription.service.ts:1141-1151`) | Path A (direct) |
+| Payment mode | Variant has a trial, free billing-cycle anchor days (`proration_behavior: none`) or `collection_method: send_invoice` → `setup` (`processor/src/services/stripe-subscription.service.ts:1145-1148, 1158-1180`) | Path B (withSetupIntent), dispatched by `enabler/src/dropin/dropin-embedded.ts:132-140` |
 | Trial configured | `trial_period_days` or `trial_end_date` on variant | Subscription starts in `trialing` state |
 | One-time items | Cart has non-subscription line items | Added to `add_invoice_items` |
 | Shipping | Cart has `shippingInfo` | Shipping price added to recurring `items` |
 | Discount codes | Code's `DiscountCodeInfo.state` is `MatchesCart` | Translated to a Stripe coupon and passed as `discounts` |
-| Discount codes | Any other state (cap reached, predicate not met, inactive, stopped by a previous discount) | Skipped before any Stripe call — commercetools is the authority on whether a code applies (`business-rules/coupon-sync.md` Rules 3-5, ADR-018) |
+| Discount codes | State `ApplicationStoppedByGroupBestDeal` | Skipped: no coupon for that code; the subscription is still created (`processor/src/services/stripe-coupon.service.ts:37-39, 121-131`) — commercetools is the authority on whether a code applies (`business-rules/coupon-sync.md` Rules 3-5) |
+| Discount codes | Any other state (e.g. cap reached, predicate not met, inactive, stopped by a previous discount) | Checkout **refused**: `DiscountCodeNonApplicable`, HTTP 400, thrown while `subscriptions.create` arguments are evaluated, so no subscription, invoice or CT Payment is created (`processor/src/services/stripe-coupon.service.ts:35, 91-109`). The Stripe prices for the subscription and one-time items have already been created or reused by then (`processor/src/services/stripe-subscription.service.ts:159, 428-429`) |
 
 ---
 
@@ -167,6 +177,6 @@ Compared against `totalPrice` and **not** `taxedPrice.totalGross`: the invoice i
 | Error | Cause | CT/Cart State |
 |---|---|---|
 | `subscriptions.create()` fails | Stripe API error | No CT Payment; cart unfrozen |
-| `createPayment()` fails | CT API error | Stripe subscription created; cart not frozen (orphaned subscription) |
-| `confirmPayment()` fails | Card declined | CT Payment stays PENDING; cart remains frozen |
-| `/subscription/confirm` fails | Subscription inactive | CT Payment stays PENDING |
+| `createPayment()` fails | CT API error | Stripe subscription created; cart not frozen |
+| `confirmPayment()` fails | Card declined | CT Payment keeps only its creation-time `Authorization` transaction in state `Initial` (`processor/src/services/ct-payment-creation.service.ts:50-56`, `PaymentOutcome.INITIAL = 'Initial'` at `processor/src/dtos/stripe-payment.dto.ts:29`); cart remains frozen |
+| `/subscription/confirm` fails | `paymentReference` not on the caller's cart (`processor/src/services/stripe-subscription.service.ts:1012-1019`), payment `interfaceId` matching none of the references, PaymentIntent neither settled nor `processing` (`processor/src/services/stripe-subscription.service.ts:1052-1060`), or no latest invoice on the subscription (`processor/src/services/stripe-subscription.service.ts:1101-1108`). Any other error thrown on the way gets the same answer: the route answers HTTP 400 `REJECTED` (`processor/src/routes/stripe-subscription.route.ts:97-103`) | CT Payment keeps its `Authorization/Initial` transaction |

@@ -3,6 +3,9 @@
   "private": true,
   "version": "4.0.1",
   "type": "module",
+  "engines": {
+    "node": ">=24.22.1"
+  },
   "scripts": {
     "dev": "vite --port 3000",
     "start": "serve public -l 8080 --cors",

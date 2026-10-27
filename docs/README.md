@@ -7,15 +7,15 @@ This directory contains comprehensive documentation for the Stripe-Commercetools
 > revised afterwards — they are accurate about the feature they describe and silent about everything added
 > since. The living, maintained description of how the connector behaves today is `../context/`:
 > `ARCHITECTURE.md` for the system and its webhooks, `feature-scope.md` for what is and is not supported,
-> `known-issues.md` for active defects, `business-rules/` for the invariants and `decisions/` for the ADRs.
-> Nothing about **bank transfers** or **ACH Direct Debit** is in the feature guides here; see the changelog
-> below, `../README.md`, `../processor/README.md`, and `../context/adopter-guide.md`.
+> and `business-rules/` for the invariants. Nothing about **bank transfers** or **ACH Direct Debit** is in
+> the feature guides here; see the changelog below, `../README.md`, `../processor/README.md`, and
+> `../context/adopter-guide.md`.
 
 ## Core Documentation
 
 ### [CHANGELOG.md](./CHANGELOG.md)
 Complete changelog documenting all updates, improvements, and breaking changes across versions. **Current** —
-mirrors the root `CHANGELOG.md`, including ACH Direct Debit (SB3-206) and bank transfers (SB3-207).
+including ACH Direct Debit and bank transfers.
 
 ### [recent-improvements-summary.md](./recent-improvements-summary.md)
 Summary of recent architectural improvements and enhancements to the connector.
@@ -103,19 +103,16 @@ Bank transfer, ACH and crypto all settle after the shopper has left. None of the
 feature guides above — these are the documents that describe them.
 
 ### [CHANGELOG.md](./CHANGELOG.md)
-What changed and why, for both work streams: ACH Direct Debit (SB3-206) and bank transfers (SB3-207).
+What changed and why, for both work streams: ACH Direct Debit and bank transfers.
 
 ### [../README.md → Webhooks](../README.md)
 Every registered Stripe event and the commercetools transaction it writes.
 
 ### [../processor/README.md → ACH Direct Debit](../processor/README.md)
-Pending charges on subscriptions, micro-deposit verification, the underpayment backstop, and late returns.
+Pending charges on subscriptions, micro-deposit verification, and late returns.
 
 ### [../processor/README.md → Stablecoin / Crypto Payments](../processor/README.md)
 Crypto settlement and the `payment_intent.processing` pending state.
 
-### [../context/adopter-guide.md](../context/adopter-guide.md) and [../context/deployment.md](../context/deployment.md)
+### [../context/adopter-guide.md](../context/adopter-guide.md)
 What a merchant must configure and watch before enabling any of these rails.
-
-### [../context/decisions/](../context/decisions/)
-ADR-010 through ADR-016 — the decisions behind the behavior described above.

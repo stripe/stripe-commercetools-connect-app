@@ -15,7 +15,7 @@ services:
       - 9002:9000
 
   enabler:
-    image: node:20
+    image: node:24.22.1
     volumes:
       - ./enabler:/home/node/app
     restart: always
@@ -31,7 +31,7 @@ services:
       - 3000:3000
 
   processor:
-    image: node:20
+    image: node:24.22.1
     volumes:
       - ./processor:/home/node/app
     working_dir: /home/node/app

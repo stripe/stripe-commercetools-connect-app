@@ -1,150 +1,128 @@
-# Feature Scope — ct-connect-stripe-composable
+# Feature Scope
 
-What this connector supports, what it does not support, and what is partially supported or has known gaps. An LLM consulting this document should answer "not in scope for this connector" rather than inferring from general Stripe knowledge.
+## At a glance
 
-This connector extends `ct-connect-stripe-checkout`. Everything supported there is also supported here unless explicitly overridden. This document focuses on additions and differences.
+| # | Area | One line |
+| --- | --- | --- |
+| 1 | [Payment models](#1-payment-models) | one-time, subscription, mixed cart, SetupIntent; guest only for one-time |
+| 2 | [Payment methods and rails](#2-payment-methods-and-rails) | instant, Express wallets, async (ACH, bank transfer, crypto) |
+| 3 | [Subscription features](#3-subscription-features) | create, confirm, list, update, cancel; product-attribute driven |
+| 4 | [Merchant operations](#4-merchant-operations) | capture, cancel, refund; multirefund opt-in |
+| 5 | [Price and coupon sync](#5-price-and-coupon-sync) | coupons gated on commercetools' verdict; price sync opt-in |
+| 6 | [Configuration-driven behaviour](#6-configuration-driven-behaviour) | the switches that change what the connector does |
+| 7 | [Out of Scope](#7-out-of-scope) | answer "not supported" from here, not from general Stripe knowledge |
 
-For the base feature set (one-time payments, Payment Element, Express Checkout, refunds, Stripe Tax integration), see `../../ct-connect-stripe-checkout/context/feature-scope.md`.
+An LLM consulting this document should answer "not in scope for this connector" when a feature is not
+listed, rather than inferring from what Stripe supports.
 
 ---
 
-## Payment Models
+## 1. Payment models
+
+| Feature | Status | Entry point and what it calls |
+| --- | --- | --- |
+| One-time payment | ✅ | `GET/POST /payments` → `stripe.paymentIntents.create` (`processor/src/services/stripe-payment.service.ts:588`); `POST /confirmPayments/:id` → `paymentIntents.retrieve` and the confirm gate (`:942`) |
+| Subscription | ✅ | `POST /subscription` → `stripe.subscriptions.create` with `payment_behavior: 'default_incomplete'` (`processor/src/services/stripe-subscription.service.ts:180-190`); `POST /subscription/confirm` |
+| Save a method, subscribe later | ✅ | `POST /setupIntent` → `setupIntents.create` (`:962`); `POST /subscription/withSetupIntent` → `subscriptions.create` (`:285`) |
+| Mixed cart (one subscription item + one-time items) | ✅ | one-time items go on the first invoice as `add_invoice_items`; trial and shipping consequences in `business-rules/mixed-carts.md` Rules 1–2 |
+| More than one subscription item per cart | ❌ | — |
+| Guest cart | ⚠️ **one-time only** | subscriptions and bank transfer need a commercetools customer on the cart (`host-integration.md` §2) |
+| Saved payment methods | ✅ | driven by `STRIPE_SAVED_PAYMENT_METHODS_CONFIG` and the CustomerSession from `GET /customer/session` |
+
+---
+
+## 2. Payment methods and rails
+
+| Rail | Status | How it settles |
+| --- | --- | --- |
+| Cards (incl. 3DS) | ✅ | confirm gate writes the transaction synchronously; `payment_intent.succeeded` creates the order |
+| Express Checkout — Apple Pay, Google Pay, Link | ✅ | Express Checkout Element; shipping via `/shipping-methods*` |
+| ACH Direct Debit (`us_bank_account`) | ✅ one-time and subscription | one-time: `processing` → `Authorization/Pending`; micro-deposit verification freezes the cart and writes `Authorization/Pending` at `requires_action`. Subscription: `Charge/Pending` until `invoice.paid`; micro-deposits **not** supported on the subscription path |
+| Bank transfer (`customer_balance`) | ⚠️ ships disabled | needs `STRIPE_PAYMENT_FLOW=pi_first`; `requires_action` writes `Authorization/Pending` and freezes; `payment_intent.succeeded` settles. Not on subscriptions |
+| Crypto / stablecoin | ✅ | `payment_intent.processing` → `Authorization/Pending`; resolved by `succeeded` or `payment_failed`/`canceled` (`workflows/process-crypto-payment.md`) |
+| Boleto and other voucher methods | ⚠️ | the enabler returns the PaymentIntent, the confirm gate rejects `requires_action`; the order relies on `payment_intent.succeeded` and its amount guard |
+
+**Order creation on `payment_intent.succeeded`** is refused unless the PaymentIntent was collected in full
+and matches the cart's current total and currency (`stripe-payment.service.ts:1526-1543`), and again
+after the address write and at a pinned cart version (`business-rules/payment-confirmation.md` Rules 5
+and 5b).
+
+---
+
+## 3. Subscription features
 
 | Feature | Status | Notes |
 | --- | --- | --- |
-| One-time payments | ✅ Supported | Inherited from checkout connector |
-| Subscriptions (recurring billing) | ✅ Supported | Core addition of this connector |
-| Mixed carts (subscription + one-time items) | ✅ Supported | One-time items billed on first subscription invoice; see `business-rules/mixed-carts.md` |
-| SetupIntent (save payment method, charge later) | ✅ Supported | `POST /setupIntent` then `POST /subscription/withSetupIntent` |
-| Guest checkout | ✅ Supported | Inherited |
-| Saved payment methods | ✅ Supported | Inherited |
+| Create from cart, freeze the cart | ✅ | — |
+| First-invoice amount guard at `invoice.paid` | ✅ | first cycle, `charge_automatically`, no trial, money collected, no invoice discount; plus the sealed-total drift check (`business-rules/payment-confirmation.md` Rules 6–7) |
+| Recurring orders | ✅ | `createOrder` (default): a new order per `invoice.paid`; `addPaymentToOrder`: a payment added to the first order |
+| List a customer's subscriptions | ✅ | `GET /subscription-api/:customerId` — one Stripe page, ten non-canceled at most (`host-integration.md` §3a) |
+| Change variant or price | ✅ | `POST /subscription-api/:customerId` |
+| Advanced update (raw Stripe params) | ✅ | `POST /subscription-api/advanced/:customerId` |
+| Cancel through the API | ⚠️ | Stripe only; commercetools is not updated by the call |
+| Cancel in Stripe (Dashboard, dunning) → unfreeze the cart | ✅ | `customer.subscription.deleted` |
+| ACH late return after settlement | ⚠️ flag only | `paymentStatus.interfaceCode = 'ach_late_return'`; reversal handled in Stripe |
+| `send_invoice` collection | ⚠️ | first invoice is emailed and stays open; no order until paid |
+| Trials | ✅ | `stripeConnector_trial_period_days` or `stripeConnector_trial_end_date` |
+| Billing cycle anchor, cancel at period end, cancel at date, proration, behaviour when a trial ends without a method | ✅ | product-type attributes (`ARCHITECTURE.md` section 7) |
+| Tax on subscription invoices | ❌ | — |
 
 ---
 
-## Subscription Features
+## 4. Merchant operations
 
 | Feature | Status | Notes |
 | --- | --- | --- |
-| Create subscription from cart | ✅ Supported | `POST /subscription`; freezes CT cart on creation |
-| Cancel subscription (API) | ✅ Supported | `DELETE /subscription-api/:customerId/:subscriptionId` — cancels in Stripe only; CT not updated (see `known-issues.md` KI-010) |
-| Cancel subscription (Dashboard / Dunning) → unfreeze cart | ✅ Supported | `customer.subscription.deleted` webhook now unfreezes the CT cart at terminal cancellation (KI-009 RESOLVED); stale subscription ID on the line item not cleared |
-| Async ACH (`us_bank_account`) subscription payment | ✅ Supported | `confirmSubscriptionPayment` writes `Charge/Pending` while the PaymentIntent is `processing`; settlement resolves via `invoice.paid` (→ Success) / `invoice.payment_failed` (→ Failure). Micro-deposit verification (`requires_action`) is out of scope **on this path only** — the confirm throws; the one-time path does support it (see `payment_intent.requires_action` below). |
-| Update subscription (new variant/price) | ✅ Supported | `POST /subscription-api/:customerId` |
-| List active subscriptions for customer | ✅ Supported | `GET /subscription-api/:customerId` |
-| Trial periods | ✅ Supported | Via `stripeConnector_trial_period_days` or `stripeConnector_trial_end_date` (mutually exclusive) |
-| Billing cycle anchor | ✅ Supported | `stripeConnector_billing_cycle_anchor_day`, `_time`, `_date` attributes |
-| Cancel at period end | ✅ Supported | `stripeConnector_cancel_at_period_end` attribute |
-| Cancel at specific date | ✅ Supported | `stripeConnector_cancel_at` attribute |
-| Proration on plan change | ✅ Supported | `stripeConnector_proration_behavior`: `none`, `create_prorations`, `always_invoice` |
-| Invoice collection method | ✅ Supported | `charge_automatically` or `send_invoice` |
-| Behavior when trial ends without payment method | ✅ Supported | `stripeConnector_missing_payment_method_at_trial_end`: `cancel`, `create_invoice`, `pause` |
-| **Subscription pause** | ❌ Not supported | Not available as a management operation |
-| **Free trial without payment method collection** | ❌ Not supported | Payment method required at subscription creation |
-| Subscription quantity changes | ❌ Not documented | Not covered in business rules or implemented endpoints |
+| Capture, cancel, refund | ✅ | `POST /operations/payment-intents/:id` |
+| Refunds reflected from Stripe | ⚠️ | a refund that later fails is corrected by `refund.failed`/`refund.updated` (`business-rules/multi-operations.md` Rule 4) |
+| Multirefund | ⚠️ | — |
+| Disputes | ❌ | manual, by decision (`business-rules/refunds-and-disputes.md` Rule 2) |
 
 ---
 
-## Webhook Events
+## 5. Price and coupon sync
 
-Events registered in `processor/src/connectors/actions.ts` (in addition to checkout events):
-
-| Event | Handled | Effect |
+| Feature | Status | Notes |
 | --- | --- | --- |
-| `invoice.paid` | ✅ | Creates CT order or adds payment per `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING` |
-| `invoice.payment_failed` | ✅ | Updates CT payment state |
-| `invoice.upcoming` | ✅ | Triggers price sync when `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true` |
-| `charge.succeeded` (subscription invoice) | ⚠️ Registered, deliberately dropped | `isFromSubscriptionInvoice()` guard stops it before processing — `invoice.paid` alone handles recurring payments, see `business-rules/recurring-billing.md` Rule 4 |
-| `charge.refunded` | ✅ Always registered | Registered unconditionally; multirefund behavior |
-| `charge.captured` | ✅ Always registered | Registered unconditionally; multicapture behavior |
-| `payment_intent.requires_action` | ✅ Bank transfer + ACH micro-deposit | **Async funding** (`customer_balance`), gated on `isBankTransferNextAction()` — only a PI whose `next_action.type` is exactly `display_bank_transfer_instructions` is processed, writing one `Authorization/Pending` for the full `pi.amount` and freezing the cart. **ACH micro-deposit verification** (`verify_with_microdeposits`), gated on the separate `isMicrodepositNextAction()` — freezes the cart only, no CT transaction, so it cannot be edited during the days-long verification window (KI-050). Card 3DS and Boleto also emit this event and keep their log-only path; both predicates fail closed. Release-gate tested. |
-| `payment_intent.partially_funded` | ✅ No CT transaction | Shopper wired part of the amount. Deliberately writes **no** CT transaction — only the interface interaction — so the single `Authorization/Pending` for the full amount stays the truth. See KI-035. |
-| `customer_cash_balance_transaction.created` | ✅ Observability only | Logged, never converted, never written to CT. `funding_reversed` / `adjusted_for_overdraft` escalate to `log.error` — they are the only signal that money was clawed back after the order was created. No CT modelling in v1. |
-| `payment_intent.processing` | ✅ | **Async settlement** (crypto/stablecoin). Writes an `Authorization/Pending` CT transaction while the payment settles; resolves to `Success` on `payment_intent.succeeded` and to `Failure` on `payment_intent.payment_failed` / `payment_intent.canceled`. Guarded against out-of-order/duplicate events. The synchronous `/confirmPayments` gate also validates the real PI status and writes `Authorization/Pending` (returning `PENDING` → HTTP 202) when the PI is still `processing`, so async-settlement one-time payments are reflected even before the webhook arrives. See `workflows/process-crypto-payment.md`. |
-| `payment_intent.succeeded` (order creation) | ✅ Inherited from checkout, **gated** | Order creation now refuses unless `pi.amount === currentCartTotal.centAmount` **and** `pi.amount_received === pi.amount` **and** the currency matches (`currentCartTotal = taxedPrice?.totalGross ?? totalPrice`, integer minor units — correct for JPY). On mismatch it logs `error` and returns, leaving a *paid-without-order* state for manual reconciliation; there is no auto-refund (hub rule). An already-`Ordered` cart is skipped idempotently. Universal backstop for every delayed rail — ACH micro-deposits, boleto, OXXO, konbini, multibanco. See KI-050, ADR-016. |
-| `customer.subscription.deleted` | ✅ Registered & handled | Terminal subscription cancellation (Stripe Dashboard / Dunning exhaustion). `processSubscriptionEventDeleted` resolves the cart via `ct_payment_id` metadata and **unfreezes it** so the shopper can edit/retry. Best-effort, never throws; does not clear the stale `stripeConnector_stripeSubscriptionId` (residual). KI-009 RESOLVED. |
-| `payment_intent.payment_failed` (subscription invoice, post-settlement) | ✅ Handled — ACH late return | A subscription-invoice PI failure *after* the invoice was paid = **ACH late return** (bank reverses an already-settled debit; Stripe does not re-fire `invoice.payment_failed`). `processSubscriptionEventLateReturn` sets `paymentStatus.interfaceCode='ach_late_return'` for team attention only when a prior `Charge/Success` proves settlement — no transaction/order/custom-field change. Handled in the Stripe Dashboard. |
+| Discount code → Stripe coupon | ✅ | only when commercetools reports the code `MatchesCart`; checkout is refused before money moves when commercetools would not order with the code (`business-rules/coupon-sync.md` Rules 3, 3b) |
+| Usage cap | ✅ enforced by commercetools | not mirrored into Stripe |
+| Coupon duration | fixed `once` | `processor/src/services/stripe-coupon.service.ts:192`; commercetools has no duration to map from |
+| Price sync on `invoice.upcoming` | ⚠️ opt-in | `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true` |
 
-Events **declared in code but NOT registered** (Stripe does not deliver them):
+---
 
-| Event | Status | Notes |
-| --- | --- | --- |
-| `charge.updated` | ❌ Route handler exists, not registered | Must be manually added to `actions.ts` enabled events |
+## 6. Configuration-driven behaviour
 
-Events **not registered** (same as checkout):
-
-| Event | Status |
+| Setting | What it switches |
 | --- | --- |
-| `charge.dispute.*` | ❌ Not registered — disputes are manual |
+| `STRIPE_PAYMENT_FLOW` / a rule's `flowType` | `deferred` or `pi_first`; bank transfer and BLIK need `pi_first` |
+| `STRIPE_PAYMENT_BEHAVIOR_RULES` | per-country or per-store overrides of flow, capture method, save mandate, EU bank-transfer country |
+| `STRIPE_CAPTURE_METHOD` | automatic vs manual capture; manual removes `customer_balance`, `us_bank_account`, `crypto` |
+| `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING` | a new order per renewal, or payments added to the first order |
+| `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED` | price sync on `invoice.upcoming` |
+| `STRIPE_ENABLE_MULTI_OPERATIONS` | multirefund routing |
+| `STRIPE_SAVED_PAYMENT_METHODS_CONFIG` | saved-method display and save |
+| `STRIPE_COLLECT_BILLING_ADDRESS` | `auto`, `never`, `if_required` |
+
+Full table with defaults and invalid-value behaviour: `ARCHITECTURE.md` section 9.
 
 ---
 
-## Price Synchronization
-
-| Feature | Status | Notes |
-| --- | --- | --- |
-| CT price → Stripe subscription price sync | ✅ Opt-in | `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true`; triggered on `invoice.upcoming` |
-| Sync source of truth | CT prices | Stripe subscription prices are updated to match CT prices |
-| Risk | ⚠️ High | Misconfiguration silently changes prices on active subscriptions; the metadata meant to reference the CT price on a synced Stripe price is stamped with `Date.now()` instead, and the reuse lookup searches the wrong metadata key entirely — synced prices are effectively never matched/reused (see `known-issues.md` KI-013 and KI-032, `business-rules/price-sync.md` Rule 3) |
-
----
-
-## CT Coupon / Discount Sync
-
-| Feature | Status | Notes |
-| --- | --- | --- |
-| CT promotions → Stripe coupons | ✅ Supported | See `business-rules/coupon-sync.md` |
-| Discount applied per subscription | ✅ Supported | — |
-| Discount applied per invoice | ✅ Supported | — |
-| Coupon duration mapping | ⚠️ Gap | All synced coupons are hardcoded to `duration: 'once'` regardless of CT discount type — see `known-issues.md` KI-016 |
-
----
-
-## Mixed Cart Limitations
-
-When combining subscription and one-time items in a single cart:
-
-| Behavior | Detail |
-| --- | --- |
-| One-time items | Billed on first subscription invoice |
-| Shipping fees | Applied only to subscription items, not one-time items |
-| Trial periods | One-time items cannot be part of a trial period; billed on first invoice regardless |
-| Post-checkout address update | Original shipping fee continues to be charged if address is updated after checkout |
-
-See `business-rules/mixed-carts.md` for the full rules.
-
----
-
-## Order Creation Model
-
-Configurable via `STRIPE_SUBSCRIPTION_PAYMENT_HANDLING`:
-
-| Value | Behavior |
-| --- | --- |
-| `createOrder` (default) | New CT order created per recurring invoice event (`invoice.paid`) |
-| `addPaymentToOrder` | Adds new payment to the existing CT order on each renewal — CT update errors are silently swallowed (see `known-issues.md` KI-005) |
-
----
-
-## Launchpad B2B Integration
-
-| Feature | Status | Notes |
-| --- | --- | --- |
-| Purchase order number on payment | ✅ Supported | `launchpadPurchaseOrderNumber` field on CT payment |
-| Invoice memo | ✅ Supported | `launchpadPurchaseOrderInvoiceMemo` field on CT payment |
-| Pre-requisite | CT custom type `payment-launchpad-purchase-order` must be created by the merchant before deploy | Connector checks existence but does not create it |
-
----
-
-## Out of Scope for This Connector
+## 7. Out of Scope
 
 | Feature | Why |
 | --- | --- |
-| Subscription pause | Not implemented |
-| Free trial without collecting a payment method | Payment method required at subscription creation |
-| CT update after explicit API cancellation | `cancelSubscription()` does not update CT — see `known-issues.md` KI-010. (The `customer.subscription.deleted` **webhook** path now unfreezes the cart — KI-009 RESOLVED — but does not clear the stale subscription ID.) |
-| ACH late-return financial correction in CT | Only flagged via `paymentStatus.interfaceCode='ach_late_return'`; reversal handled in the Stripe Dashboard. No transaction/order rollback. |
-| Dispute / chargeback automation | No `charge.dispute.*` webhook handler; manual process required |
-| Stripe Connect (marketplace, split payments) | Handled by separate `mirakl-stripe` integration |
-| Subscription quantity updates | Not documented or implemented |
-| Stripe Terminal (in-person) | Not implemented |
-| Stripe Link | Surfaced by Payment Element only; no dedicated flow |
+| Subscription pause | no pause operation exists |
+| Free trial without a payment method | both create paths require a payment method |
+| Subscription quantity changes | updates keep the current quantity |
+| Several subscription products in one cart | — |
+| Bank transfer, and ACH micro-deposits, on subscriptions | — |
+| Subscriptions or bank transfer for a guest cart | a customer is required |
+| commercetools update after an API cancel | — |
+| Correcting commercetools after an ACH late return or a cash-balance clawback | flag or log only |
+| Dispute and chargeback automation | no `charge.dispute.*` handling |
+| Tax on subscription invoices | — |
+| A distinct "awaiting funds" state in commercetools | — |
+| Stripe Terminal (in-person) | no Terminal call in the code |
+| Stripe Connect (marketplaces, split payments) | no Connect account, transfer or application-fee parameter in the code |
+| Automatic expiry or unfreeze of an abandoned async payment | nothing in the connector expires a frozen cart or an open PaymentIntent |
