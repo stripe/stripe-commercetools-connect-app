@@ -2,7 +2,7 @@ import Stripe from 'stripe';
 import { DiscountCode, DiscountCodeInfo, Cart } from '@commercetools/platform-sdk';
 import { Errorx } from '@commercetools/connect-payments-sdk';
 import { stripeApi } from '../clients/stripe.client';
-import { convertDateToUnixTimestamp, getLocalizedString } from '../utils';
+import { convertDateToUnixTimestamp, getLocalizedString, redactError } from '../utils';
 import { log } from '../libs/logger';
 
 const stripe = stripeApi();
@@ -206,7 +206,7 @@ export class StripeCouponService {
       await stripe.coupons.del(id);
       log.info(`Stripe coupon "${id}" deleted; it no longer matched its commercetools discount code.`);
     } catch (error) {
-      log.error(`Failed to delete Stripe discount code: "${id}"`, error);
+      log.error(`Failed to delete Stripe discount code: "${id}"`, { error: redactError(error) });
       throw error;
     }
   }

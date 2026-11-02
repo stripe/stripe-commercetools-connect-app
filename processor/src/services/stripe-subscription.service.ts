@@ -5,6 +5,7 @@ import {
   CommercetoolsCartService,
   CommercetoolsOrderService,
   CommercetoolsPaymentService,
+  Errorx,
   LineItem,
   Money,
   Payment,
@@ -14,6 +15,7 @@ import {
   CartSetLineItemCustomFieldAction,
   CartSetLineItemCustomTypeAction,
   CartUpdateAction,
+  CustomLineItem,
   Customer,
   Order,
   Product,
@@ -411,6 +413,8 @@ export class StripeSubscriptionService {
     const merchantReturnUrl = getMerchantReturnUrlFromContext() || config.merchantReturnUrl;
     const cart = await getCartExpanded();
 
+    this.assertSingleSubscriptionLineItem(cart);
+
     const subscriptionLineItem = this.findSubscriptionLineItem(cart);
 
     const customer = await this.customerService.getCtCustomer(cart.customerId!);
@@ -771,12 +775,19 @@ export class StripeSubscriptionService {
   }
 
   /**
-   * Get all line item prices for the cart, excluding the subscription line item
+   * Build the `add_invoice_items` for the subscription's first invoice: every one-time charge in the
+   * cart EXCEPT the subscription line item itself. That is the regular one-time line items AND the
+   * cart's custom line items (ad-hoc fees / service charges).
+   *
+   * SB3-241: custom line items were previously omitted here, so on a cart that mixed a subscription
+   * product, a custom line item and a discount code the first invoice undercharged by the
+   * custom-line-item amount while a Paid order was still minted at the cart total (the amount guard is
+   * exempt on a discounted invoice). Including them closes the gap.
    * @param cart - The cart EXPANDED to get the line item prices for
-   * @returns An array of line item prices
+   * @returns `add_invoice_items` entries for `stripe.subscriptions.create`
    */
-  private async getAllLineItemPrices(cart: Cart): Promise<Array<{ price: string; quantity: number }>> {
-    const lineItemPrices: Array<{ price: string; quantity: number }> = [];
+  private async getAllLineItemPrices(cart: Cart): Promise<Stripe.SubscriptionCreateParams.AddInvoiceItem[]> {
+    const invoiceItems: Stripe.SubscriptionCreateParams.AddInvoiceItem[] = [];
 
     for (const lineItem of cart.lineItems) {
       if (lineItem.productType.obj?.name === productTypeSubscription.name) {
@@ -784,13 +795,84 @@ export class StripeSubscriptionService {
       }
 
       const priceId = await this.getLineItemPriceId(lineItem);
-      lineItemPrices.push({
+      invoiceItems.push({
         price: priceId,
         quantity: lineItem.quantity || 1,
       });
     }
 
-    return lineItemPrices;
+    // SB3-241: custom line items carry no productId / variant.sku / price.id, so getLineItemPriceId
+    // cannot price them. They are billed via `price_data` with a Stripe Product reused per slug.
+    // The amount is the custom line item's `totalPrice` — the pre-cart-discount net value that
+    // cart.totalPrice is itself composed from; the cart-level coupon in the subscription `discounts`
+    // field then discounts the whole first invoice, exactly as it does for the line-item prices. No
+    // `tax_behavior` is set, so the invoice stays tax-free and comparable to cart.totalPrice (KI-056),
+    // consistent with getLineItemPriceId.
+    for (const customLineItem of cart.customLineItems ?? []) {
+      const amount = customLineItem.totalPrice.centAmount;
+      if (amount < 0) {
+        // A negative custom line item is a CREDIT: it lowers cart.totalPrice. Stripe `unit_amount`
+        // must be non-negative, so a credit cannot be billed on `add_invoice_items`, and omitting it
+        // leaves the first invoice ABOVE cart.totalPrice — an overcharge (on a discounted invoice the
+        // ADR-017 amount guard is exempt, so a Paid order would still be minted; on an undiscounted one
+        // the strict-equality guard would instead block a legitimate order). Applying a credit needs a
+        // mechanism this path does not have, so it is surfaced loudly and skipped — a known limitation.
+        // See decisions/adr-025-custom-line-item-invoice-pricing.md and KI-081.
+        log.warn(
+          'Credit (negative) custom line item is not applied to the Stripe invoice — this overcharges; see KI-081.',
+          {
+            ctCartId: cart.id,
+            customLineItemSlug: customLineItem.slug,
+            amount,
+          },
+        );
+        continue;
+      }
+      if (amount === 0) {
+        // A zero-amount custom line item has nothing to bill.
+        continue;
+      }
+
+      const stripeProductId = await this.getStripeProductForCustomLineItem(customLineItem);
+      invoiceItems.push({
+        price_data: {
+          currency: customLineItem.totalPrice.currencyCode.toLowerCase(),
+          product: stripeProductId,
+          unit_amount: amount,
+        },
+        quantity: 1,
+      });
+    }
+
+    return invoiceItems;
+  }
+
+  /**
+   * Find or create a Stripe Product for a custom line item, keyed by its slug so repeated checkouts
+   * of the same fee reuse one Product instead of creating a new one each time (mirrors getStripeProduct
+   * for regular products, which key on productId).
+   */
+  private async getStripeProductForCustomLineItem(customLineItem: CustomLineItem): Promise<string> {
+    const existing = await this.findStripeProductById(customLineItem.slug);
+    if (existing?.id) {
+      return existing.id;
+    }
+
+    const newProduct = await stripe.products.create(
+      {
+        name: getLocalizedString(customLineItem.name),
+        metadata: {
+          [METADATA_PRODUCT_ID_FIELD]: customLineItem.slug,
+        },
+      },
+      { idempotencyKey: randomUUID() },
+    );
+
+    log.info('Stripe product created for custom line item.', {
+      customLineItemSlug: customLineItem.slug,
+      stripeProductId: newProduct.id,
+    });
+    return newProduct.id;
   }
 
   public async getStripePriceByMetadata(product: LineItem) {
@@ -1179,6 +1261,44 @@ export class StripeSubscriptionService {
       //Free anchor days doesn't create an invoice
       hasNoInvoice: hasFreeAnchorDays,
     };
+  }
+
+  /**
+   * SB3-242 / KI-018: a cart may carry at most one subscription line item. The create flow bills only
+   * the first (`findSubscriptionLineItem`), and `getAllLineItemPrices` excludes every subscription item
+   * from `add_invoice_items`, so a second subscription product is never sent to Stripe — yet it stays in
+   * the cart the order is minted from. With a discount code the first-cycle amount guard is exempt
+   * (`isFirstCycleAmountGuardApplicable`, `hasDiscountedInvoice`) and the cart-drift guard cannot fire on
+   * a cart that never changed, so the order is minted Paid for goods Stripe never billed. The documented
+   * rule (`business-rules/mixed-carts.md` Rule 4) has always assumed exactly one subscription item; this
+   * enforces it before any Stripe object is created — the single point every create entry (createSetupIntent,
+   * createSubscription, createSubscriptionFromSetupIntent) shares through `prepareSubscriptionData`.
+   * Supporting several subscriptions per cart is a separate product decision, not a silent drop.
+   */
+  private assertSingleSubscriptionLineItem(cart: Cart): void {
+    const subscriptionLineItems = cart.lineItems.filter(
+      (item) => item.productType.obj?.name === productTypeSubscription.name,
+    );
+
+    if (subscriptionLineItems.length > 1) {
+      // Surface the rejection server-side: a multi-subscription cart is a financial-integrity attempt
+      // (pre-fix it minted a Paid order for an unbilled item — KI-018 / SB3-242), so operators should
+      // see a storefront submitting one. Mirrors the SB3-226 reconcile guard's logging.
+      log.warn(
+        'Subscription creation rejected: cart carries more than one subscription line item (KI-018 / SB3-242).',
+        {
+          ctCartId: cart.id,
+          subscriptionLineItemCount: subscriptionLineItems.length,
+        },
+      );
+      throw new Errorx({
+        code: 'MultipleSubscriptionsNotSupported',
+        message:
+          'A cart may contain at most one subscription item. Remove the additional subscription product(s) and try again.',
+        httpErrorStatus: 400,
+        fields: { ctCartId: cart.id, subscriptionLineItemCount: subscriptionLineItems.length },
+      });
+    }
   }
 
   private findSubscriptionLineItem(cart: Cart): LineItem {

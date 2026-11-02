@@ -191,7 +191,7 @@ export class StripePaymentService extends AbstractPaymentService {
               status: 'DOWN',
               message: 'The mock paymentAPI is down for some reason. Please check the logs for more details.',
               details: {
-                error: e,
+                error: redactError(e),
               },
             };
           }
@@ -286,7 +286,7 @@ export class StripePaymentService extends AbstractPaymentService {
         pspReference: response.id,
       };
     } catch (error) {
-      log.error('Error capturing payment in Stripe', { error });
+      log.error('Error capturing payment in Stripe', { error: redactError(error) });
       return {
         outcome: PaymentModificationStatus.REJECTED,
         pspReference: request.payment.interfaceId as string,
@@ -314,7 +314,7 @@ export class StripePaymentService extends AbstractPaymentService {
 
       return { outcome: PaymentModificationStatus.APPROVED, pspReference: response.id };
     } catch (error) {
-      log.error('Error canceling payment in Stripe', { error });
+      log.error('Error canceling payment in Stripe', { error: redactError(error) });
       return {
         outcome: PaymentModificationStatus.REJECTED,
         pspReference: request.payment.interfaceId as string,
@@ -410,7 +410,7 @@ export class StripePaymentService extends AbstractPaymentService {
 
       return { outcome: PaymentModificationStatus.RECEIVED, pspReference: response.id };
     } catch (error) {
-      log.error('Error refunding payment in Stripe', { error });
+      log.error('Error refunding payment in Stripe', { error: redactError(error) });
       return {
         outcome: PaymentModificationStatus.REJECTED,
         pspReference: request.payment.interfaceId as string,
@@ -1053,7 +1053,7 @@ export class StripePaymentService extends AbstractPaymentService {
       });
     } catch (error) {
       log.error('Error freezing cart at payment confirmation.', {
-        error,
+        error: redactError(error),
         ctCartId: ctCart.id,
         stripePaymentIntentId: paymentIntentId,
       });
@@ -1277,7 +1277,7 @@ export class StripePaymentService extends AbstractPaymentService {
         await this.handlePaymentIntentSucceededFlow(event, updateData);
       }
     } catch (e) {
-      log.error('Error processing notification', { error: e });
+      log.error('Error processing notification', { error: redactError(e) });
       // For async settlement events that write a Pending authorization, do NOT swallow write
       // failures: re-throw so the webhook responds non-2xx and Stripe retries (avoids silent
       // CT divergence / KI-001/002). payment_intent.partially_funded is deliberately excluded:
@@ -1449,7 +1449,7 @@ export class StripePaymentService extends AbstractPaymentService {
       }
     } catch (authTransitionError) {
       log.warn('Could not transition pending authorization to Success (non-blocking)', {
-        error: authTransitionError,
+        error: redactError(authTransitionError),
         paymentId: updateData.id,
       });
     }
@@ -1480,7 +1480,7 @@ export class StripePaymentService extends AbstractPaymentService {
       }
     } catch (error) {
       log.error(`Error unfreezing cart after payment ${event.type}.`, {
-        error,
+        error: redactError(error),
         paymentId: updateData.id,
         eventType: event.type,
       });
@@ -1878,7 +1878,7 @@ export class StripePaymentService extends AbstractPaymentService {
       });
     } catch (error) {
       log.error('Error freezing cart while awaiting async payment settlement.', {
-        error,
+        error: redactError(error),
         ctCartId: cartId,
         stripePaymentIntentId: paymentIntent.id,
       });
@@ -1924,7 +1924,10 @@ export class StripePaymentService extends AbstractPaymentService {
       // Deliberately rethrown, unlike processStripeEventRefunded's swallow (KI-031/KI-002). Returning
       // 200 after failing to write this correction would stop Stripe redelivering it, and the payment
       // would keep claiming a refund that never happened.
-      log.error('Failed to record a failed refund in commercetools.', { refundId: refund.id, error });
+      log.error('Failed to record a failed refund in commercetools.', {
+        refundId: refund.id,
+        error: redactError(error),
+      });
       throw error;
     }
   }
@@ -1976,7 +1979,7 @@ export class StripePaymentService extends AbstractPaymentService {
         });
       }
     } catch (e) {
-      log.error('Error processing refund notification', { error: e });
+      log.error('Error processing refund notification', { error: redactError(e) });
       return;
     }
   }
@@ -2045,7 +2048,7 @@ export class StripePaymentService extends AbstractPaymentService {
         });
       }
     } catch (e) {
-      log.error('Error processing multicapture notification', { error: e });
+      log.error('Error processing multicapture notification', { error: redactError(e) });
       return;
     }
   }
@@ -2095,7 +2098,7 @@ export class StripePaymentService extends AbstractPaymentService {
       const order = await this.ctOrderService.getOrderByPaymentId({ paymentId: subscriptionPaymentId });
       await addOrderPayment(order, paymentId);
     } catch (error) {
-      log.error('Error adding payment to order', { error });
+      log.error('Error adding payment to order', { error: redactError(error) });
     }
   }
 
@@ -2227,7 +2230,7 @@ export class StripePaymentService extends AbstractPaymentService {
       });
       return unfrozenCart;
     } catch (error) {
-      log.error(`Error unfreezing cart for address update.`, { error, ctCartId: cart.id });
+      log.error(`Error unfreezing cart for address update.`, { error: redactError(error), ctCartId: cart.id });
       return cart;
     }
   }
@@ -2240,7 +2243,7 @@ export class StripePaymentService extends AbstractPaymentService {
       });
       return reFrozenCart;
     } catch (error) {
-      log.error(`Error re-freezing cart after address update.`, { error, ctCartId: cart.id });
+      log.error(`Error re-freezing cart after address update.`, { error: redactError(error), ctCartId: cart.id });
       return cart;
     }
   }

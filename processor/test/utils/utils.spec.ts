@@ -13,6 +13,7 @@ import {
   paidAmountMatchesTotal,
   parseJSON,
   parseTimeString,
+  redactError,
   transformVariantAttributes,
 } from '../../src/utils';
 import { PaymentOutcome } from '../../src/dtos/mock-payment.dto';
@@ -459,5 +460,83 @@ describe('isConcurrentModificationError', () => {
 
   test('still matches a legacy token in the message', () => {
     expect(isConcurrentModificationError(new Error('ConcurrentModification'))).toBe(true);
+  });
+});
+
+describe('redactError (SB3-237)', () => {
+  const SENTINEL = 'pi_SENTINEL_secret_DO_NOT_LOG';
+
+  const buildStripeError = (): Error => {
+    const err = Object.assign(new Error('Your card was declined.'), {
+      name: 'StripeCardError',
+      code: 'card_declined',
+      statusCode: 402,
+      decline_code: 'generic_decline',
+      requestId: 'req_123',
+      // own-enumerable Stripe props that a naive { error } would serialize
+      payment_intent: { id: 'pi_123', client_secret: SENTINEL },
+      raw: { payment_intent: { id: 'pi_123', client_secret: SENTINEL }, code: 'card_declined', statusCode: 402 },
+    });
+    return err;
+  };
+
+  test('keeps the diagnostic whitelist and drops the raw/payment_intent that carry client_secret', () => {
+    const safe = redactError(buildStripeError());
+
+    // classification survives
+    expect(safe).toMatchObject({
+      name: 'StripeCardError',
+      code: 'card_declined',
+      statusCode: 402,
+      decline_code: 'generic_decline',
+      requestId: 'req_123',
+    });
+    // the secret and its carriers never appear
+    expect(safe).not.toHaveProperty('payment_intent');
+    expect(safe).not.toHaveProperty('raw');
+    expect(JSON.stringify(safe)).not.toContain(SENTINEL);
+  });
+
+  test('is pure — never mutates the live error (downstream classification reads the live object)', () => {
+    const err = buildStripeError() as Error & { payment_intent: { client_secret: string } };
+    redactError(err);
+    expect(err.payment_intent.client_secret).toBe(SENTINEL);
+  });
+
+  test('surfaces safe fields off a wrapped .cause without serializing its raw payload', () => {
+    const wrapped = Object.assign(new Error('Stripe API call failed'), {
+      name: 'StripeApiError',
+      cause: buildStripeError(),
+    });
+    const safe = redactError(wrapped) as { cause?: Record<string, unknown> };
+    expect(safe.cause).toMatchObject({ code: 'card_declined' });
+    expect(JSON.stringify(safe)).not.toContain(SENTINEL);
+  });
+
+  test('terminates on a cyclic cause chain instead of overflowing the stack', () => {
+    const a = new Error('A') as Error & { cause?: unknown };
+    const b = new Error('B') as Error & { cause?: unknown };
+    a.cause = b;
+    b.cause = a;
+    expect(() => redactError(a)).not.toThrow();
+    expect(JSON.stringify(redactError(a))).toContain('"name"');
+  });
+
+  test('handles non-Error throwables without leaking', () => {
+    expect(redactError('boom')).toEqual({ message: 'boom' });
+    expect(redactError({ secret: SENTINEL })).toEqual({ message: 'Non-Error thrown value' });
+  });
+
+  test('keeps httpErrorStatus for a non-Stripe Errorx (which has no statusCode)', () => {
+    // connect-payments-sdk's Errorx carries the HTTP status on `httpErrorStatus`, not `statusCode`.
+    // Without it in the whitelist, the redacted log would drop the status for non-Stripe errors (SB3-237 review).
+    const errorx = Object.assign(new Error('Invalid field'), {
+      name: 'ErrorGeneral',
+      code: 'InvalidInput',
+      httpErrorStatus: 400,
+    });
+    const safe = redactError(errorx);
+    expect(safe).toMatchObject({ name: 'ErrorGeneral', code: 'InvalidInput', httpErrorStatus: 400 });
+    expect(safe).not.toHaveProperty('statusCode');
   });
 });

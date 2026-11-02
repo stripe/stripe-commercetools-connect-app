@@ -2,6 +2,7 @@ import Stripe from 'stripe';
 import { getConfig } from '../config/config';
 import { StripeApiError, StripeApiErrorData } from '../errors/stripe-api.error';
 import { log } from '../libs/logger';
+import { redactError } from '../utils';
 
 export const stripeApi = (): Stripe => {
   const properties = new Map(Object.entries(process.env));
@@ -24,7 +25,7 @@ export const wrapStripeError = (e: unknown): Error => {
     return new StripeApiError(errorData, { cause: e });
   }
 
-  log.error('Unexpected error calling Stripe API:', e);
+  log.error('Unexpected error calling Stripe API:', { error: redactError(e) });
   // Behaviour preserved deliberately: a non-Stripe value is returned unchanged, as it always has been.
   // The signature has always claimed `Error` while this branch could hand back anything a `catch` caught,
   // so callers doing `throw wrapStripeError(e)` can still throw a non-Error. That is a real latent defect

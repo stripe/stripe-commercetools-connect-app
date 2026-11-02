@@ -59,7 +59,7 @@ Stripe                    Processor                                        CT
   |                           |  no CT write — prevents duplicate payments)  |
 ```
 
-The webhook route awaits the handler and replies 200 only after it returns (`processor/src/routes/stripe-payment.route.ts:362-365, 383`). A handler that rethrows — a retryable CT error in `processSubscriptionEventPaid()` / `processSubscriptionEventFailed()` (`processor/src/services/stripe-subscription.service.ts:1610-1612, 2359-2361`) — becomes a 500 through the global error handler (`processor/src/libs/fastify/error-handler.ts:32`), so Stripe redelivers.
+The webhook route awaits the handler and replies 200 only after it returns (`processor/src/routes/stripe-payment.route.ts:362-365, 383`). A handler that rethrows — a retryable CT error in `processSubscriptionEventPaid()` / `processSubscriptionEventFailed()` (`processor/src/services/stripe-subscription.service.ts:1610-1612, 2359-2361`) — becomes a 500 through the global error handler (`processor/src/libs/fastify/error-handler.ts:33`), so Stripe redelivers.
 
 > **Recurring payments are driven solely by `invoice.paid`.** Stripe also emits `charge.succeeded` / `payment_intent.succeeded` for the same subscription invoice, but the route drops them via `isFromSubscriptionInvoice()` (`stripe-payment.route.ts`) so they never create a second CT payment/order. `processSubscriptionEventCharged()` is `@deprecated` and unwired. See `business-rules/recurring-billing.md` Rule 4.
 

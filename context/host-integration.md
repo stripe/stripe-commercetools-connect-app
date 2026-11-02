@@ -55,8 +55,8 @@ OAuth2 token).
 
 All processor routes are relative to `processorUrl`. Error bodies produced by the unit's error handler
 have the shape `{ "message": "…", "statusCode": 4xx|5xx, "errors": [{ "code": "…", "message": "…" }] }`
-(`processor/src/libs/fastify/error-handler.ts:53-57`); authentication failures add `error` and
-`error_description` (`:35-47`). Routes that catch their own errors answer differently, stated per call.
+(`processor/src/libs/fastify/error-handler.ts:54-58`); authentication failures add `error` and
+`error_description` (`:36-48`). Routes that catch their own errors answer differently, stated per call.
 
 ### 3a. Calls the host makes
 

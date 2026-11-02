@@ -2,7 +2,7 @@
 
 **Trigger:** Merchant calls subscription management endpoints (cancel, update, advanced update).
 **Actors:** Merchant backend / admin, Processor, Stripe API, CT API.
-**Outcome:** Stripe subscription modified. Cancel cancels the subscription in Stripe; the cart is unfrozen afterwards by the `customer.subscription.deleted` webhook (below). Update creates a **new, separate** CT cart holding the new variant only to resolve the Stripe price (`createCartWithProduct()`, `processor/src/services/commerce-tools/cart-client.ts:73-116`, called at `processor/src/services/stripe-subscription.service.ts:1328-1335`), then updates Stripe (`processor/src/services/stripe-subscription.service.ts:1342-1356`). Advanced update calls Stripe only (`processor/src/services/stripe-subscription.service.ts:1431-1433`).
+**Outcome:** Stripe subscription modified. Cancel cancels the subscription in Stripe; the cart is unfrozen afterwards by the `customer.subscription.deleted` webhook (below). Update creates a **new, separate** CT cart holding the new variant only to resolve the Stripe price (`createCartWithProduct()`, `processor/src/services/commerce-tools/cart-client.ts:74-117`, called at `processor/src/services/stripe-subscription.service.ts:1328-1335`), then updates Stripe (`processor/src/services/stripe-subscription.service.ts:1342-1356`). Advanced update calls Stripe only (`processor/src/services/stripe-subscription.service.ts:1431-1433`).
 
 ---
 

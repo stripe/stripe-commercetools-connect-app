@@ -24,6 +24,8 @@ jest.doMock('../../src/libs/logger', () => ({
 jest.doMock('../../src/utils', () => ({
   convertDateToUnixTimestamp: mockConvertDateToUnixTimestamp,
   getLocalizedString: mockGetLocalizedString,
+  redactError: (error: unknown) =>
+    error instanceof Error ? { name: error.name, message: error.message } : { message: String(error) },
 }));
 
 describe('StripeCouponService', () => {

@@ -11,7 +11,8 @@ export const mockGetCartResult = () => {
     customerId: mockCtCustomerId,
     version: 1,
     lineItems: [lineItem],
-    customLineItems: [customLineItem],
+    // Default to no custom line items; specs that exercise them (e.g. SB3-241) add them explicitly.
+    customLineItems: [],
     totalPrice: {
       type: 'centPrecision',
       currencyCode: 'USD',
@@ -115,7 +116,8 @@ export const mockGetCartWithoutCustomerIdResult = () => {
     customerId: '',
     version: 1,
     lineItems: [lineItem],
-    customLineItems: [customLineItem],
+    // Default to no custom line items; specs that exercise them (e.g. SB3-241) add them explicitly.
+    customLineItems: [],
     totalPrice: {
       type: 'centPrecision',
       currencyCode: 'USD',
