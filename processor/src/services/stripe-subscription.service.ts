@@ -192,7 +192,10 @@ export class StripeSubscriptionService {
           payment_settings: { save_default_payment_method: 'on_subscription' },
           expand: ['latest_invoice.confirmation_secret'],
           metadata: this.sealCartTotal(cart, this.paymentCreationService.getPaymentMetadata(cart)),
-          discounts: await this.stripeCouponService.getStripeCoupons(cart),
+          discounts: await this.stripeCouponService.getStripeCoupons(
+            cart,
+            (cart.customLineItems ?? []).length ? await this.getDiscountableProductIds(cart) : undefined,
+          ),
         },
         { idempotencyKey: this.buildSubscriptionIdempotencyKey(cart) },
       );
@@ -298,7 +301,10 @@ export class StripeSubscriptionService {
           expand: ['latest_invoice'],
           payment_settings: { save_default_payment_method: 'on_subscription' },
           metadata: this.sealCartTotal(cart, this.paymentCreationService.getPaymentMetadata(cart)),
-          discounts: await this.stripeCouponService.getStripeCoupons(cart),
+          discounts: await this.stripeCouponService.getStripeCoupons(
+            cart,
+            (cart.customLineItems ?? []).length ? await this.getDiscountableProductIds(cart) : undefined,
+          ),
         },
         { idempotencyKey: this.buildSubscriptionIdempotencyKey(cart, setupIntentId) },
       );
@@ -414,6 +420,7 @@ export class StripeSubscriptionService {
     const cart = await getCartExpanded();
 
     this.assertSingleSubscriptionLineItem(cart);
+    this.assertNoNegativeCustomLineItem(cart);
 
     const subscriptionLineItem = this.findSubscriptionLineItem(cart);
 
@@ -802,93 +809,87 @@ export class StripeSubscriptionService {
     }
 
     // Custom line items carry no productId / variant.sku / price.id, so getLineItemPriceId cannot price
-    // them. They are billed via `price_data` with a Stripe Product reused per slug. The unit amount is
-    // `money` (the per-unit price before any discount), billed with the line item's `quantity` — NOT
-    // `totalPrice`, which already nets any discount that targets the custom line item. The cart-level
-    // coupon in the subscription `discounts` field then discounts the first invoice once, exactly as it
-    // does for the regular line-item prices (which also enter at their pre-discount value). Using
-    // `totalPrice` here would subtract that discount twice (once in `totalPrice`, once via the coupon).
-    // No `tax_behavior` is set, so the invoice stays tax-free and comparable to the cart total,
-    // consistent with getLineItemPriceId.
-    const skipCustomLineItemCoupon = this.couponShouldSkipCustomLineItems(cart);
+    // them. They are billed via `price_data` with a Stripe Product reused per slug and no `tax_behavior`
+    // (the invoice stays tax-free and comparable to the cart total). The amount depends on whether a
+    // translated cart coupon will discount this item: when a coupon reaches custom line items (a discount
+    // targeting the cart total or the custom line items), the item is billed at its pre-discount
+    // `money × quantity` and the coupon applies the discount once. Otherwise — a product/shipping-only
+    // discount (which is scoped off the item via the coupon's `applies_to`, see getStripeCoupons), a
+    // code-less direct discount, or no discount — no coupon reduces it, so it is billed at `totalPrice`,
+    // the exact net commercetools already computed. A negative (credit) custom line item is rejected
+    // earlier, in prepareSubscriptionData, before any Stripe object exists.
+    const couponDiscountsCustomLineItems = this.couponWillDiscountCustomLineItems(cart);
     for (const customLineItem of cart.customLineItems ?? []) {
-      const quantity = customLineItem.quantity ?? 1;
-      const unitAmount = customLineItem.money.centAmount;
+      // When the coupon reaches the item, bill the per-unit `money` × the line item `quantity`; otherwise
+      // bill the already-discounted `totalPrice` (money × quantity minus any discount) as a single unit.
+      const unitAmount = couponDiscountsCustomLineItems
+        ? customLineItem.money.centAmount
+        : customLineItem.totalPrice.centAmount;
+      const quantity = couponDiscountsCustomLineItems ? (customLineItem.quantity ?? 1) : 1;
 
-      if (unitAmount < 0) {
-        // A negative custom line item is a credit. Stripe `unit_amount` must be non-negative, so a
-        // credit cannot be expressed on `add_invoice_items`; billing it there is not possible and
-        // silently dropping it would leave the first invoice above the cart total (an overcharge).
-        // Reject the cart rather than overcharge — modelling a credit as a negative custom line item on
-        // a subscription cart is not supported on this path.
-        throw new Errorx({
-          code: 'NegativeCustomLineItemNotSupported',
-          message:
-            'A credit (negative custom line item) cannot be billed on a subscription first invoice. ' +
-            'Remove the negative custom line item and try again.',
-          httpErrorStatus: 400,
-          fields: { ctCartId: cart.id, customLineItemSlug: customLineItem.slug, unitAmount },
-        });
-      }
-      if (unitAmount === 0) {
-        // A zero-amount custom line item has nothing to bill.
+      if (unitAmount <= 0) {
+        // Nothing to bill (a zero item; a credit was already rejected in prepareSubscriptionData).
         continue;
       }
 
       const stripeProductId = await this.getStripeProductForCustomLineItem(customLineItem);
-      const entry: Stripe.SubscriptionCreateParams.AddInvoiceItem = {
+      invoiceItems.push({
         price_data: {
           currency: customLineItem.money.currencyCode.toLowerCase(),
           product: stripeProductId,
           unit_amount: unitAmount,
         },
         quantity,
-      };
-      if (skipCustomLineItemCoupon) {
-        // Keep the cart coupon off this item: it targets products/shipping only, which commercetools
-        // does not discount against a custom line item. An explicit empty `discounts` opts the item out
-        // of the subscription coupon it would otherwise inherit.
-        entry.discounts = [];
-      }
-      invoiceItems.push(entry);
+      });
     }
 
     return invoiceItems;
   }
 
   /**
-   * Whether the cart's coupon(s) must be kept off the custom-line-item invoice items.
+   * Whether a translated cart coupon will discount the custom-line-item invoice items.
    *
-   * A CT discount code is translated to a single Stripe coupon that, by Stripe's inheritance rules,
-   * discounts the whole first invoice — including the custom-line-item `add_invoice_items`.
-   * commercetools, however, only reduces a custom line item when the cart discount targets the cart
-   * total or the custom line items themselves. When every applicable discount targets products (or
-   * shipping) instead, commercetools leaves the custom line item at full price, so the Stripe coupon
-   * must not touch it either — otherwise Stripe collects less than the cart total.
-   *
-   * Returns true only when a coupon will be attached AND none of the applicable discounts can reach a
-   * custom line item. An unexpanded or pattern target is treated conservatively as "reaches" (coupon
-   * left on), so an ambiguous case keeps the previous behaviour rather than risking an overcharge.
+   * A CT discount code becomes a Stripe coupon that, by Stripe's inheritance rules, would discount the
+   * whole first invoice. commercetools only reduces a custom line item when the cart discount targets the
+   * cart total or the custom line items. So a coupon is left on the custom line items (and the item billed
+   * at its pre-discount money × quantity) only when an applicable discount targets the total or the custom
+   * line items; a product/shipping-only discount is scoped off the item via the coupon's `applies_to`
+   * (getStripeCoupons / getDiscountableProductIds) and the item is billed at its already-discounted
+   * totalPrice. A pattern or unexpanded target is treated conservatively as reaching the item (coupon left
+   * on, billed at money), keeping the previous behaviour rather than risking an overcharge.
    */
-  private couponShouldSkipCustomLineItems(cart: Cart): boolean {
-    const applicable = cart.discountCodes.filter((code) => code.state === 'MatchesCart');
-    if (!applicable.length) {
-      return false;
-    }
+  public couponWillDiscountCustomLineItems(cart: Cart): boolean {
+    return cart.discountCodes
+      .filter((code) => code.state === 'MatchesCart')
+      .some((code) => {
+        const cartDiscounts = code.discountCode.obj?.cartDiscounts;
+        // An unexpanded discount code: assume conservatively that it reaches custom line items.
+        if (!cartDiscounts) {
+          return true;
+        }
+        return cartDiscounts.some((cartDiscount) => {
+          const target = cartDiscount.obj?.target?.type;
+          return (
+            target === undefined || // unexpanded cart discount → conservative "reaches"
+            target === 'pattern' ||
+            target === 'totalPrice' ||
+            target === 'customLineItems' ||
+            target === 'multiBuyCustomLineItems'
+          );
+        });
+      });
+  }
 
-    const reachesCustomLineItems = applicable.some((code) =>
-      (code.discountCode.obj?.cartDiscounts ?? []).some((cartDiscount) => {
-        const target = cartDiscount.obj?.target?.type;
-        return (
-          target === undefined ||
-          target === 'totalPrice' ||
-          target === 'customLineItems' ||
-          target === 'multiBuyCustomLineItems'
-        );
-      }),
-    );
-
-    return !reachesCustomLineItems;
+  /**
+   * The Stripe Product ids a cart coupon may legitimately discount: the subscription product and the
+   * regular (non-custom) line-item products. Custom line items are deliberately excluded — `cart.lineItems`
+   * never contains them. Used as `applies_to.products` on a per-cart coupon when a discount targets
+   * products/shipping only, so the coupon is kept off the custom-line-item fees. `getStripeProduct` is
+   * find-or-create keyed by productId, so re-resolving here returns the same ids without churning Products.
+   */
+  public async getDiscountableProductIds(cart: Cart): Promise<string[]> {
+    const ids = await Promise.all(cart.lineItems.map((lineItem) => this.getStripeProduct({ product: lineItem })));
+    return [...new Set(ids)];
   }
 
   /**
@@ -1340,6 +1341,34 @@ export class StripeSubscriptionService {
         fields: { ctCartId: cart.id, subscriptionLineItemCount: subscriptionLineItems.length },
       });
     }
+  }
+
+  /**
+   * A negative (credit) custom line item cannot be billed on the subscription first invoice: Stripe
+   * `unit_amount` must be non-negative, and silently dropping it would leave the invoice above the cart
+   * total (an overcharge). Reject the cart here — before any Stripe Price or Product is created — rather
+   * than fail mid-way through subscription creation and leave orphaned Stripe objects behind. Modelling a
+   * credit as a negative custom line item on a subscription cart is unsupported on this path.
+   */
+  private assertNoNegativeCustomLineItem(cart: Cart): void {
+    const negative = (cart.customLineItems ?? []).find((item) => item.money.centAmount < 0);
+    if (!negative) {
+      return;
+    }
+
+    log.warn('Subscription creation rejected: cart carries a negative (credit) custom line item.', {
+      ctCartId: cart.id,
+      customLineItemSlug: negative.slug,
+      unitAmount: negative.money.centAmount,
+    });
+    throw new Errorx({
+      code: 'NegativeCustomLineItemNotSupported',
+      message:
+        'A credit (negative custom line item) cannot be billed on a subscription first invoice. ' +
+        'Remove the negative custom line item and try again.',
+      httpErrorStatus: 400,
+      fields: { ctCartId: cart.id, customLineItemSlug: negative.slug, unitAmount: negative.money.centAmount },
+    });
   }
 
   private findSubscriptionLineItem(cart: Cart): LineItem {

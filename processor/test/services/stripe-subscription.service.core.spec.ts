@@ -383,12 +383,11 @@ describe('stripe-subscription.service.core', () => {
       } as unknown as Stripe.PricesResource;
     });
 
-    test('bills the custom line item as an exact add_invoice_items entry (money × quantity, no tax_behavior)', async () => {
+    test('no discount → bills money × quantity, exact payload, no tax_behavior', async () => {
       const items = await getAllLineItemPrices(subscriptionCartWith([oneCustomLineItem()]));
 
       // Exactly one invoice item — the custom line item (the subscription line item is excluded).
       expect(items).toHaveLength(1);
-      // The exact payload the connector sends to subscriptions.create for a custom line item.
       expect(items[0]).toEqual({
         price_data: {
           currency: 'usd',
@@ -401,14 +400,11 @@ describe('stripe-subscription.service.core', () => {
       expect(
         (items[0].price_data as Stripe.SubscriptionCreateParams.AddInvoiceItem.PriceData).tax_behavior,
       ).toBeUndefined();
-      // No coupon on the cart → the item is not opted out of any subscription discount.
-      expect(items[0].discounts).toBeUndefined();
     });
 
-    test('bills money × quantity, not totalPrice — a discount on the custom line item is not applied twice', async () => {
-      // customLineItemDiscounted: money 10000 × qty 2 = 20000; totalPrice 18000 (a 2000 discount). The cart
-      // also carries a totalPrice-targeted coupon, which Stripe applies once. Billing totalPrice here would
-      // subtract the discount twice; the connector must send the pre-discount money × quantity.
+    test('coupon reaches the item (total-targeted discount) → bills pre-discount money × quantity', async () => {
+      // customLineItemDiscounted: money 10000 × qty 2 = 20000; totalPrice 18000. A totalPrice coupon applies
+      // once, so bill the pre-discount money × quantity — billing totalPrice would subtract the discount twice.
       const items = await getAllLineItemPrices(
         subscriptionCartWith([customLineItemDiscounted], [mockDiscountCodeInfo('totalPrice')]),
       );
@@ -416,28 +412,30 @@ describe('stripe-subscription.service.core', () => {
       expect(items).toHaveLength(1);
       expect((items[0].price_data as Stripe.SubscriptionCreateParams.AddInvoiceItem.PriceData).unit_amount).toBe(10000);
       expect(items[0].quantity).toBe(2);
-      // The discount targets the total → the coupon legitimately applies to the custom line item.
-      expect(items[0].discounts).toBeUndefined();
     });
 
-    test('a product-targeted discount is kept off the custom line item (discounts: [])', async () => {
-      // commercetools does not discount a custom line item when the cart discount targets lineItems only,
-      // so the Stripe coupon must not either — otherwise Stripe collects less than the cart total.
+    test('product-only discount → bills the already-discounted totalPrice (coupon scoped off via applies_to)', async () => {
+      // A lineItems discount does not reach a custom line item; the coupon is scoped off it in the coupon
+      // service (applies_to.products), so no coupon reduces it here → bill its exact totalPrice. No per-item
+      // `discounts` field is sent (the old `discounts: []` was a no-op — stripe-node drops the empty array).
       const items = await getAllLineItemPrices(
-        subscriptionCartWith([oneCustomLineItem()], [mockDiscountCodeInfo('lineItems')]),
+        subscriptionCartWith([customLineItemDiscounted], [mockDiscountCodeInfo('lineItems')]),
       );
 
       expect(items).toHaveLength(1);
-      expect(items[0].discounts).toEqual([]);
+      expect((items[0].price_data as Stripe.SubscriptionCreateParams.AddInvoiceItem.PriceData).unit_amount).toBe(18000);
+      expect(items[0].quantity).toBe(1);
+      expect(items[0].discounts).toBeUndefined();
     });
 
-    test('a customLineItems-targeted discount keeps the coupon on the custom line item', async () => {
-      const items = await getAllLineItemPrices(
-        subscriptionCartWith([oneCustomLineItem()], [mockDiscountCodeInfo('customLineItems')]),
-      );
+    test('code-less direct discount → bills the already-discounted totalPrice (R-054)', async () => {
+      // A direct discount (no discount code) reduces the custom line item's totalPrice but is never
+      // translated to a coupon, so billing money would overcharge; bill the discounted totalPrice.
+      const items = await getAllLineItemPrices(subscriptionCartWith([customLineItemDiscounted], []));
 
       expect(items).toHaveLength(1);
-      expect(items[0].discounts).toBeUndefined();
+      expect((items[0].price_data as Stripe.SubscriptionCreateParams.AddInvoiceItem.PriceData).unit_amount).toBe(18000);
+      expect(items[0].quantity).toBe(1);
     });
 
     test('reuses an existing Stripe Product for the slug instead of creating a new one', async () => {
@@ -454,9 +452,8 @@ describe('stripe-subscription.service.core', () => {
     });
 
     test('skips a zero-amount custom line item — nothing to bill', async () => {
-      const cart = subscriptionCartWith([
-        oneCustomLineItem({ money: { type: 'centPrecision', currencyCode: 'USD', centAmount: 0, fractionDigits: 2 } }),
-      ]);
+      const zero = { type: 'centPrecision', currencyCode: 'USD', centAmount: 0, fractionDigits: 2 } as const;
+      const cart = subscriptionCartWith([oneCustomLineItem({ money: zero, totalPrice: zero })]);
 
       const items = await getAllLineItemPrices(cart);
 
@@ -464,25 +461,97 @@ describe('stripe-subscription.service.core', () => {
       expect(Stripe.prototype.products.create).not.toHaveBeenCalled();
     });
 
-    test('rejects a negative (credit) custom line item with Errorx 400 — a credit cannot be billed on add_invoice_items', async () => {
-      const cart = subscriptionCartWith([
-        oneCustomLineItem({
-          money: { type: 'centPrecision', currencyCode: 'USD', centAmount: -500, fractionDigits: 2 },
-        }),
-      ]);
-
-      await expect(getAllLineItemPrices(cart)).rejects.toThrow(Errorx);
-      await expect(getAllLineItemPrices(cart)).rejects.toMatchObject({
-        code: 'NegativeCustomLineItemNotSupported',
-        httpErrorStatus: 400,
-      });
-      expect(Stripe.prototype.products.create).not.toHaveBeenCalled();
-    });
-
     test('no regression: a subscription cart with no custom line items yields no price_data entries', async () => {
       const items = await getAllLineItemPrices(subscriptionCartWith([]));
 
       expect(items).toHaveLength(0);
+    });
+  });
+
+  describe('couponWillDiscountCustomLineItems — which discount targets reach a custom line item (R-056)', () => {
+    const reaches = (cart: Cart) => stripeSubscriptionService.couponWillDiscountCustomLineItems(cart);
+    const cartWithCodes = (codes: Cart['discountCodes']): Cart => ({ ...mockGetCartResult(), discountCodes: codes });
+
+    test('totalPrice and customLineItems targets reach the item', () => {
+      expect(reaches(cartWithCodes([mockDiscountCodeInfo('totalPrice')]))).toBe(true);
+      expect(reaches(cartWithCodes([mockDiscountCodeInfo('customLineItems')]))).toBe(true);
+    });
+
+    test('lineItems and shipping targets do NOT reach the item', () => {
+      expect(reaches(cartWithCodes([mockDiscountCodeInfo('lineItems')]))).toBe(false);
+      expect(reaches(cartWithCodes([mockDiscountCodeInfo('shipping')]))).toBe(false);
+    });
+
+    test('a pattern target is treated conservatively as reaching the item', () => {
+      expect(reaches(cartWithCodes([mockDiscountCodeInfo('pattern')]))).toBe(true);
+    });
+
+    test('mixed product + total targets reach the item (the total one does)', () => {
+      expect(
+        reaches(cartWithCodes([mockDiscountCodeInfo('lineItems', 'a'), mockDiscountCodeInfo('totalPrice', 'b')])),
+      ).toBe(true);
+    });
+
+    test('no applicable discount codes → does not reach', () => {
+      expect(reaches(cartWithCodes([]))).toBe(false);
+    });
+  });
+
+  describe('assertNoNegativeCustomLineItem — reject credits before any Stripe object (#3)', () => {
+    const assertNoNeg = (cart: Cart): void =>
+      (
+        stripeSubscriptionService as unknown as { assertNoNegativeCustomLineItem: (c: Cart) => void }
+      ).assertNoNegativeCustomLineItem(cart);
+
+    test('rejects a cart with a negative (credit) custom line item — Errorx 400', () => {
+      const cart: Cart = {
+        ...mockGetCartResult(),
+        customLineItems: [
+          {
+            ...customLineItem,
+            money: { type: 'centPrecision', currencyCode: 'USD', centAmount: -500, fractionDigits: 2 },
+          },
+        ],
+      };
+
+      expect.assertions(2);
+      try {
+        assertNoNeg(cart);
+      } catch (e) {
+        expect(e).toBeInstanceOf(Errorx);
+        expect((e as Errorx).code).toBe('NegativeCustomLineItemNotSupported');
+      }
+    });
+
+    test('accepts positive and zero custom line items', () => {
+      expect(() => assertNoNeg({ ...mockGetCartResult(), customLineItems: [customLineItem] })).not.toThrow();
+    });
+  });
+
+  // Root cause of R-051/KI-080: stripe-node's query encoder DROPS an empty array, so the old
+  // `add_invoice_items[].discounts = []` never reached Stripe and the subscription coupon still applied to
+  // the custom line item. The fix scopes the coupon with `applies_to.products` instead. This guard fails if
+  // a stripe-node upgrade starts encoding empty arrays (which would reopen that discarded approach).
+  describe('stripe-node request encoder — an empty array is omitted (R-051 root cause)', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const nodePath = require('path') as typeof import('path');
+    const { queryStringifyRequestData } = require(
+      nodePath.join(nodePath.dirname(require.resolve('stripe')), 'utils.js'),
+    ) as { queryStringifyRequestData: (data: unknown) => string };
+
+    test('drops `discounts: []` from the encoded body — per-item exclusion was a no-op', () => {
+      const encoded = queryStringifyRequestData({
+        add_invoice_items: [{ price_data: { unit_amount: 500 }, quantity: 1, discounts: [] }],
+      });
+
+      expect(encoded).toContain('add_invoice_items[0][quantity]=1');
+      expect(encoded).not.toContain('discounts');
+    });
+
+    test('a non-empty array IS encoded — the contrast that makes the empty-array omission the cause', () => {
+      const encoded = queryStringifyRequestData({ discounts: [{ coupon: 'c_1' }] });
+
+      expect(encoded).toContain('discounts[0][coupon]=c_1');
     });
   });
 
