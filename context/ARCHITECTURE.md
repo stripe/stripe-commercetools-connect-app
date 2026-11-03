@@ -357,6 +357,7 @@ malformed `STRIPE_PAYMENT_BEHAVIOR_RULES`. `connect.yaml` marks some keys requir
 | Subscription pause | no pause route among the subscription routes (`processor/src/routes/stripe-subscription.route.ts:108-297`) |
 | A free trial without collecting a payment method | both create paths need a payment method: a `default_incomplete` PaymentIntent (`stripe-subscription.service.ts:189`) or the SetupIntent's method (`:289`) |
 | Changing a subscription's quantity | updates keep the current quantity (`:1349`, `:2715`, `:3039`) |
+| More than one subscription product per cart | rejected at subscription creation with a 400 (`assertSingleSubscriptionLineItem`, called from `prepareSubscriptionData`, before any Stripe object) |
 | Bank transfer on a subscription | subscription-invoice events are skipped by the bank-transfer handler (`processor/src/routes/stripe-payment.route.ts:190-193`), by decision |
 | ACH micro-deposit verification on a subscription | the subscription confirm throws on `requires_action` |
 | Guest checkout for subscriptions or bank transfer | one-time payments work for a guest cart; subscriptions and bank transfer need a customer (`host-integration.md` §2) |
@@ -366,5 +367,3 @@ malformed `STRIPE_PAYMENT_BEHAVIOR_RULES`. `connect.yaml` marks some keys requir
 | Disputes | no `charge.dispute.*` event is registered or dispatched (`business-rules/refunds-and-disputes.md` Rule 2) |
 | Tax on subscription invoices | no `automatic_tax` or tax rates anywhere on the subscription path |
 | Stripe Terminal | no Terminal call anywhere in `processor/src` |
-</content>
-</invoke>

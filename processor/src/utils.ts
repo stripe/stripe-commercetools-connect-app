@@ -236,53 +236,66 @@ export const isConcurrentModificationError = (error: unknown): boolean => {
  * Pure: never mutates `error`, its `.raw`, or its `.cause` — downstream classification depends on the live
  * `code` / `statusCode`, so the live object is left intact. SB3-227, SB3-237, ADR-023.
  */
-export const redactError = (error: unknown): Record<string, unknown> => {
-  const redact = (input: unknown, seen: WeakSet<object>): Record<string, unknown> => {
-    if (input instanceof Error) {
-      const err = input as Error & { raw?: unknown; cause?: unknown };
-      const raw = (err.raw && typeof err.raw === 'object' ? (err.raw as Record<string, unknown>) : {}) as Record<
-        string,
-        unknown
-      >;
-      const self = err as unknown as Record<string, unknown>;
-      const pick = (key: string): unknown => (self[key] !== undefined ? self[key] : raw[key]);
+// Safe-to-log fields a Stripe/commercetools error may carry — read from the error, then from `.raw`.
+// `httpErrorStatus` is where connect-payments-sdk's `Errorx` keeps the HTTP status (it has no
+// `statusCode`); without it the redacted log drops the status for non-Stripe errors.
+// `privateMessage` / `privateFields` are the Errorx server-side diagnostic (e.g. a JWT issuer); they are
+// never sent to the client, but they must reach the log, so they are whitelisted here.
+const SAFE_ERROR_FIELDS = [
+  'code',
+  'statusCode',
+  'httpErrorStatus',
+  'type',
+  'requestId',
+  'decline_code',
+  'param',
+  'doc_url',
+  'privateMessage',
+  'privateFields',
+] as const;
 
-      const safe: Record<string, unknown> = { name: err.name, message: err.message };
-      // `httpErrorStatus` is where connect-payments-sdk's `Errorx` keeps the HTTP status (it has no
-      // `statusCode`); without it the redacted log drops the status for non-Stripe errors (SB3-237 review).
-      for (const key of [
-        'code',
-        'statusCode',
-        'httpErrorStatus',
-        'type',
-        'requestId',
-        'decline_code',
-        'param',
-        'doc_url',
-      ]) {
-        const value = pick(key);
-        if (value !== undefined) {
-          safe[key] = value;
-        }
-      }
+// Surface an Error's whitelisted fields (name/message + SAFE_ERROR_FIELDS, each read from the error
+// then from `.raw`) and, recursively, a wrapped provider error under `.cause`. Guards cyclic cause
+// chains (A.cause=B, B.cause=A) via `seen` so an error-handler logging path cannot overflow the stack.
+// Module-level (not nested in redactError) so its control structures carry no extra nesting penalty.
+const redactErrorObject = (
+  err: Error & { raw?: unknown; cause?: unknown },
+  seen: WeakSet<object>,
+): Record<string, unknown> => {
+  const raw = (err.raw && typeof err.raw === 'object' ? (err.raw as Record<string, unknown>) : {}) as Record<
+    string,
+    unknown
+  >;
+  const self = err as unknown as Record<string, unknown>;
 
-      // Recurse into `.cause` to surface a wrapped provider error's safe fields, guarding against
-      // cyclic cause chains (A.cause=B, B.cause=A) that would otherwise overflow the stack from inside
-      // a catch/error-handler logging path (SB3-237 review).
-      if (err.cause instanceof Error && !seen.has(err.cause)) {
-        seen.add(err.cause);
-        safe.cause = redact(err.cause, seen);
-      }
-      return safe;
+  const safe: Record<string, unknown> = { name: err.name, message: err.message };
+  for (const key of SAFE_ERROR_FIELDS) {
+    const value = self[key] !== undefined ? self[key] : raw[key];
+    if (value !== undefined) {
+      safe[key] = value;
     }
-    return { message: typeof input === 'string' ? input : 'Non-Error thrown value' };
-  };
+  }
 
+  if (err.cause instanceof Error && !seen.has(err.cause)) {
+    seen.add(err.cause);
+    safe.cause = redactErrorValue(err.cause, seen);
+  }
+  return safe;
+};
+
+const redactErrorValue = (input: unknown, seen: WeakSet<object>): Record<string, unknown> => {
+  if (input instanceof Error) {
+    return redactErrorObject(input as Error & { raw?: unknown; cause?: unknown }, seen);
+  }
+  return { message: typeof input === 'string' ? input : 'Non-Error thrown value' };
+};
+
+export const redactError = (error: unknown): Record<string, unknown> => {
   const seen = new WeakSet<object>();
   if (error instanceof Error) {
     seen.add(error);
   }
-  return redact(error, seen);
+  return redactErrorValue(error, seen);
 };
 
 export const transformVariantAttributes = <T>(attributes?: Attribute[]): T => {
