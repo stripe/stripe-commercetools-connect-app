@@ -5,6 +5,7 @@ import {
   CommercetoolsCartService,
   CommercetoolsOrderService,
   CommercetoolsPaymentService,
+  Errorx,
   LineItem,
   Money,
   Payment,
@@ -14,6 +15,7 @@ import {
   CartSetLineItemCustomFieldAction,
   CartSetLineItemCustomTypeAction,
   CartUpdateAction,
+  CustomLineItem,
   Customer,
   Order,
   Product,
@@ -411,6 +413,10 @@ export class StripeSubscriptionService {
     const merchantReturnUrl = getMerchantReturnUrlFromContext() || config.merchantReturnUrl;
     const cart = await getCartExpanded();
 
+    this.assertSingleSubscriptionLineItem(cart);
+    this.assertNoNegativeCustomLineItem(cart);
+    this.assertFeeCartDiscountSupported(cart);
+
     const subscriptionLineItem = this.findSubscriptionLineItem(cart);
 
     const customer = await this.customerService.getCtCustomer(cart.customerId!);
@@ -771,12 +777,19 @@ export class StripeSubscriptionService {
   }
 
   /**
-   * Get all line item prices for the cart, excluding the subscription line item
+   * Build the `add_invoice_items` for the subscription's first invoice: every one-time charge in the
+   * cart EXCEPT the subscription line item itself. That is the regular one-time line items AND the
+   * cart's custom line items (ad-hoc fees / service charges).
+   *
+   * SB3-241: custom line items were previously omitted here, so on a cart that mixed a subscription
+   * product, a custom line item and a discount code the first invoice undercharged by the
+   * custom-line-item amount while a Paid order was still minted at the cart total (the amount guard is
+   * exempt on a discounted invoice). Including them closes the gap.
    * @param cart - The cart EXPANDED to get the line item prices for
-   * @returns An array of line item prices
+   * @returns `add_invoice_items` entries for `stripe.subscriptions.create`
    */
-  private async getAllLineItemPrices(cart: Cart): Promise<Array<{ price: string; quantity: number }>> {
-    const lineItemPrices: Array<{ price: string; quantity: number }> = [];
+  private async getAllLineItemPrices(cart: Cart): Promise<Stripe.SubscriptionCreateParams.AddInvoiceItem[]> {
+    const invoiceItems: Stripe.SubscriptionCreateParams.AddInvoiceItem[] = [];
 
     for (const lineItem of cart.lineItems) {
       if (lineItem.productType.obj?.name === productTypeSubscription.name) {
@@ -784,13 +797,69 @@ export class StripeSubscriptionService {
       }
 
       const priceId = await this.getLineItemPriceId(lineItem);
-      lineItemPrices.push({
+      invoiceItems.push({
         price: priceId,
         quantity: lineItem.quantity || 1,
       });
     }
 
-    return lineItemPrices;
+    // Custom line items carry no productId / variant.sku / price.id, so getLineItemPriceId cannot price
+    // them. They are billed via `price_data` with a Stripe Product reused per slug and no `tax_behavior`
+    // (the invoice stays tax-free and comparable to the cart total). Each is billed at its `totalPrice`
+    // as a single unit: a code-less direct discount is already netted into `totalPrice`, so it is kept;
+    // and a total-price discount code lives in `cart.discountOnTotalPrice` — not in the fee's `totalPrice`
+    // — so the invoice-wide Stripe coupon applies it exactly once and never twice. A cart that carries
+    // custom line items together with a discount the invoice-wide coupon cannot represent that way (any
+    // target other than the cart total) is refused earlier in prepareSubscriptionData
+    // (assertFeeCartDiscountSupported), as is a negative (credit) custom line item — so by here only a
+    // total-price discount, a code-less direct discount, or no discount can reach a fee.
+    for (const customLineItem of cart.customLineItems ?? []) {
+      const unitAmount = customLineItem.totalPrice.centAmount;
+      if (unitAmount <= 0) {
+        // Nothing to bill (a zero item; a credit was already rejected in prepareSubscriptionData).
+        continue;
+      }
+
+      const stripeProductId = await this.getStripeProductForCustomLineItem(customLineItem);
+      invoiceItems.push({
+        price_data: {
+          currency: customLineItem.money.currencyCode.toLowerCase(),
+          product: stripeProductId,
+          unit_amount: unitAmount,
+        },
+        quantity: 1,
+      });
+    }
+
+    return invoiceItems;
+  }
+
+  /**
+   * Find or create a Stripe Product for a custom line item, keyed by its slug so repeated checkouts
+   * of the same fee reuse one Product instead of creating a new one each time (mirrors getStripeProduct
+   * for regular products, which key on productId).
+   */
+  private async getStripeProductForCustomLineItem(customLineItem: CustomLineItem): Promise<string> {
+    const existing = await this.findStripeProductById(customLineItem.slug);
+    if (existing?.id) {
+      return existing.id;
+    }
+
+    const newProduct = await stripe.products.create(
+      {
+        name: getLocalizedString(customLineItem.name),
+        metadata: {
+          [METADATA_PRODUCT_ID_FIELD]: customLineItem.slug,
+        },
+      },
+      { idempotencyKey: randomUUID() },
+    );
+
+    log.info('Stripe product created for custom line item.', {
+      customLineItemSlug: customLineItem.slug,
+      stripeProductId: newProduct.id,
+    });
+    return newProduct.id;
   }
 
   public async getStripePriceByMetadata(product: LineItem) {
@@ -1179,6 +1248,123 @@ export class StripeSubscriptionService {
       //Free anchor days doesn't create an invoice
       hasNoInvoice: hasFreeAnchorDays,
     };
+  }
+
+  /**
+   * SB3-242 / KI-018: a cart may carry at most one subscription line item. The create flow bills only
+   * the first (`findSubscriptionLineItem`), and `getAllLineItemPrices` excludes every subscription item
+   * from `add_invoice_items`, so a second subscription product is never sent to Stripe — yet it stays in
+   * the cart the order is minted from. With a discount code the first-cycle amount guard is exempt
+   * (`isFirstCycleAmountGuardApplicable`, `hasDiscountedInvoice`) and the cart-drift guard cannot fire on
+   * a cart that never changed, so the order is minted Paid for goods Stripe never billed. The documented
+   * rule (`business-rules/mixed-carts.md` Rule 4) has always assumed exactly one subscription item; this
+   * enforces it before any Stripe object is created — the single point every create entry (createSetupIntent,
+   * createSubscription, createSubscriptionFromSetupIntent) shares through `prepareSubscriptionData`.
+   * Supporting several subscriptions per cart is a separate product decision, not a silent drop.
+   */
+  private assertSingleSubscriptionLineItem(cart: Cart): void {
+    const subscriptionLineItems = cart.lineItems.filter(
+      (item) => item.productType.obj?.name === productTypeSubscription.name,
+    );
+
+    if (subscriptionLineItems.length > 1) {
+      // Surface the rejection server-side: a multi-subscription cart is a financial-integrity attempt
+      // (pre-fix it minted a Paid order for an unbilled item — KI-018 / SB3-242), so operators should
+      // see a storefront submitting one. Mirrors the SB3-226 reconcile guard's logging.
+      log.warn('Subscription creation rejected: cart carries more than one subscription line item.', {
+        ctCartId: cart.id,
+        subscriptionLineItemCount: subscriptionLineItems.length,
+      });
+      throw new Errorx({
+        code: 'MultipleSubscriptionsNotSupported',
+        message:
+          'A cart may contain at most one subscription item. Remove the additional subscription product(s) and try again.',
+        httpErrorStatus: 400,
+        fields: { ctCartId: cart.id, subscriptionLineItemCount: subscriptionLineItems.length },
+      });
+    }
+  }
+
+  /**
+   * A negative (credit) custom line item cannot be billed on the subscription first invoice: Stripe
+   * `unit_amount` must be non-negative, and silently dropping it would leave the invoice above the cart
+   * total (an overcharge). Reject the cart here — before any Stripe Price or Product is created — rather
+   * than fail mid-way through subscription creation and leave orphaned Stripe objects behind. Modelling a
+   * credit as a negative custom line item on a subscription cart is unsupported on this path.
+   */
+  private assertNoNegativeCustomLineItem(cart: Cart): void {
+    const negative = (cart.customLineItems ?? []).find((item) => item.money.centAmount < 0);
+    if (!negative) {
+      return;
+    }
+
+    log.warn('Subscription creation rejected: cart carries a negative (credit) custom line item.', {
+      ctCartId: cart.id,
+      customLineItemSlug: negative.slug,
+      unitAmount: negative.money.centAmount,
+    });
+    throw new Errorx({
+      code: 'NegativeCustomLineItemNotSupported',
+      message:
+        'A credit (negative custom line item) cannot be billed on a subscription first invoice. ' +
+        'Remove the negative custom line item and try again.',
+      httpErrorStatus: 400,
+      fields: { ctCartId: cart.id, customLineItemSlug: negative.slug, unitAmount: negative.money.centAmount },
+    });
+  }
+
+  /**
+   * On a cart that carries custom line items (fees), the only cart discount the subscription's invoice-wide
+   * Stripe coupon can represent correctly is one that targets the cart **total**: commercetools records a
+   * total-price discount in `cart.discountOnTotalPrice` — not in any item's `totalPrice` — so the coupon
+   * applies it once across the whole first invoice, fees included, and the invoice still equals
+   * `cart.totalPrice`.
+   *
+   * Any other target (lineItems, customLineItems, shipping, multi-buy, pattern, or an unexpanded discount
+   * whose target cannot be read) discounts a different scope than the invoice-wide coupon does. On a
+   * discounted invoice the first-cycle amount guard is exempt (`hasDiscountedInvoice`) and the cart-drift
+   * guard cannot fire on an unchanged cart, so the mismatch mints a Paid order for an amount Stripe did not
+   * collect. Rather than mis-scope the coupon, refuse the cart here — before any Stripe object is created,
+   * next to the single-subscription and negative-credit assertions. Representing a partial-scope discount on
+   * a fee cart is a separate product decision (follow-up), not a silent mischarge. commercetools, not the
+   * code's own configuration, remains the authority on what a discount applies to (CLAUDE.md Coding Rules).
+   *
+   * A cart with no custom line items is unaffected: the coupon already discounts the whole invoice, which
+   * equals the cart total, so every target is fine.
+   */
+  private assertFeeCartDiscountSupported(cart: Cart): void {
+    if (!(cart.customLineItems ?? []).length) {
+      return;
+    }
+
+    const unsupported = cart.discountCodes
+      .filter((code) => code.state === 'MatchesCart')
+      .find((code) => {
+        const cartDiscounts = code.discountCode.obj?.cartDiscounts;
+        // Unexpanded (target unreadable) or any non-total-price target is not representable here.
+        return !cartDiscounts || cartDiscounts.some((cd) => cd.obj?.target?.type !== 'totalPrice');
+      });
+
+    if (!unsupported) {
+      return;
+    }
+
+    const targets = (unsupported.discountCode.obj?.cartDiscounts ?? [])
+      .map((cd) => cd.obj?.target?.type ?? 'unknown')
+      .join(', ');
+    log.warn('Subscription creation rejected: a cart with custom line items carries a non-total-price discount.', {
+      ctCartId: cart.id,
+      ctDiscountCodeId: unsupported.discountCode.id,
+      discountTargets: targets || 'unknown',
+    });
+    throw new Errorx({
+      code: 'UnsupportedCartDiscountForCustomLineItems',
+      message:
+        'On a cart with custom line items, only a discount that targets the cart total is supported. ' +
+        'Remove the custom line item(s) or use a total-price discount and try again.',
+      httpErrorStatus: 400,
+      fields: { ctCartId: cart.id, ctDiscountCodeId: unsupported.discountCode.id, discountTargets: targets || 'unknown' },
+    });
   }
 
   private findSubscriptionLineItem(cart: Cart): LineItem {

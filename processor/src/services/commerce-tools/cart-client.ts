@@ -4,6 +4,7 @@ import { getCartIdFromContext } from '../../libs/fastify/context/context';
 import { PaymentAmount } from '@commercetools/connect-payments-sdk/dist/commercetools/types/payment.type';
 import { log } from '../../libs/logger';
 import { lineItemStripeSubscriptionIdField, typeLineItem } from '../../custom-types/custom-types';
+import { redactError } from '../../utils';
 
 const apiClient = paymentSDK.ctAPI.client;
 
@@ -128,7 +129,11 @@ export const createCartWithProduct = async (
 
     return cart;
   } catch (error) {
-    log.error('Error creating cart with product', { error, productId: product.id, variantId: variant.id });
+    log.error('Error creating cart with product', {
+      error: redactError(error),
+      productId: product.id,
+      variantId: variant.id,
+    });
     throw error;
   }
 };

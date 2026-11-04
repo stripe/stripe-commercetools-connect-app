@@ -2,6 +2,7 @@ import { Price, Product } from '@commercetools/platform-sdk';
 import { paymentSDK } from '../../payment-sdk';
 import { PaymentAmount } from '@commercetools/connect-payments-sdk/dist/commercetools/types/payment.type';
 import { log } from '../../libs/logger';
+import { redactError } from '../../utils';
 
 const apiClient = paymentSDK.ctAPI.client;
 
@@ -27,7 +28,7 @@ export const getProductById = async (productId: string): Promise<Product | undef
 
     return response.body;
   } catch (error) {
-    log.error('Error getting product by ID', { error, productId });
+    log.error('Error getting product by ID', { error: redactError(error), productId });
     return undefined;
   }
 };
@@ -56,7 +57,7 @@ export const getProductMasterPrice = async (productId: string): Promise<PaymentA
       fractionDigits: price.value.fractionDigits || 2,
     };
   } catch (error) {
-    log.error('Error getting product master price', { error, productId });
+    log.error('Error getting product master price', { error: redactError(error), productId });
     return undefined;
   }
 };
@@ -89,7 +90,7 @@ export const getPriceFromProduct = (product: Product, priceId: string): PaymentA
 
     return undefined;
   } catch (error) {
-    log.error('Error getting price from product', { error, priceId, productId: product.id });
+    log.error('Error getting price from product', { error: redactError(error), priceId, productId: product.id });
     return undefined;
   }
 };

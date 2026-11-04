@@ -2,7 +2,7 @@ import Stripe from 'stripe';
 import { DiscountCode, DiscountCodeInfo, Cart } from '@commercetools/platform-sdk';
 import { Errorx } from '@commercetools/connect-payments-sdk';
 import { stripeApi } from '../clients/stripe.client';
-import { convertDateToUnixTimestamp, getLocalizedString } from '../utils';
+import { convertDateToUnixTimestamp, getLocalizedString, redactError } from '../utils';
 import { log } from '../libs/logger';
 
 const stripe = stripeApi();
@@ -48,8 +48,14 @@ export class StripeCouponService {
         throw new Error(`Discount "${code.discountCode.id}" has multiple cart discounts. Not supported by Stripe.`);
       }
 
+      // The Stripe coupon id is the CT discount code id. On a cart carrying custom line items only a
+      // total-price discount reaches here (prepareSubscriptionData refuses any other target before any
+      // Stripe object exists), so an invoice-wide coupon discounts the whole first invoice exactly as the
+      // total-price CartDiscount discounts the whole cart — no per-item scoping is needed.
       const stripeDiscount = await this.getStripeCouponById(discountCode.id);
-      coupons.push({ coupon: await this.resolveStripeCoupon(discountCode, stripeDiscount, cartCurrency) });
+      coupons.push({
+        coupon: await this.resolveStripeCoupon(discountCode, stripeDiscount, cartCurrency),
+      });
     }
 
     // Every code on the cart may have been skipped. Report that the same way as a cart that carries no
@@ -206,7 +212,7 @@ export class StripeCouponService {
       await stripe.coupons.del(id);
       log.info(`Stripe coupon "${id}" deleted; it no longer matched its commercetools discount code.`);
     } catch (error) {
-      log.error(`Failed to delete Stripe discount code: "${id}"`, error);
+      log.error(`Failed to delete Stripe discount code: "${id}"`, { error: redactError(error) });
       throw error;
     }
   }

@@ -1,5 +1,12 @@
 import { Cart, LineItem, CustomLineItem, ShippingInfo, Order } from '@commercetools/connect-payments-sdk';
-import { CartDraft, ProductVariant } from '@commercetools/platform-sdk';
+import {
+  CartDiscount,
+  CartDiscountTarget,
+  CartDraft,
+  DiscountCode,
+  DiscountCodeInfo,
+  ProductVariant,
+} from '@commercetools/platform-sdk';
 import { randomUUID } from 'crypto';
 import { mockCtCustomerId } from './mock-customer-data';
 import { productTypeSubscription } from '../../src/custom-types/custom-types';
@@ -11,7 +18,8 @@ export const mockGetCartResult = () => {
     customerId: mockCtCustomerId,
     version: 1,
     lineItems: [lineItem],
-    customLineItems: [customLineItem],
+    // Default to no custom line items; specs that exercise them (e.g. SB3-241) add them explicitly.
+    customLineItems: [],
     totalPrice: {
       type: 'centPrecision',
       currencyCode: 'USD',
@@ -115,7 +123,8 @@ export const mockGetCartWithoutCustomerIdResult = () => {
     customerId: '',
     version: 1,
     lineItems: [lineItem],
-    customLineItems: [customLineItem],
+    // Default to no custom line items; specs that exercise them (e.g. SB3-241) add them explicitly.
+    customLineItems: [],
     totalPrice: {
       type: 'centPrecision',
       currencyCode: 'USD',
@@ -352,6 +361,35 @@ export const customLineItem: CustomLineItem = {
   perMethodTaxRate: [],
   priceMode: 'Platform',
 };
+
+// A custom line item carrying a discount that targets it: `totalPrice` (money × quantity minus the
+// discount) is BELOW money × quantity. Used to prove getAllLineItemPrices bills `money × quantity`
+// (pre-discount), not `totalPrice` — so the cart coupon is not applied twice.
+export const customLineItemDiscounted: CustomLineItem = {
+  ...customLineItem,
+  id: 'customLineItem-id-discounted',
+  slug: 'setup-fee',
+  money: { type: 'centPrecision', currencyCode: 'USD', centAmount: 10000, fractionDigits: 2 },
+  quantity: 2,
+  // 2 × 10000 = 20000, minus a 2000 custom-line-item-level discount → totalPrice 18000.
+  totalPrice: { type: 'centPrecision', currencyCode: 'USD', centAmount: 18000, fractionDigits: 2 },
+};
+
+// A `MatchesCart` discount code whose single cart discount has the given target type — for asserting
+// which discount targets a cart with custom line items accepts (only `totalPrice`) vs refuses (everything
+// else), in assertFeeCartDiscountSupported.
+export const mockDiscountCodeInfo = (targetType: CartDiscountTarget['type'], id = 'dc-1'): DiscountCodeInfo => ({
+  discountCode: {
+    typeId: 'discount-code',
+    id,
+    obj: {
+      cartDiscounts: [
+        { typeId: 'cart-discount', id: `cd-${id}`, obj: { target: { type: targetType } } as CartDiscount },
+      ],
+    } as DiscountCode,
+  },
+  state: 'MatchesCart',
+});
 
 export const shippingInfo: ShippingInfo = {
   shippingMethodName: 'shippingMethodName1',

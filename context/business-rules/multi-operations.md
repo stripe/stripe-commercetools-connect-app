@@ -14,7 +14,7 @@ When `STRIPE_ENABLE_MULTI_OPERATIONS=false`, `charge.refunded` is processed via 
 
 **Invariant:** Each `charge.refunded` event maps to the most recent refund on the charge (`refunds.data[0]`). The refund's `id` is used as `pspReference` and `interactionId` on the CT transaction.
 
-**Implementation:** `stripe-payment.service.ts:1932-1982` → `processStripeEventRefunded()`.
+**Implementation:** `stripe-payment.service.ts:1935-1985` → `processStripeEventRefunded()`.
 
 ---
 

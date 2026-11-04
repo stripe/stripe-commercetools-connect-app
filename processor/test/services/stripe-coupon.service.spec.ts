@@ -24,6 +24,8 @@ jest.doMock('../../src/libs/logger', () => ({
 jest.doMock('../../src/utils', () => ({
   convertDateToUnixTimestamp: mockConvertDateToUnixTimestamp,
   getLocalizedString: mockGetLocalizedString,
+  redactError: (error: unknown) =>
+    error instanceof Error ? { name: error.name, message: error.message } : { message: String(error) },
 }));
 
 describe('StripeCouponService', () => {
@@ -545,6 +547,40 @@ describe('StripeCouponService', () => {
 
       expect(mockStripe.coupons.retrieve).not.toHaveBeenCalled();
       expect(mockStripe.coupons.del).not.toHaveBeenCalled();
+    });
+  });
+
+  // The Stripe coupon id is the CT discount code id, with no `applies_to` scoping. A cart carrying custom
+  // line items only reaches here with a total-price discount (any other target is refused upstream in
+  // prepareSubscriptionData), so the invoice-wide coupon discounts the whole first invoice correctly.
+  describe('getStripeCoupons — coupon id is the discount code id, unscoped', () => {
+    const cartWith = (targetType: string) => ({
+      id: 'cart-xyz',
+      totalPrice: { type: 'centPrecision', currencyCode: 'USD', centAmount: 10000, fractionDigits: 2 },
+      customLineItems: [{ id: 'cli-1', money: { centAmount: 500, currencyCode: 'USD' } }],
+      discountCodes: [
+        {
+          state: 'MatchesCart',
+          discountCode: {
+            id: 'discount-123',
+            obj: {
+              id: 'discount-123',
+              cartDiscounts: [{ obj: { value: { type: 'relative', permyriad: 1000 }, target: { type: targetType } } }],
+            },
+          },
+        },
+      ],
+    });
+
+    it('creates the coupon under the discount code id with no applies_to, on a fee cart', async () => {
+      mockStripe.coupons.retrieve.mockRejectedValue(new Error('No such coupon')); // forces create
+      mockStripe.coupons.create.mockResolvedValue({ id: 'discount-123' });
+
+      const result = await service.getStripeCoupons(cartWith('totalPrice'));
+
+      expect(result).toEqual([{ coupon: 'discount-123' }]);
+      expect(mockStripe.coupons.create).toHaveBeenCalledWith(expect.objectContaining({ id: 'discount-123' }));
+      expect(mockStripe.coupons.create.mock.calls[0][0]).not.toHaveProperty('applies_to');
     });
   });
 

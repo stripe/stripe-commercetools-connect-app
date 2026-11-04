@@ -11,7 +11,7 @@ import { freezeCart, unfreezeCart, isCartFrozen } from './commerce-tools/cart-cl
 import { ShippingMethod } from '@commercetools/platform-sdk/dist/declarations/src/generated/models/shipping-method';
 import { StripeShippingServiceOptions } from './types/stripe-shipping.type';
 import { log } from '../libs/logger';
-import { getLocalizedString } from '../utils';
+import { getLocalizedString, redactError } from '../utils';
 import { _BaseAddress } from '@commercetools/platform-sdk/dist/declarations/src/generated/models/common';
 import {
   ShippingMethodsRequestSchemaDTO,
@@ -42,7 +42,7 @@ export class StripeShippingService {
           });
         } catch (error) {
           log.error(`Error unfreezing cart for shipping address update.`, {
-            error,
+            error: redactError(error),
             ctCartId: ctCart.id,
           });
           throw wrapStripeError(error);
@@ -85,7 +85,7 @@ export class StripeShippingService {
           });
         } catch (error) {
           log.error(`Error re-freezing cart after shipping address update.`, {
-            error,
+            error: redactError(error),
             ctCartId: updatedCart.id,
           });
           // Continue even if re-freeze fails
@@ -121,7 +121,7 @@ export class StripeShippingService {
           });
         } catch (error) {
           log.error(`Error unfreezing cart for shipping method update.`, {
-            error,
+            error: redactError(error),
             ctCartId: ctCart.id,
           });
           throw wrapStripeError(error);
@@ -139,7 +139,7 @@ export class StripeShippingService {
           });
         } catch (error) {
           log.error(`Error re-freezing cart after shipping method update.`, {
-            error,
+            error: redactError(error),
             ctCartId: updatedCart.id,
           });
           // Continue even if re-freeze fails
@@ -171,7 +171,7 @@ export class StripeShippingService {
           });
         } catch (error) {
           log.error(`Error unfreezing cart after Express Checkout cancellation.`, {
-            error,
+            error: redactError(error),
             ctCartId: ctCart.id,
           });
           throw wrapStripeError(error);

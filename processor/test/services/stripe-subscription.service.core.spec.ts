@@ -4,10 +4,23 @@ jest.mock('stripe', () => ({
 }));
 
 import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
+import { Errorx } from '@commercetools/connect-payments-sdk';
+import { Cart, CustomLineItem } from '@commercetools/platform-sdk';
 import { StripeSubscriptionService } from '../../src/services/stripe-subscription.service';
 import { CtPaymentCreationService } from '../../src/services/ct-payment-creation.service';
 import { paymentSDK } from '../../src/payment-sdk';
-import { mockGetSubscriptionCartWithVariant } from '../utils/mock-cart-data';
+import {
+  mockGetCartResult,
+  mockGetSubscriptionCart,
+  mockGetSubscriptionCartWithTwoItems,
+  mockGetSubscriptionCartWithVariant,
+  lineItem,
+  lineItemSubscription,
+  customLineItem,
+  customLineItemDiscounted,
+  mockDiscountCodeInfo,
+} from '../utils/mock-cart-data';
+import * as CartClient from '../../src/services/commerce-tools/cart-client';
 import Stripe from 'stripe';
 import { BasicSubscriptionData } from '../../src/services/types/stripe-subscription.type';
 import * as Config from '../../src/config/config';
@@ -151,6 +164,45 @@ describe('stripe-subscription.service.core', () => {
       jest.spyOn(StripeSubscriptionService.prototype, 'createSetupIntent').mockRejectedValue(error);
 
       await expect(stripeSubscriptionService.createSetupIntent()).rejects.toThrow('Failed to create setup intent');
+    });
+  });
+
+  // The prepareSubscriptionData refusals must fire through a public create path, before any Stripe object is
+  // created — the ordering mixed-carts.md Rule 5 / Rule 4 promise. These drive the real createSetupIntent (no
+  // mock of prepareSubscriptionData), with getCartExpanded returning the offending cart, and assert that no
+  // Stripe Product / Price / SetupIntent was created.
+  describe('create paths refuse an unbillable cart before any Stripe object', () => {
+    const expectRefusedBeforeStripe = async (cart: Cart, code: string): Promise<void> => {
+      setupMockConfig({ projectKey: 'test-project-key', merchantReturnUrl: 'http://example.com' });
+      jest.spyOn(CartClient, 'getCartExpanded').mockResolvedValue(cart);
+
+      await expect(stripeSubscriptionService.createSetupIntent()).rejects.toMatchObject({ code });
+
+      expect(Stripe.prototype.products.create).not.toHaveBeenCalled();
+      expect(Stripe.prototype.prices.create).not.toHaveBeenCalled();
+      expect(Stripe.prototype.setupIntents.create).not.toHaveBeenCalled();
+    };
+
+    test('a negative custom line item → NegativeCustomLineItemNotSupported, nothing reached Stripe', async () => {
+      const cart: Cart = {
+        ...mockGetSubscriptionCartWithVariant(1),
+        customLineItems: [
+          {
+            ...customLineItem,
+            money: { type: 'centPrecision', currencyCode: 'USD', centAmount: -500, fractionDigits: 2 },
+          },
+        ],
+      };
+      await expectRefusedBeforeStripe(cart, 'NegativeCustomLineItemNotSupported');
+    });
+
+    test('a non-total-price discount on a fee cart → UnsupportedCartDiscountForCustomLineItems, nothing reached Stripe', async () => {
+      const cart: Cart = {
+        ...mockGetSubscriptionCartWithVariant(1),
+        customLineItems: [customLineItem],
+        discountCodes: [mockDiscountCodeInfo('lineItems')],
+      };
+      await expectRefusedBeforeStripe(cart, 'UnsupportedCartDiscountForCustomLineItems');
     });
   });
 
@@ -326,6 +378,220 @@ describe('stripe-subscription.service.core', () => {
     });
   });
 
+  // The subscription first invoice must bill the cart's custom line items (a setup fee / service charge
+  // carries no product id, so it cannot use the regular line-item pricing path). Each is billed via
+  // price_data at its pre-discount `money × quantity`, and the cart coupon is kept off it when the
+  // discount targets products only. Exercises getAllLineItemPrices directly.
+  describe('method getAllLineItemPrices — custom line items on the first invoice', () => {
+    const STRIPE_PRODUCT_ID = 'prod_customlineitem_mock';
+
+    const getAllLineItemPrices = (cart: Cart) =>
+      (
+        stripeSubscriptionService as unknown as {
+          getAllLineItemPrices: (c: Cart) => Promise<Stripe.SubscriptionCreateParams.AddInvoiceItem[]>;
+        }
+      ).getAllLineItemPrices(cart);
+
+    const subscriptionCartWith = (
+      customLineItems: CustomLineItem[],
+      discountCodes: Cart['discountCodes'] = [],
+    ): Cart => ({
+      ...mockGetCartResult(),
+      lineItems: [lineItemSubscription],
+      customLineItems,
+      discountCodes,
+    });
+
+    const oneCustomLineItem = (overrides: Partial<CustomLineItem> = {}): CustomLineItem => ({
+      ...customLineItem,
+      slug: 'setup-fee',
+      ...overrides,
+    });
+
+    beforeEach(() => {
+      // core's beforeEach resets these to bare mocks; this describe needs the builder's lookups to resolve.
+      Stripe.prototype.products = {
+        search: jest.fn().mockResolvedValue({ data: [] }),
+        create: jest.fn().mockResolvedValue({ id: STRIPE_PRODUCT_ID }),
+        retrieve: jest.fn(),
+      } as unknown as Stripe.ProductsResource;
+      Stripe.prototype.prices = {
+        search: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+      } as unknown as Stripe.PricesResource;
+    });
+
+    test('bills every custom line item at its totalPrice as a single unit, no tax_behavior', async () => {
+      const items = await getAllLineItemPrices(subscriptionCartWith([oneCustomLineItem()]));
+
+      // Exactly one invoice item — the custom line item (the subscription line item is excluded).
+      expect(items).toHaveLength(1);
+      expect(items[0]).toEqual({
+        price_data: {
+          currency: 'usd',
+          product: STRIPE_PRODUCT_ID,
+          unit_amount: customLineItem.totalPrice.centAmount,
+        },
+        quantity: 1,
+      });
+      // No tax_behavior → the invoice stays tax-free and comparable to the cart total.
+      expect(
+        (items[0].price_data as Stripe.SubscriptionCreateParams.AddInvoiceItem.PriceData).tax_behavior,
+      ).toBeUndefined();
+    });
+
+    test('a total-price discount code does not change the fee amount — still billed at totalPrice, qty 1', async () => {
+      // A total-price discount lives in cart.discountOnTotalPrice, not in the fee's totalPrice, so the
+      // invoice-wide coupon applies it once over the whole invoice. The fee itself is billed at its own
+      // totalPrice (customLineItemDiscounted: 18000). Non-total-price codes never reach here — they are
+      // refused in prepareSubscriptionData (assertFeeCartDiscountSupported) before any Stripe object exists.
+      const items = await getAllLineItemPrices(
+        subscriptionCartWith([customLineItemDiscounted], [mockDiscountCodeInfo('totalPrice')]),
+      );
+
+      expect(items).toHaveLength(1);
+      expect((items[0].price_data as Stripe.SubscriptionCreateParams.AddInvoiceItem.PriceData).unit_amount).toBe(18000);
+      expect(items[0].quantity).toBe(1);
+    });
+
+    test('a code-less direct discount is kept — the fee is billed at its already-net totalPrice', async () => {
+      // A direct discount (no discount code) is netted into the fee's totalPrice; billing totalPrice keeps it.
+      const items = await getAllLineItemPrices(subscriptionCartWith([customLineItemDiscounted], []));
+
+      expect(items).toHaveLength(1);
+      expect((items[0].price_data as Stripe.SubscriptionCreateParams.AddInvoiceItem.PriceData).unit_amount).toBe(18000);
+      expect(items[0].quantity).toBe(1);
+    });
+
+    test('reuses an existing Stripe Product for the slug instead of creating a new one', async () => {
+      Stripe.prototype.products.search = jest
+        .fn()
+        .mockResolvedValue({ data: [{ id: 'prod_existing' }] }) as unknown as typeof Stripe.prototype.products.search;
+
+      const items = await getAllLineItemPrices(subscriptionCartWith([oneCustomLineItem()]));
+
+      expect((items[0].price_data as Stripe.SubscriptionCreateParams.AddInvoiceItem.PriceData).product).toBe(
+        'prod_existing',
+      );
+      expect(Stripe.prototype.products.create).not.toHaveBeenCalled();
+    });
+
+    test('skips a zero-amount custom line item — nothing to bill', async () => {
+      const zero = { type: 'centPrecision', currencyCode: 'USD', centAmount: 0, fractionDigits: 2 } as const;
+      const cart = subscriptionCartWith([oneCustomLineItem({ money: zero, totalPrice: zero })]);
+
+      const items = await getAllLineItemPrices(cart);
+
+      expect(items).toHaveLength(0);
+      expect(Stripe.prototype.products.create).not.toHaveBeenCalled();
+    });
+
+    test('no regression: a subscription cart with no custom line items yields no price_data entries', async () => {
+      const items = await getAllLineItemPrices(subscriptionCartWith([]));
+
+      expect(items).toHaveLength(0);
+    });
+  });
+
+  describe('assertFeeCartDiscountSupported — only a total-price discount is allowed on a fee cart', () => {
+    const assertSupported = (cart: Cart): void =>
+      (
+        stripeSubscriptionService as unknown as { assertFeeCartDiscountSupported: (c: Cart) => void }
+      ).assertFeeCartDiscountSupported(cart);
+
+    const feeCartWithCodes = (codes: Cart['discountCodes']): Cart => ({
+      ...mockGetCartResult(),
+      customLineItems: [customLineItem],
+      discountCodes: codes,
+    });
+
+    const expectRejected = (cart: Cart): void => {
+      expect.assertions(2);
+      try {
+        assertSupported(cart);
+      } catch (e) {
+        expect(e).toBeInstanceOf(Errorx);
+        expect((e as Errorx).code).toBe('UnsupportedCartDiscountForCustomLineItems');
+      }
+    };
+
+    test('accepts a total-price discount on a cart with custom line items', () => {
+      expect(() => assertSupported(feeCartWithCodes([mockDiscountCodeInfo('totalPrice')]))).not.toThrow();
+    });
+
+    test('rejects a lineItems-targeted discount on a fee cart — Errorx 400', () => {
+      expectRejected(feeCartWithCodes([mockDiscountCodeInfo('lineItems')]));
+    });
+
+    test('rejects shipping, customLineItems and pattern targets on a fee cart', () => {
+      expect(() => assertSupported(feeCartWithCodes([mockDiscountCodeInfo('shipping')]))).toThrow(Errorx);
+      expect(() => assertSupported(feeCartWithCodes([mockDiscountCodeInfo('customLineItems')]))).toThrow(Errorx);
+      expect(() => assertSupported(feeCartWithCodes([mockDiscountCodeInfo('pattern')]))).toThrow(Errorx);
+    });
+
+    test('rejects when any applicable code is non-total-price, even mixed with a total-price one', () => {
+      expectRejected(
+        feeCartWithCodes([mockDiscountCodeInfo('totalPrice', 'a'), mockDiscountCodeInfo('lineItems', 'b')]),
+      );
+    });
+
+    test('rejects an unexpanded discount whose target cannot be read', () => {
+      const code = mockDiscountCodeInfo('totalPrice');
+      const unexpanded = {
+        ...code,
+        discountCode: { ...code.discountCode, obj: { cartDiscounts: undefined } },
+      } as unknown as Cart['discountCodes'][number];
+      expectRejected(feeCartWithCodes([unexpanded]));
+    });
+
+    test('ignores a non-total-price code commercetools does not apply (state != MatchesCart)', () => {
+      const notApplied = { ...mockDiscountCodeInfo('lineItems'), state: 'DoesNotMatchCart' } as Cart['discountCodes'][number];
+      expect(() => assertSupported(feeCartWithCodes([notApplied]))).not.toThrow();
+    });
+
+    test('a cart with no custom line items accepts any discount target', () => {
+      expect(() =>
+        assertSupported({
+          ...mockGetCartResult(),
+          customLineItems: [],
+          discountCodes: [mockDiscountCodeInfo('lineItems')],
+        }),
+      ).not.toThrow();
+    });
+  });
+
+  describe('assertNoNegativeCustomLineItem — reject credits before any Stripe object (#3)', () => {
+    const assertNoNeg = (cart: Cart): void =>
+      (
+        stripeSubscriptionService as unknown as { assertNoNegativeCustomLineItem: (c: Cart) => void }
+      ).assertNoNegativeCustomLineItem(cart);
+
+    test('rejects a cart with a negative (credit) custom line item — Errorx 400', () => {
+      const cart: Cart = {
+        ...mockGetCartResult(),
+        customLineItems: [
+          {
+            ...customLineItem,
+            money: { type: 'centPrecision', currencyCode: 'USD', centAmount: -500, fractionDigits: 2 },
+          },
+        ],
+      };
+
+      expect.assertions(2);
+      try {
+        assertNoNeg(cart);
+      } catch (e) {
+        expect(e).toBeInstanceOf(Errorx);
+        expect((e as Errorx).code).toBe('NegativeCustomLineItemNotSupported');
+      }
+    });
+
+    test('accepts positive and zero custom line items', () => {
+      expect(() => assertNoNeg({ ...mockGetCartResult(), customLineItems: [customLineItem] })).not.toThrow();
+    });
+  });
+
   describe('method prepareSubscriptionData', () => {
     test('should prepare subscription data successfully', async () => {
       const mockCart = mockGetSubscriptionCartWithVariant(1);
@@ -371,6 +637,74 @@ describe('stripe-subscription.service.core', () => {
       expect(result).toHaveProperty('cart');
       expect(result).toHaveProperty('stripeCustomerId');
       expect(result).toHaveProperty('subscriptionParams');
+    });
+
+    // SB3-242 / KI-018 — a cart may carry at most one subscription line item. The create flow billed only
+    // the first (findSubscriptionLineItem) and getAllLineItemPrices excluded every subscription item from
+    // add_invoice_items, so a second subscription product was never sent to Stripe yet stayed in the cart
+    // the order was minted from; with a discount code the first-cycle amount guard was exempt and the
+    // cart-drift guard could not fire on an unchanged cart, so the order was minted Paid for goods Stripe
+    // never billed. assertSingleSubscriptionLineItem rejects that cart shape before any Stripe object is
+    // created, enforcing business-rules/mixed-carts.md Rule 4. Security invariant:
+    // context/validated-flows/security/sb3-242-multi-subscription-cart.md
+    describe('rejects a cart with more than one subscription line item (mixed-carts Rule 4 / KI-018, SB3-242)', () => {
+      const assertSingle = (cart: Cart): void =>
+        (
+          stripeSubscriptionService as unknown as { assertSingleSubscriptionLineItem: (c: Cart) => void }
+        ).assertSingleSubscriptionLineItem(cart);
+
+      test('rejects two subscription line items — Errorx 400, MultipleSubscriptionsNotSupported', () => {
+        expect.assertions(3);
+        try {
+          assertSingle(mockGetSubscriptionCartWithTwoItems);
+        } catch (e) {
+          expect(e).toBeInstanceOf(Errorx);
+          expect((e as Errorx).code).toBe('MultipleSubscriptionsNotSupported');
+          expect((e as Errorx).httpErrorStatus).toBe(400);
+        }
+      });
+
+      test('rejects whether or not a discount code is present — the guard rejects on cart shape alone', () => {
+        // A discount code is what disabled the downstream amount guard; this pre-create check never reads it.
+        const withDiscount = {
+          ...mockGetSubscriptionCartWithTwoItems,
+          discountCodes: [{ discountCode: { typeId: 'discount-code', id: 'dc-1' }, state: 'MatchesCart' }],
+        } as unknown as Cart;
+
+        expect(() => assertSingle(withDiscount)).toThrow('at most one subscription item');
+      });
+
+      test('no regression: a single subscription line item is accepted', () => {
+        expect(() => assertSingle(mockGetSubscriptionCart)).not.toThrow();
+      });
+
+      test('no regression: a single subscription line item WITH a discount code is accepted (AC-5)', () => {
+        const singleWithDiscount = {
+          ...mockGetSubscriptionCart,
+          discountCodes: [{ discountCode: { typeId: 'discount-code', id: 'dc-1' }, state: 'MatchesCart' }],
+        } as unknown as Cart;
+
+        expect(() => assertSingle(singleWithDiscount)).not.toThrow();
+      });
+
+      test('no regression: one subscription item plus one-time line items is accepted (mixed cart)', () => {
+        const mixed: Cart = { ...mockGetCartResult(), lineItems: [lineItemSubscription, lineItem] };
+
+        expect(() => assertSingle(mixed)).not.toThrow();
+      });
+
+      test('wiring: prepareSubscriptionData rejects a two-subscription cart before any Stripe call', async () => {
+        // Exercises the actual call site, not just the helper: getCartExpanded is the service's cart source
+        // and the guard is its first cart-dependent action, so it rejects before findSubscriptionLineItem /
+        // customerService / any Stripe call. If the guard call were removed, execution would fall through and
+        // throw something else, failing this test.
+        setupMockConfig({ merchantReturnUrl: 'http://example.com' });
+        jest.spyOn(CartClient, 'getCartExpanded').mockResolvedValue(mockGetSubscriptionCartWithTwoItems);
+
+        await expect(stripeSubscriptionService.prepareSubscriptionData()).rejects.toThrow(
+          'at most one subscription item',
+        );
+      });
     });
   });
 

@@ -46,10 +46,22 @@ A trial does not cover one-time items: they are billed with the first invoice wh
 
 ## Rule 4: Mixed cart identification requires checking product type, not line item flags
 
-**What:** The connector distinguishes subscription from one-time items by checking if `lineItem.productType.obj?.name` equals the hardcoded literal `'payment-connector-subscription-information'` (`stripe-subscription.service.ts:782`, also `:1186`) — not by the `CT_PRODUCT_TYPE_SUBSCRIPTION_KEY` env var, which only configures the product type's `key`, unrelated to this `name` comparison. See `business-rules/subscription-lifecycle.md` Rule 3. All other line items are treated as one-time.
+**What:** The connector distinguishes subscription from one-time items by checking if `lineItem.productType.obj?.name` equals the hardcoded literal `'payment-connector-subscription-information'` (`stripe-subscription.service.ts`, the `productType.obj?.name === productTypeSubscription.name` comparison in `getAllLineItemPrices()`, `assertSingleSubscriptionLineItem()` and `findSubscriptionLineItem()`) — not by the `CT_PRODUCT_TYPE_SUBSCRIPTION_KEY` env var, which only configures the product type's `key`, unrelated to this `name` comparison. See `business-rules/subscription-lifecycle.md` Rule 3. All other line items are treated as one-time.
 
 **Why:** There is no explicit "is recurring" flag on CT line items. The product type is the authoritative classifier.
 
-**Invariant:** Every cart processed by this connector is assumed to be one of: (a) all one-time items (standard checkout), or (b) exactly one subscription item + N one-time items (mixed cart). A cart with only one-time items is processed as standard checkout, not as a subscription.
+**Invariant:** Every cart processed by this connector is one of: (a) all one-time items (standard checkout), or (b) exactly one subscription item + N one-time items (mixed cart). A cart with only one-time items is processed as standard checkout, not as a subscription. A cart with more than one subscription item is rejected at subscription creation — `assertSingleSubscriptionLineItem()` throws `Errorx('MultipleSubscriptionsNotSupported', 400)`.
 
-**Implementation:** Cart processing logic in `stripe-subscription.service.ts`.
+**Implementation:** Cart processing logic in `stripe-subscription.service.ts`; the one-subscription-per-cart invariant is enforced by `assertSingleSubscriptionLineItem()`, called from `prepareSubscriptionData()` so every create entry point (`createSetupIntent`, `createSubscription`, `createSubscriptionFromSetupIntent`) rejects a multi-subscription cart before any Stripe object is created.
+
+---
+
+## Rule 5: Custom line items are billed on the first invoice too
+
+**What:** The cart's `customLineItems` (ad-hoc fees and service charges — setup fees, handling, manual surcharges) are added to `add_invoice_items` alongside the regular one-time line items of Rule 1. Each is billed via Stripe `price_data` (custom line items carry no `productId` / `variant.sku` / `price.id`, so `getLineItemPriceId()` cannot price them), with a Stripe Product reused per `slug`, at its **`totalPrice` as a single unit (`quantity: 1`)**. On a cart that carries custom line items, **only a discount that targets the cart total is supported**; any other target (`lineItems`, `customLineItems`, `shipping`, multi-buy, `pattern`, or an unexpanded discount whose target cannot be read) is **refused** in `prepareSubscriptionData()` before any Stripe object is created. Billing `totalPrice` is correct under that rule: a total-price discount lives in `cart.discountOnTotalPrice`, **not** in the fee's own `totalPrice`, so the invoice-wide Stripe coupon applies it exactly once across the whole invoice (fees included); and a code-less direct discount is already netted into the fee's `totalPrice`, so billing it keeps that discount.
+
+**Why:** A custom line item is part of what the shopper agreed to pay — `cart.totalPrice` includes it.
+
+**Invariant:** Every positive custom line item appears as exactly one `add_invoice_items` entry `{ unit_amount: totalPrice.centAmount, quantity: 1 }` with no `tax_behavior` (the subscription invoice carries no Stripe Tax, so it stays comparable to `cart.totalPrice`). A **zero-amount** entry is skipped. Two refusals fire in `prepareSubscriptionData()`, **before any Stripe object is created**: a **negative (credit)** custom line item → `Errorx` 400 `NegativeCustomLineItemNotSupported` (Stripe `unit_amount` cannot be negative); and a cart with custom line items carrying a **non-total-price discount** → `Errorx` 400 `UnsupportedCartDiscountForCustomLineItems`. The Stripe coupon id is the CT discount code id — coupon identity is owned by `coupon-sync.md`.
+
+**Implementation:** `stripe-subscription.service.ts` → `getAllLineItemPrices()` (custom-line-item loop, billed at `totalPrice`), `getStripeProductForCustomLineItem()` (Product reuse by slug), `assertNoNegativeCustomLineItem()` + `assertFeeCartDiscountSupported()` (both refusals, pre-Stripe, in `prepareSubscriptionData()`); `stripe-coupon.service.ts` → `getStripeCoupons(cart)` (unscoped coupon, id = discount code id).

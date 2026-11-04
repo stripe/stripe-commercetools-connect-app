@@ -142,7 +142,7 @@ are in `workflows/`.
 
 ## 4. Webhook events
 
-**Registered** — the `enabled_events` array post-deploy sends to Stripe, `processor/src/connectors/actions.ts:66-87`
+**Registered** — the `enabled_events` array post-deploy sends to Stripe, `processor/src/connectors/actions.ts:67-88`
 (16 events).
 
 **Dispatched** — the `switch (event.type)` in `processor/src/routes/stripe-payment.route.ts:309-381`.
@@ -249,8 +249,8 @@ several are dropped (`business-rules/tax-integration.md` Rule 3). The subscripti
 | --- | --- | --- | --- |
 | `payment-connector-stripe-customer-id` (`CT_CUSTOM_TYPE_STRIPE_CUSTOMER_KEY`) | customer | `stripeConnector_stripeCustomerId` | created when its key is absent (`processor/src/services/commerce-tools/custom-type-helper.ts:42-73`) |
 | `payment-connector-subscription-line-item-type` (`CT_CUSTOM_TYPE_SUBSCRIPTION_LINE_ITEM_KEY`) | line item | `stripeConnector_productSubscriptionId`, `stripeConnector_stripeSubscriptionId`, `stripeConnector_stripeSubscriptionError` | created when its key is absent, for line-item types |
-| `payment-connector-subscription-information` (`CT_PRODUCT_TYPE_SUBSCRIPTION_KEY`) | product type | 15 attributes below | created if absent; updated by delete-then-create only when no product uses it (`actions.ts:146-159`) |
-| `payment-launchpad-purchase-order` (`CT_CUSTOM_TYPE_LAUNCHPAD_PURCHASE_ORDER_KEY`) | payment | `launchpadPurchaseOrderNumber`, `launchpadPurchaseOrderInvoiceMemo` | existence check only — never created (`actions.ts:42-47`); must be created by the merchant |
+| `payment-connector-subscription-information` (`CT_PRODUCT_TYPE_SUBSCRIPTION_KEY`) | product type | 15 attributes below | created if absent; updated by delete-then-create only when no product uses it (`actions.ts:147-160`) |
+| `payment-launchpad-purchase-order` (`CT_CUSTOM_TYPE_LAUNCHPAD_PURCHASE_ORDER_KEY`) | payment | `launchpadPurchaseOrderNumber`, `launchpadPurchaseOrderInvoiceMemo` | existence check only — never created (`actions.ts:43-48`); must be created by the merchant |
 
 Subscription line items are detected by the product type's **name**, not by the configurable key
 (`processor/src/services/stripe-subscription.service.ts:782`, `:1186`; `business-rules/subscription-lifecycle.md` Rule 3).
@@ -357,7 +357,7 @@ malformed `STRIPE_PAYMENT_BEHAVIOR_RULES`. `connect.yaml` marks some keys requir
 | Subscription pause | no pause route among the subscription routes (`processor/src/routes/stripe-subscription.route.ts:108-297`) |
 | A free trial without collecting a payment method | both create paths need a payment method: a `default_incomplete` PaymentIntent (`stripe-subscription.service.ts:189`) or the SetupIntent's method (`:289`) |
 | Changing a subscription's quantity | updates keep the current quantity (`:1349`, `:2715`, `:3039`) |
-| More than one subscription product per cart | only the first is subscribed |
+| More than one subscription product per cart | rejected at subscription creation with a 400 (`assertSingleSubscriptionLineItem`, called from `prepareSubscriptionData`, before any Stripe object) |
 | Bank transfer on a subscription | subscription-invoice events are skipped by the bank-transfer handler (`processor/src/routes/stripe-payment.route.ts:190-193`), by decision |
 | ACH micro-deposit verification on a subscription | the subscription confirm throws on `requires_action` |
 | Guest checkout for subscriptions or bank transfer | one-time payments work for a guest cart; subscriptions and bank transfer need a customer (`host-integration.md` §2) |

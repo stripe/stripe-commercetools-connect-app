@@ -16,6 +16,7 @@ import {
   updateProductType,
 } from '../services/commerce-tools/product-type-client';
 import { addOrUpdateCustomType, deleteOrUpdateCustomType } from '../services/commerce-tools/custom-type-helper';
+import { redactError } from '../utils';
 
 export async function handleRequest({
   loggerId,
@@ -32,7 +33,7 @@ export async function handleRequest({
     log.info(`${loggerId} ${startMessage}`);
     await fn();
   } catch (error) {
-    log.error(loggerId, error);
+    log.error(loggerId, { error: redactError(error) });
     if (throwError) {
       throw error;
     }
@@ -52,7 +53,7 @@ export async function retrieveWebhookEndpoint(weId: string): Promise<Stripe.Webh
   try {
     return await stripeApi().webhookEndpoints.retrieve(weId);
   } catch (error) {
-    log.error('[RETRIEVE_WEBHOOK_ENDPOINT]', error);
+    log.error('[RETRIEVE_WEBHOOK_ENDPOINT]', { error: redactError(error) });
   }
 }
 
@@ -88,7 +89,7 @@ export async function updateWebhookEndpoint(weId: string, weAppUrl: string): Pro
       url: weAppUrl,
     });
   } catch (error) {
-    log.error('[UPDATE_WEBHOOK_ENDPOINT]', error);
+    log.error('[UPDATE_WEBHOOK_ENDPOINT]', { error: redactError(error) });
   }
 }
 
@@ -154,7 +155,7 @@ export async function createProductTypeSubscription(): Promise<void> {
             const updatedProductType = await updateProductType(productTypeSubscription, productType);
             log.info(`Product type ${updatedProductType.key} subscription attributes updated successfully.`);
           } catch (error) {
-            log.error(`Failed to update product type "${productTypeSubscription.key}":`, error);
+            log.error(`Failed to update product type "${productTypeSubscription.key}":`, { error: redactError(error) });
             throw error;
           }
         } else {
@@ -166,7 +167,7 @@ export async function createProductTypeSubscription(): Promise<void> {
           const newProductType = await createProductType(productTypeSubscription);
           log.info(`Product Type "${newProductType.key}" created successfully.`);
         } catch (error) {
-          log.error(`Failed to create product type "${productTypeSubscription.key}":`, error);
+          log.error(`Failed to create product type "${productTypeSubscription.key}":`, { error: redactError(error) });
           throw error;
         }
       }

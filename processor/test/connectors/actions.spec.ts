@@ -186,7 +186,9 @@ describe('Actions test', () => {
       const fn = jest.fn<() => Promise<void>>().mockReturnValue(Promise.reject(error));
 
       await expect(Actions.handleRequest({ loggerId, startMessage, fn })).rejects.toThrow('Test error');
-      expect(Logger.log.error).toHaveBeenCalledWith(loggerId, error);
+      expect(Logger.log.error).toHaveBeenCalledWith(loggerId, {
+        error: expect.objectContaining({ name: 'Error', message: 'Test error' }),
+      });
     });
 
     test('should log error and not throw when throwError is false', async () => {
@@ -196,7 +198,9 @@ describe('Actions test', () => {
       const fn = jest.fn<() => Promise<void>>().mockReturnValue(Promise.reject(error));
 
       await expect(Actions.handleRequest({ loggerId, startMessage, throwError: false, fn })).resolves.toBeUndefined();
-      expect(Logger.log.error).toHaveBeenCalledWith(loggerId, error);
+      expect(Logger.log.error).toHaveBeenCalledWith(loggerId, {
+        error: expect.objectContaining({ name: 'Error', message: 'Test error' }),
+      });
     });
   });
 
@@ -300,7 +304,7 @@ describe('Actions test', () => {
       expect(createProductTypeMock).toHaveBeenCalled();
       expect(Logger.log.error).toHaveBeenCalledWith(
         'Failed to create product type "payment-connector-subscription-information":',
-        expect.any(Error),
+        { error: expect.objectContaining({ name: 'Error', message: 'Creation failed' }) },
       );
     });
 
@@ -321,7 +325,7 @@ describe('Actions test', () => {
       expect(updateProductTypeMock).toHaveBeenCalled();
       expect(Logger.log.error).toHaveBeenCalledWith(
         'Failed to update product type "payment-connector-subscription-information":',
-        expect.any(Error),
+        { error: expect.objectContaining({ name: 'Error', message: 'Update failed' }) },
       );
     });
   });

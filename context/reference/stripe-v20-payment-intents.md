@@ -41,7 +41,7 @@ At create, the metadata is `sealCartTotal(cart, getPaymentMetadata(cart))`
 `processor/src/services/ct-payment-creation.service.ts:156-158` plus the sealed cart total. Keys are added to the
 subscription afterwards: `ct_payment_id` once the CT payment exists
 (`processor/src/services/ct-payment-creation.service.ts:134-140`), and `ct_order_id` once the order is created
-(`processor/src/services/stripe-payment.service.ts:2084-2089`).
+(`processor/src/services/stripe-payment.service.ts:2087-2092`).
 
 ### Key subscription statuses
 

@@ -6,6 +6,22 @@
 
 ## Latest
 
+### v1.7.11
+
+**Changed:**
+
+- Documentation and maintenance updates.
+
+**Fixed:**
+
+- A cart containing more than one subscription line item is now rejected when the subscription is created; one subscription per cart is enforced before any Stripe object is created.
+- Negative (credit) custom line items are now detected and skipped with a warning when billing a subscription's first invoice.
+- Cart custom line items such as setup fees and service charges are now billed on the subscription's first invoice.
+- The HTTP status of non-Stripe errors is now retained in sanitized error diagnostics, and the operations status endpoint reports a DOWN state using the sanitized error shape.
+- Error logging across the processor now records a sanitized set of diagnostic fields instead of raw error objects; HTTP responses are unchanged.
+
+---
+
 ### v1.7.10
 
 **Changed:**
