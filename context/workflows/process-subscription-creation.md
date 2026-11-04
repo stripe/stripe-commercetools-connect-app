@@ -117,13 +117,15 @@ Browser                    Enabler                 Processor               Strip
 ## Steps Detail
 
 ### POST /subscription key operations
+0. **Refuse what cannot be billed, before any Stripe object is created** (`prepareSubscriptionData()`): a cart with more than one subscription line item (`MultipleSubscriptionsNotSupported`, `assertSingleSubscriptionLineItem`), a cart with a **negative (credit)** custom line item (`NegativeCustomLineItemNotSupported`, `assertNoNegativeCustomLineItem`), and a cart with custom line items carrying a **discount that does not target the cart total** (`UnsupportedCartDiscountForCustomLineItems`, `assertFeeCartDiscountSupported`). Each throws `Errorx` 400 and logs the `ctCartId`.
 1. Read cart from CT → extract subscription line item + one-time items
 2. Read subscription attributes from product variant (`subscription-mapper.ts`)
-3. Create Stripe prices for each one-time item (`getAllLineItemPrices()`)
+3. Create Stripe prices for each one-time item, and **bill the cart's `customLineItems`** (ad-hoc fees / service charges) via `price_data` at their `totalPrice`, `quantity: 1`, a Stripe Product reused per `slug` (`getAllLineItemPrices()`, `business-rules/mixed-carts.md` Rule 5)
 4. Create shipping price if cart has shippingInfo (recurring, same interval as subscription)
 5. Call `subscriptions.create()` with:
    - `items`: subscription price + shipping price (if any)
-   - `add_invoice_items`: one-time prices
+   - `add_invoice_items`: one-time prices + custom-line-item fees
+   - `discounts`: the Stripe coupon per applicable discount code (`getStripeCoupons()`; coupon id = discount code id — on a fee cart only a total-price discount reaches here, see step 0)
    - `payment_behavior: default_incomplete`, expanding `latest_invoice.confirmation_secret` (`processor/src/services/stripe-subscription.service.ts:189-191`) → the client secret is read from `latest_invoice.confirmation_secret.client_secret`, and the PaymentIntent id is derived from it (`processor/src/services/stripe-subscription.service.ts:451-458`)
    - Trial settings, billing cycle anchor, cancel_at, proration behavior (from variant attributes)
 6. Create CT Payment
@@ -176,6 +178,9 @@ Browser                    Enabler                 Processor               Strip
 
 | Error | Cause | CT/Cart State |
 |---|---|---|
+| `MultipleSubscriptionsNotSupported` (400) | Cart carries more than one subscription line item (`assertSingleSubscriptionLineItem`) | Refused in `prepareSubscriptionData()` before any Stripe object; no CT Payment, cart untouched |
+| `NegativeCustomLineItemNotSupported` (400) | Cart carries a negative (credit) custom line item (`assertNoNegativeCustomLineItem`) | Refused in `prepareSubscriptionData()` before any Stripe object; no CT Payment, cart untouched |
+| `UnsupportedCartDiscountForCustomLineItems` (400) | Cart with custom line items carries a discount that does not target the cart total (`assertFeeCartDiscountSupported`) | Refused in `prepareSubscriptionData()` before any Stripe object; no CT Payment, cart untouched |
 | `subscriptions.create()` fails | Stripe API error | No CT Payment; cart unfrozen |
 | `createPayment()` fails | CT API error | Stripe subscription created; cart not frozen |
 | `confirmPayment()` fails | Card declined | CT Payment keeps only its creation-time `Authorization` transaction in state `Initial` (`processor/src/services/ct-payment-creation.service.ts:50-56`, `PaymentOutcome.INITIAL = 'Initial'` at `processor/src/dtos/stripe-payment.dto.ts:29`); cart remains frozen |

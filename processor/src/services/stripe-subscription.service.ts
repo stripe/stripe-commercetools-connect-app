@@ -192,10 +192,7 @@ export class StripeSubscriptionService {
           payment_settings: { save_default_payment_method: 'on_subscription' },
           expand: ['latest_invoice.confirmation_secret'],
           metadata: this.sealCartTotal(cart, this.paymentCreationService.getPaymentMetadata(cart)),
-          discounts: await this.stripeCouponService.getStripeCoupons(
-            cart,
-            (cart.customLineItems ?? []).length ? await this.getDiscountableProductIds(cart) : undefined,
-          ),
+          discounts: await this.stripeCouponService.getStripeCoupons(cart),
         },
         { idempotencyKey: this.buildSubscriptionIdempotencyKey(cart) },
       );
@@ -301,10 +298,7 @@ export class StripeSubscriptionService {
           expand: ['latest_invoice'],
           payment_settings: { save_default_payment_method: 'on_subscription' },
           metadata: this.sealCartTotal(cart, this.paymentCreationService.getPaymentMetadata(cart)),
-          discounts: await this.stripeCouponService.getStripeCoupons(
-            cart,
-            (cart.customLineItems ?? []).length ? await this.getDiscountableProductIds(cart) : undefined,
-          ),
+          discounts: await this.stripeCouponService.getStripeCoupons(cart),
         },
         { idempotencyKey: this.buildSubscriptionIdempotencyKey(cart, setupIntentId) },
       );
@@ -421,6 +415,7 @@ export class StripeSubscriptionService {
 
     this.assertSingleSubscriptionLineItem(cart);
     this.assertNoNegativeCustomLineItem(cart);
+    this.assertFeeCartDiscountSupported(cart);
 
     const subscriptionLineItem = this.findSubscriptionLineItem(cart);
 
@@ -810,23 +805,16 @@ export class StripeSubscriptionService {
 
     // Custom line items carry no productId / variant.sku / price.id, so getLineItemPriceId cannot price
     // them. They are billed via `price_data` with a Stripe Product reused per slug and no `tax_behavior`
-    // (the invoice stays tax-free and comparable to the cart total). The amount depends on whether a
-    // translated cart coupon will discount this item: when a coupon reaches custom line items (a discount
-    // targeting the cart total or the custom line items), the item is billed at its pre-discount
-    // `money × quantity` and the coupon applies the discount once. Otherwise — a product/shipping-only
-    // discount (which is scoped off the item via the coupon's `applies_to`, see getStripeCoupons), a
-    // code-less direct discount, or no discount — no coupon reduces it, so it is billed at `totalPrice`,
-    // the exact net commercetools already computed. A negative (credit) custom line item is rejected
-    // earlier, in prepareSubscriptionData, before any Stripe object exists.
-    const couponDiscountsCustomLineItems = this.couponWillDiscountCustomLineItems(cart);
+    // (the invoice stays tax-free and comparable to the cart total). Each is billed at its `totalPrice`
+    // as a single unit: a code-less direct discount is already netted into `totalPrice`, so it is kept;
+    // and a total-price discount code lives in `cart.discountOnTotalPrice` — not in the fee's `totalPrice`
+    // — so the invoice-wide Stripe coupon applies it exactly once and never twice. A cart that carries
+    // custom line items together with a discount the invoice-wide coupon cannot represent that way (any
+    // target other than the cart total) is refused earlier in prepareSubscriptionData
+    // (assertFeeCartDiscountSupported), as is a negative (credit) custom line item — so by here only a
+    // total-price discount, a code-less direct discount, or no discount can reach a fee.
     for (const customLineItem of cart.customLineItems ?? []) {
-      // When the coupon reaches the item, bill the per-unit `money` × the line item `quantity`; otherwise
-      // bill the already-discounted `totalPrice` (money × quantity minus any discount) as a single unit.
-      const unitAmount = couponDiscountsCustomLineItems
-        ? customLineItem.money.centAmount
-        : customLineItem.totalPrice.centAmount;
-      const quantity = couponDiscountsCustomLineItems ? (customLineItem.quantity ?? 1) : 1;
-
+      const unitAmount = customLineItem.totalPrice.centAmount;
       if (unitAmount <= 0) {
         // Nothing to bill (a zero item; a credit was already rejected in prepareSubscriptionData).
         continue;
@@ -839,57 +827,11 @@ export class StripeSubscriptionService {
           product: stripeProductId,
           unit_amount: unitAmount,
         },
-        quantity,
+        quantity: 1,
       });
     }
 
     return invoiceItems;
-  }
-
-  /**
-   * Whether a translated cart coupon will discount the custom-line-item invoice items.
-   *
-   * A CT discount code becomes a Stripe coupon that, by Stripe's inheritance rules, would discount the
-   * whole first invoice. commercetools only reduces a custom line item when the cart discount targets the
-   * cart total or the custom line items. So a coupon is left on the custom line items (and the item billed
-   * at its pre-discount money × quantity) only when an applicable discount targets the total or the custom
-   * line items; a product/shipping-only discount is scoped off the item via the coupon's `applies_to`
-   * (getStripeCoupons / getDiscountableProductIds) and the item is billed at its already-discounted
-   * totalPrice. A pattern or unexpanded target is treated conservatively as reaching the item (coupon left
-   * on, billed at money), keeping the previous behaviour rather than risking an overcharge.
-   */
-  public couponWillDiscountCustomLineItems(cart: Cart): boolean {
-    return cart.discountCodes
-      .filter((code) => code.state === 'MatchesCart')
-      .some((code) => {
-        const cartDiscounts = code.discountCode.obj?.cartDiscounts;
-        // An unexpanded discount code: assume conservatively that it reaches custom line items.
-        if (!cartDiscounts) {
-          return true;
-        }
-        return cartDiscounts.some((cartDiscount) => {
-          const target = cartDiscount.obj?.target?.type;
-          return (
-            target === undefined || // unexpanded cart discount → conservative "reaches"
-            target === 'pattern' ||
-            target === 'totalPrice' ||
-            target === 'customLineItems' ||
-            target === 'multiBuyCustomLineItems'
-          );
-        });
-      });
-  }
-
-  /**
-   * The Stripe Product ids a cart coupon may legitimately discount: the subscription product and the
-   * regular (non-custom) line-item products. Custom line items are deliberately excluded — `cart.lineItems`
-   * never contains them. Used as `applies_to.products` on a per-cart coupon when a discount targets
-   * products/shipping only, so the coupon is kept off the custom-line-item fees. `getStripeProduct` is
-   * find-or-create keyed by productId, so re-resolving here returns the same ids without churning Products.
-   */
-  public async getDiscountableProductIds(cart: Cart): Promise<string[]> {
-    const ids = await Promise.all(cart.lineItems.map((lineItem) => this.getStripeProduct({ product: lineItem })));
-    return [...new Set(ids)];
   }
 
   /**
@@ -1368,6 +1310,60 @@ export class StripeSubscriptionService {
         'Remove the negative custom line item and try again.',
       httpErrorStatus: 400,
       fields: { ctCartId: cart.id, customLineItemSlug: negative.slug, unitAmount: negative.money.centAmount },
+    });
+  }
+
+  /**
+   * On a cart that carries custom line items (fees), the only cart discount the subscription's invoice-wide
+   * Stripe coupon can represent correctly is one that targets the cart **total**: commercetools records a
+   * total-price discount in `cart.discountOnTotalPrice` — not in any item's `totalPrice` — so the coupon
+   * applies it once across the whole first invoice, fees included, and the invoice still equals
+   * `cart.totalPrice`.
+   *
+   * Any other target (lineItems, customLineItems, shipping, multi-buy, pattern, or an unexpanded discount
+   * whose target cannot be read) discounts a different scope than the invoice-wide coupon does. On a
+   * discounted invoice the first-cycle amount guard is exempt (`hasDiscountedInvoice`) and the cart-drift
+   * guard cannot fire on an unchanged cart, so the mismatch mints a Paid order for an amount Stripe did not
+   * collect. Rather than mis-scope the coupon, refuse the cart here — before any Stripe object is created,
+   * next to the single-subscription and negative-credit assertions. Representing a partial-scope discount on
+   * a fee cart is a separate product decision (follow-up), not a silent mischarge. commercetools, not the
+   * code's own configuration, remains the authority on what a discount applies to (CLAUDE.md Coding Rules).
+   *
+   * A cart with no custom line items is unaffected: the coupon already discounts the whole invoice, which
+   * equals the cart total, so every target is fine.
+   */
+  private assertFeeCartDiscountSupported(cart: Cart): void {
+    if (!(cart.customLineItems ?? []).length) {
+      return;
+    }
+
+    const unsupported = cart.discountCodes
+      .filter((code) => code.state === 'MatchesCart')
+      .find((code) => {
+        const cartDiscounts = code.discountCode.obj?.cartDiscounts;
+        // Unexpanded (target unreadable) or any non-total-price target is not representable here.
+        return !cartDiscounts || cartDiscounts.some((cd) => cd.obj?.target?.type !== 'totalPrice');
+      });
+
+    if (!unsupported) {
+      return;
+    }
+
+    const targets = (unsupported.discountCode.obj?.cartDiscounts ?? [])
+      .map((cd) => cd.obj?.target?.type ?? 'unknown')
+      .join(', ');
+    log.warn('Subscription creation rejected: a cart with custom line items carries a non-total-price discount.', {
+      ctCartId: cart.id,
+      ctDiscountCodeId: unsupported.discountCode.id,
+      discountTargets: targets || 'unknown',
+    });
+    throw new Errorx({
+      code: 'UnsupportedCartDiscountForCustomLineItems',
+      message:
+        'On a cart with custom line items, only a discount that targets the cart total is supported. ' +
+        'Remove the custom line item(s) or use a total-price discount and try again.',
+      httpErrorStatus: 400,
+      fields: { ctCartId: cart.id, ctDiscountCodeId: unsupported.discountCode.id, discountTargets: targets || 'unknown' },
     });
   }
 

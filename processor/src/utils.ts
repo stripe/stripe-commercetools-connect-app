@@ -239,8 +239,10 @@ export const isConcurrentModificationError = (error: unknown): boolean => {
 // Safe-to-log fields a Stripe/commercetools error may carry — read from the error, then from `.raw`.
 // `httpErrorStatus` is where connect-payments-sdk's `Errorx` keeps the HTTP status (it has no
 // `statusCode`); without it the redacted log drops the status for non-Stripe errors.
-// `privateMessage` / `privateFields` are the Errorx server-side diagnostic (e.g. a JWT issuer); they are
-// never sent to the client, but they must reach the log, so they are whitelisted here.
+// The Errorx server-side diagnostics `privateMessage` / `privateFields` are deliberately NOT whitelisted:
+// SB3-237 scopes this helper to type/message/code/statusCode/requestId/decline_code and keeps private
+// Errorx fields out of the logs. (They carry commercetools/auth diagnostics, not secrets, but the ticket's
+// scope excludes them; logging a specific field is a separate, scoped decision.)
 const SAFE_ERROR_FIELDS = [
   'code',
   'statusCode',
@@ -250,8 +252,6 @@ const SAFE_ERROR_FIELDS = [
   'decline_code',
   'param',
   'doc_url',
-  'privateMessage',
-  'privateFields',
 ] as const;
 
 // Surface an Error's whitelisted fields (name/message + SAFE_ERROR_FIELDS, each read from the error

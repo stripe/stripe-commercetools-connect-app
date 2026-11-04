@@ -539,4 +539,18 @@ describe('redactError (SB3-237)', () => {
     expect(safe).toMatchObject({ name: 'ErrorGeneral', code: 'InvalidInput', httpErrorStatus: 400 });
     expect(safe).not.toHaveProperty('statusCode');
   });
+
+  test('does not surface the private Errorx diagnostics privateMessage / privateFields (SB3-237 scope)', () => {
+    const errorx = Object.assign(new Error('Auth failed'), {
+      name: 'ErrorAuthErrorResponse',
+      code: 'invalid_token',
+      httpErrorStatus: 401,
+      privateMessage: 'expected issuer https://a, got https://b',
+      privateFields: { issuer: 'https://b', clientId: 'cid', session: '{"customerId":"c1"}' },
+    });
+    const safe = redactError(errorx) as Record<string, unknown>;
+    expect(safe).toMatchObject({ code: 'invalid_token', httpErrorStatus: 401 });
+    expect(safe).not.toHaveProperty('privateMessage');
+    expect(safe).not.toHaveProperty('privateFields');
+  });
 });

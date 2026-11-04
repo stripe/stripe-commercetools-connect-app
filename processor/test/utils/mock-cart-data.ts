@@ -376,8 +376,8 @@ export const customLineItemDiscounted: CustomLineItem = {
 };
 
 // A `MatchesCart` discount code whose single cart discount has the given target type — for asserting
-// whether the Stripe coupon is kept ON (totalPrice / customLineItems) or OFF (lineItems / shipping) the
-// custom-line-item invoice items.
+// which discount targets a cart with custom line items accepts (only `totalPrice`) vs refuses (everything
+// else), in assertFeeCartDiscountSupported.
 export const mockDiscountCodeInfo = (targetType: CartDiscountTarget['type'], id = 'dc-1'): DiscountCodeInfo => ({
   discountCode: {
     typeId: 'discount-code',

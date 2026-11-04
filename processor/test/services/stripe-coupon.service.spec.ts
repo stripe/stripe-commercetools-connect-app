@@ -550,12 +550,11 @@ describe('StripeCouponService', () => {
     });
   });
 
-  // R-051/R-030/KI-080: when a cart carries custom line items AND a discount that does NOT reach them,
-  // the Stripe coupon must be scoped off the custom-line-item fees via `applies_to.products` (Stripe omits
-  // an empty `discounts: []`, so per-item exclusion is a no-op). The coupon is cart-specific so the shared
-  // id stays unscoped for the common case.
-  describe('getStripeCoupons — custom line item exclusion via applies_to.products', () => {
-    const cartWith = (targetType: string | undefined) => ({
+  // The Stripe coupon id is the CT discount code id, with no `applies_to` scoping. A cart carrying custom
+  // line items only reaches here with a total-price discount (any other target is refused upstream in
+  // prepareSubscriptionData), so the invoice-wide coupon discounts the whole first invoice correctly.
+  describe('getStripeCoupons — coupon id is the discount code id, unscoped', () => {
+    const cartWith = (targetType: string) => ({
       id: 'cart-xyz',
       totalPrice: { type: 'centPrecision', currencyCode: 'USD', centAmount: 10000, fractionDigits: 2 },
       customLineItems: [{ id: 'cli-1', money: { centAmount: 500, currencyCode: 'USD' } }],
@@ -566,55 +565,21 @@ describe('StripeCouponService', () => {
             id: 'discount-123',
             obj: {
               id: 'discount-123',
-              cartDiscounts: [
-                {
-                  obj: {
-                    value: { type: 'relative', permyriad: 1000 },
-                    ...(targetType ? { target: { type: targetType } } : {}),
-                  },
-                },
-              ],
+              cartDiscounts: [{ obj: { value: { type: 'relative', permyriad: 1000 }, target: { type: targetType } } }],
             },
           },
         },
       ],
     });
 
-    it('scopes a product-only discount off the custom line items with a cart-specific coupon', async () => {
+    it('creates the coupon under the discount code id with no applies_to, on a fee cart', async () => {
       mockStripe.coupons.retrieve.mockRejectedValue(new Error('No such coupon')); // forces create
-      mockStripe.coupons.create.mockResolvedValue({ id: 'discount-123-cart-xyz' });
-
-      const result = await service.getStripeCoupons(cartWith('lineItems'), ['prod_A', 'prod_B']);
-
-      expect(result).toEqual([{ coupon: 'discount-123-cart-xyz' }]);
-      // Cart-specific id + applies_to restricted to the discountable products (fees excluded).
-      expect(mockStripe.coupons.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'discount-123-cart-xyz',
-          applies_to: { products: ['prod_A', 'prod_B'] },
-        }),
-      );
-    });
-
-    it('keeps the shared coupon (no applies_to) when the discount reaches the custom line items', async () => {
-      mockStripe.coupons.retrieve.mockRejectedValue(new Error('No such coupon'));
       mockStripe.coupons.create.mockResolvedValue({ id: 'discount-123' });
 
-      const result = await service.getStripeCoupons(cartWith('totalPrice'), ['prod_A']);
+      const result = await service.getStripeCoupons(cartWith('totalPrice'));
 
       expect(result).toEqual([{ coupon: 'discount-123' }]);
       expect(mockStripe.coupons.create).toHaveBeenCalledWith(expect.objectContaining({ id: 'discount-123' }));
-      expect(mockStripe.coupons.create.mock.calls[0][0]).not.toHaveProperty('applies_to');
-    });
-
-    it('keeps the shared coupon when the cart carries no custom line items', async () => {
-      const cart = { ...cartWith('lineItems'), customLineItems: [] };
-      mockStripe.coupons.retrieve.mockRejectedValue(new Error('No such coupon'));
-      mockStripe.coupons.create.mockResolvedValue({ id: 'discount-123' });
-
-      const result = await service.getStripeCoupons(cart, undefined);
-
-      expect(result).toEqual([{ coupon: 'discount-123' }]);
       expect(mockStripe.coupons.create.mock.calls[0][0]).not.toHaveProperty('applies_to');
     });
   });

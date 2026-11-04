@@ -22,10 +22,7 @@ export class StripeCouponService {
    * `ApplicationStoppedByPreviousDiscount`, which never reaches this loop. Every code that does reach
    * it is one commercetools put into the cart total, so every one of them is translated.
    */
-  public async getStripeCoupons(
-    cart: Cart,
-    discountableProductIds?: string[],
-  ): Promise<Stripe.SubscriptionCreateParams.Discount[] | undefined> {
+  public async getStripeCoupons(cart: Cart): Promise<Stripe.SubscriptionCreateParams.Discount[] | undefined> {
     if (!cart.discountCodes.length) {
       return undefined;
     }
@@ -33,7 +30,6 @@ export class StripeCouponService {
     const coupons: Stripe.SubscriptionCreateParams.Discount[] = [];
     // An absolute CT discount carries one amount per currency; only the cart's own is meaningful here.
     const cartCurrency = cart.totalPrice.currencyCode;
-    const hasCustomLineItems = (cart.customLineItems ?? []).length > 0;
 
     for (const code of cart.discountCodes) {
       this.assertOrderableWithCode(code);
@@ -52,21 +48,13 @@ export class StripeCouponService {
         throw new Error(`Discount "${code.discountCode.id}" has multiple cart discounts. Not supported by Stripe.`);
       }
 
-      // When this discount does not target custom line items but the cart carries them, scope the Stripe
-      // coupon to the discountable products (`applies_to.products`) so it does not reach the custom-line-item
-      // fees (which commercetools did not discount). Stripe cannot per-item-exclude from a subscription
-      // coupon, so this uses a cart-specific coupon id; the shared `discountCode.id` coupon is kept for the
-      // common case. (KI-080.)
-      const excludeCustomLineItems = hasCustomLineItems && !this.discountReachesCustomLineItems(discountCode);
-      const couponId = excludeCustomLineItems ? `${discountCode.id}-${cart.id}` : discountCode.id;
-      const appliesToProducts = excludeCustomLineItems ? (discountableProductIds ?? []) : undefined;
-
-      const stripeDiscount = await this.getStripeCouponById(couponId);
+      // The Stripe coupon id is the CT discount code id. On a cart carrying custom line items only a
+      // total-price discount reaches here (prepareSubscriptionData refuses any other target before any
+      // Stripe object exists), so an invoice-wide coupon discounts the whole first invoice exactly as the
+      // total-price CartDiscount discounts the whole cart — no per-item scoping is needed.
+      const stripeDiscount = await this.getStripeCouponById(discountCode.id);
       coupons.push({
-        coupon: await this.resolveStripeCoupon(discountCode, stripeDiscount, cartCurrency, {
-          couponId,
-          appliesToProducts,
-        }),
+        coupon: await this.resolveStripeCoupon(discountCode, stripeDiscount, cartCurrency),
       });
     }
 
@@ -161,17 +149,14 @@ export class StripeCouponService {
     discount: DiscountCode,
     stripeDiscount: Stripe.Coupon | undefined,
     cartCurrency: string,
-    options?: { couponId?: string; appliesToProducts?: string[] },
   ): Promise<string> {
-    const couponId = options?.couponId ?? discount.id;
-
     if (!stripeDiscount || stripeDiscount.deleted) {
-      return this.createStripeDiscountCode(discount, cartCurrency, options);
+      return this.createStripeDiscountCode(discount, cartCurrency);
     }
 
     if (this.hasDivergentConfig(discount, stripeDiscount, cartCurrency)) {
-      await this.deleteStripeDiscountCode(couponId);
-      return this.createStripeDiscountCode(discount, cartCurrency, options);
+      await this.deleteStripeDiscountCode(discount.id);
+      return this.createStripeDiscountCode(discount, cartCurrency);
     }
 
     if (stripeDiscount.valid) {
@@ -203,43 +188,18 @@ export class StripeCouponService {
    * cap was reached, which is what drove the delete-and-recreate that reset the counter. The Stripe
    * coupon exists to carry the price onto the invoice, not to enforce the limit. See ADR-018.
    */
-  public async createStripeDiscountCode(
-    discount: DiscountCode,
-    cartCurrency: string,
-    options?: { couponId?: string; appliesToProducts?: string[] },
-  ): Promise<string> {
+  public async createStripeDiscountCode(discount: DiscountCode, cartCurrency: string): Promise<string> {
     const { expirationDate, currency, amount, name } = this.getDiscountConfig(discount, cartCurrency);
 
     const newDiscount = await stripe.coupons.create({
-      id: options?.couponId ?? discount.id,
+      id: discount.id,
       name,
       currency,
       duration: 'once',
       redeem_by: expirationDate,
-      // Scope a product/shipping-only discount to the discountable products so it does not reach the
-      // custom-line-item fees. Only set when excluding, so the common shared coupon is unchanged.
-      ...(options?.appliesToProducts?.length ? { applies_to: { products: options.appliesToProducts } } : {}),
       ...amount,
     });
     return newDiscount.id;
-  }
-
-  /**
-   * Whether this discount's cart discount targets the custom line items (directly, as part of the cart
-   * total, or a pattern/unexpanded target treated conservatively as reaching them). When it does not — a
-   * products- or shipping-only discount — the Stripe coupon must be scoped off the custom-line-item fees.
-   */
-  private discountReachesCustomLineItems(discount: DiscountCode): boolean {
-    return (discount.cartDiscounts ?? []).some((cartDiscount) => {
-      const target = cartDiscount.obj?.target?.type;
-      return (
-        target === undefined ||
-        target === 'pattern' ||
-        target === 'totalPrice' ||
-        target === 'customLineItems' ||
-        target === 'multiBuyCustomLineItems'
-      );
-    });
   }
 
   /**

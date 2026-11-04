@@ -12,7 +12,7 @@ Discount codes applied to a CT cart are synchronized to Stripe coupons when a su
 
 **Invariant:** Coupons are applied once, at subscription creation. Changes to CT discount codes after subscription creation are NOT automatically reflected on the Stripe subscription.
 
-**Implementation:** `stripe-subscription.service.ts` lines 193 and 299 — `discounts: await this.stripeCouponService.getStripeCoupons(cart)`.
+**Implementation:** `stripe-subscription.service.ts` — the `discounts: await this.stripeCouponService.getStripeCoupons(cart)` argument built for each `subscriptions.create()` call (the direct and SetupIntent paths). The Stripe coupon id is the CT discount code id, unscoped (`stripe-coupon.service.ts` → `createStripeDiscountCode`); on a cart carrying custom line items only a total-price discount reaches here, the rest refused upstream (`mixed-carts.md` Rule 5).
 
 ---
 
