@@ -847,7 +847,46 @@ describe('stripe-subscription.service.payment', () => {
     });
   });
 
-  describe('race condition handling in createSubscriptionOrderFromCart', () => {
+  // ADR-026 addendum (2026-11-10): any anchor that is not free prorates (create_prorations and always_invoice alike —
+  // measured, E4a / E18), so the confirm records what Stripe charged, and A6 refuses a code on both.
+  describe('prorated anchors: create_prorations and always_invoice', () => {
+    const anchor = { customer: mockStripeCustomerId, billing_cycle_anchor: 1800000000 };
+
+    test.each([
+      ['create_prorations', true],
+      ['always_invoice', true],
+      ['none', false],
+    ] as const)('an anchor with proration_behavior %s prorates: %s', (behavior, prorates) => {
+      const types = stripeSubscriptionService.getSubscriptionTypes({ ...anchor, proration_behavior: behavior });
+      expect(types.hasProrations).toBe(prorates);
+      expect(types.hasFreeAnchorDays).toBe(!prorates);
+    });
+
+    test('no anchor never prorates, whatever proration_behavior says', () => {
+      expect(
+        stripeSubscriptionService.getSubscriptionTypes({
+          customer: mockStripeCustomerId,
+          proration_behavior: 'always_invoice',
+        }).hasProrations,
+      ).toBe(false);
+    });
+
+    test('an always_invoice anchor records the amount Stripe charged (amount_paid), not the cart total', async () => {
+      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockResolvedValue({
+        id: 'payment_123',
+        amountPlanned: { centAmount: 4000, currencyCode: 'USD', fractionDigits: 2 },
+      } as Payment);
+
+      const result = await stripeSubscriptionService.getCurrentPayment({
+        invoice: { ...mockInvoice, amount_paid: 1968 } as typeof mockInvoice,
+        paymentReference: 'paymentReference',
+        subscriptionParams: { ...anchor, proration_behavior: 'always_invoice' },
+      });
+      expect(result.amountPlanned.centAmount).toBe(1968);
+    });
+  });
+
+  describe('version conflict handling in createSubscriptionOrderFromCart', () => {
     test('should log info (not error) when second handler hits version conflict during order creation', async () => {
       const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
 
@@ -903,14 +942,14 @@ describe('stripe-subscription.service.payment', () => {
         discountCodes: [],
       } as any);
 
-      // Simulate version conflict (race condition - other handler already created the order)
+      // Simulate version conflict (concurrent write - other handler already created the order)
       jest
         .spyOn(StripePaymentService.prototype, 'createOrder')
         .mockRejectedValue(new Error('ConcurrentModification: Object version does not match'));
 
       await stripeSubscriptionService.processSubscriptionEventPaid(mockEvent);
 
-      // Should log info about the race condition, NOT error
+      // Should log info about the version conflict, NOT error
       expect(Logger.log.info).toHaveBeenCalledWith(
         'Subscription order creation skipped due to version conflict (likely race condition with another handler)',
         expect.objectContaining({
@@ -1227,7 +1266,7 @@ describe('stripe-subscription.service.payment', () => {
     });
   });
 
-  describe('KI-003 — redelivery only on transient errors', () => {
+  describe('redelivery only on transient errors', () => {
     const event: Stripe.Event = mockEvent__invoice_paid__simple;
 
     test('rethrows a transient CT-write failure so the route 500s and Stripe redelivers', async () => {

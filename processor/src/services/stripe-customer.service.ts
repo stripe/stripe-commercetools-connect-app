@@ -13,7 +13,7 @@ import { getCartIdFromContext } from '../libs/fastify/context/context';
 import { stripeApi, wrapStripeError } from '../clients/stripe.client';
 import { log } from '../libs/logger';
 import { stripeCustomerIdFieldName, stripeCustomerIdCustomType } from '../custom-types/custom-types';
-import { isValidUUID } from '../utils';
+import { isValidUUID, redactError } from '../utils';
 import { getCustomFieldUpdateActions } from './commerce-tools/custom-type-helper';
 import { getCustomerById, updateCustomerById } from './commerce-tools/customer-client';
 import { METADATA_CUSTOMER_ID_FIELD } from '../constants';
@@ -114,7 +114,7 @@ export class StripeCustomerService {
       const customer = await stripe.customers.retrieve(stripeCustomerId);
       return Boolean(customer && !customer.deleted && customer.metadata?.[METADATA_CUSTOMER_ID_FIELD] === ctCustomerId);
     } catch (e) {
-      log.warn('Error validating Stripe customer ID', { error: e });
+      log.warn('Error validating Stripe customer ID', { error: redactError(e) });
       return false;
     }
   }
@@ -129,7 +129,7 @@ export class StripeCustomerService {
       const customer = await stripe.customers.search({ query });
       return customer.data[0];
     } catch (e) {
-      log.warn(`Error finding Stripe customer for ctCustomerId: ${ctCustomerId}`, { error: e });
+      log.warn(`Error finding Stripe customer for ctCustomerId: ${ctCustomerId}`, { error: redactError(e) });
       return undefined;
     }
   }
@@ -195,7 +195,7 @@ export class StripeCustomerService {
     try {
       return await getCustomerById(ctCustomerId);
     } catch (error) {
-      log.warn(`Customer not found "${ctCustomerId}"`, { error });
+      log.warn(`Customer not found "${ctCustomerId}"`, { error: redactError(error) });
       return;
     }
   }

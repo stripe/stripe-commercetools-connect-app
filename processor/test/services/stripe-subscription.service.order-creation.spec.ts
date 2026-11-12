@@ -21,6 +21,7 @@ import { DefaultPaymentService } from '@commercetools/connect-payments-sdk/dist/
 import * as Config from '../../src/config/config';
 import Stripe from 'stripe';
 import { METADATA_PAYMENT_ID_FIELD, METADATA_CUSTOMER_ID_FIELD, METADATA_CART_ID_FIELD } from '../../src/constants';
+import * as PaymentClient from '../../src/services/commerce-tools/payment-client';
 
 jest.mock('../../src/libs/logger', () => ({
   log: {
@@ -74,7 +75,7 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
   };
 
   /**
-   * An expanded invoice in the configuration the underpayment guard hard-blocks: first cycle,
+   * An expanded invoice in the configuration the amount guard hard-blocks: first cycle,
    * charge_automatically, no trial, real money collected. Override a single field to step outside it
    * and assert the log-only behaviour instead. `trial_end` is lifted onto the subscription, which is
    * where the guard reads it.
@@ -88,11 +89,16 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
 
   const guardedInvoice = (overrides: Record<string, unknown> = {}) => {
     const { trial_end, sealedTotal, sealedCurrency, ...invoiceOverrides } = overrides as GuardedInvoiceOverrides;
+    // The guard compares the invoice `total` (ADR-026 addendum, A7). With no customer balance Stripe collects
+    // exactly the total, so `total` follows `amount_paid` unless a test sets it apart (a balance case).
+    const amountPaid = (invoiceOverrides.amount_paid as number | undefined) ?? 2000;
     return {
       ...mockInvoiceExpanded__simple,
       billing_reason: 'subscription_create',
       collection_method: 'charge_automatically',
       amount_paid: 2000,
+      total: amountPaid,
+      starting_balance: 0,
       currency: 'usd',
       parent: {
         subscription_details: {
@@ -189,7 +195,7 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
     jest.restoreAllMocks();
   });
 
-  describe('Race condition handling (invoice.paid vs charge.succeeded)', () => {
+  describe('Version conflict handling (invoice.paid vs charge.succeeded)', () => {
     test('should log info (not error) when version conflict occurs during order creation', async () => {
       // Simulate: first handler created the order, second handler hits version conflict
       const mockEvent: Stripe.Event = mockEvent__invoice_paid__simple;
@@ -247,7 +253,7 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
         version: 2,
       } as any);
 
-      // Mock createOrder throws version conflict (race condition - other handler already created order)
+      // Mock createOrder throws version conflict (concurrent write - other handler already created order)
       jest
         .spyOn(StripePaymentService.prototype, 'createOrder')
         .mockRejectedValue(new Error('ConcurrentModification: version mismatch'));
@@ -753,7 +759,7 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
     });
 
     // This case used to assert warn-AND-CONTINUE: an unfrozen, enlarged cart still minted a Paid
-    // order. That is the reported vulnerability (KI-054), so the expectation is now warn-AND-BLOCK.
+    // order. That is the reported risk, so the expectation is now warn-AND-BLOCK.
     // The warning stays — it is a useful signal — but it is no longer the only reaction.
     test('should warn AND block the order when an unfrozen cart no longer matches what was collected', async () => {
       const cartClient = require('../../src/services/commerce-tools/cart-client');
@@ -767,7 +773,7 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
       jest.spyOn(DefaultPaymentService.prototype, 'hasTransactionInState').mockReturnValue(true);
       jest.spyOn(DefaultPaymentService.prototype, 'updatePayment').mockResolvedValue(mockPayment__subscription_success);
 
-      // The exploit: €20.00 collected, then the cart is enlarged to €70.00 before invoice.paid lands.
+      // The scenario: €20.00 collected, then the cart is enlarged to €70.00 before invoice.paid lands.
       jest
         .spyOn(paymentSDK.ctCartService, 'getCartByPaymentId')
         .mockResolvedValue(guardedCart({ centAmount: 7000 }) as any);
@@ -789,7 +795,7 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
     });
   });
 
-  describe('Subscription underpayment guard (KI-054)', () => {
+  describe('Subscription amount guard', () => {
     beforeEach(() => {
       const cartClient = require('../../src/services/commerce-tools/cart-client');
       cartClient.isCartFrozen.mockReturnValue(true);
@@ -836,6 +842,164 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
       );
     });
 
+    // ADR-027: a blocked paid first cycle is HELD — collection paused in Stripe, the CT payment flagged — so the
+    // subscription does not keep renewing with no order. Nothing is refunded, cancelled or overwritten.
+    describe('hold on a blocked first cycle (ADR-027)', () => {
+      const flagSpy = () =>
+        jest.spyOn(PaymentClient, 'setPaymentStatusInterface').mockResolvedValue(mockPayment__subscription_success);
+
+      beforeEach(() => {
+        jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockResolvedValue(mockPayment__subscription_success);
+      });
+
+      test('an amount block pauses collection (keep_as_draft) with a derived key, and flags the CT payment', async () => {
+        const flag = flagSpy();
+        const createOrderSpy = await runPaidEvent(guardedInvoice(), guardedCart({ centAmount: 7000 }));
+
+        expect(createOrderSpy).not.toHaveBeenCalled();
+        expect(Stripe.prototype.subscriptions.update).toHaveBeenCalledTimes(1);
+        expect(Stripe.prototype.subscriptions.update).toHaveBeenCalledWith(
+          'sub_123',
+          {
+            pause_collection: { behavior: 'keep_as_draft' },
+            metadata: { ct_order_blocked: 'amount-mismatch', ct_order_blocked_invoice: expect.any(String) },
+          },
+          { idempotencyKey: expect.stringMatching(/^hold-.+-amount-mismatch$/) },
+        );
+        expect(flag).toHaveBeenCalledWith(
+          expect.anything(),
+          'subscription_order_blocked',
+          expect.stringContaining('amount-mismatch'),
+        );
+      });
+
+      test('a drift block holds too, with its own reason', async () => {
+        flagSpy();
+        await runPaidEvent(guardedInvoice({ sealedTotal: 2000 }), guardedCart({ centAmount: 2500 }));
+
+        expect(Stripe.prototype.subscriptions.update).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.objectContaining({ metadata: expect.objectContaining({ ct_order_blocked: 'cart-drift' }) }),
+          expect.anything(),
+        );
+      });
+
+      test('an unblocked first cycle is not held', async () => {
+        const flag = flagSpy();
+        const createOrderSpy = await runPaidEvent(guardedInvoice(), guardedCart({ centAmount: 2000 }));
+
+        expect(createOrderSpy).toHaveBeenCalled();
+        expect(Stripe.prototype.subscriptions.update).not.toHaveBeenCalled();
+        expect(flag).not.toHaveBeenCalled();
+      });
+
+      test('a mismatch the guard only logs (trial) is not held', async () => {
+        flagSpy();
+        await runPaidEvent(guardedInvoice({ trial_end: 1800000000 }), guardedCart({ centAmount: 7000 }));
+
+        expect(Stripe.prototype.subscriptions.update).not.toHaveBeenCalled();
+      });
+
+      // A transient Stripe failure is redelivered (stripe-node may already have retried it — utils.ts isTransientStripeError).
+      test.each([
+        ['a connection error', { type: 'StripeConnectionError', message: 'socket hang up' }],
+        ['a Stripe 5xx', { type: 'StripeAPIError', statusCode: 500, message: 'internal' }],
+        ['a rate limit / lock timeout', { type: 'StripeRateLimitError', statusCode: 429, message: 'lock_timeout' }],
+        ['a conflict', { type: 'StripeInvalidRequestError', statusCode: 409, message: 'concurrent request' }],
+      ])('a transient pause failure (%s) makes the webhook fail, so Stripe redelivers', async (_case, stripeError) => {
+        const flag = flagSpy();
+        (Stripe.prototype.subscriptions.update as jest.Mock).mockImplementation(() =>
+          Promise.reject(Object.assign(new Error(stripeError.message), stripeError)),
+        );
+
+        await expect(runPaidEvent(guardedInvoice(), guardedCart({ centAmount: 7000 }))).rejects.toMatchObject({
+          name: 'SubscriptionHoldFailedError',
+        });
+        expect(flag).not.toHaveBeenCalled();
+      });
+
+      // A permanent refusal (measured: a canceled subscription answers invalid_request_error) cannot succeed on
+      // redelivery: it is logged, the CT payment is still flagged, and the webhook does not fail.
+      test('a permanent pause refusal is logged, still flags the CT payment, and does not fail the webhook', async () => {
+        const flag = flagSpy();
+        (Stripe.prototype.subscriptions.update as jest.Mock).mockImplementation(() =>
+          Promise.reject(
+            Object.assign(new Error('A canceled subscription can only update its cancellation_details and metadata.'), {
+              type: 'StripeInvalidRequestError',
+              statusCode: 400,
+              code: 'invalid_canceled_subscription_fields',
+            }),
+          ),
+        );
+
+        await expect(runPaidEvent(guardedInvoice(), guardedCart({ centAmount: 7000 }))).resolves.toBeDefined();
+        expect(flag).toHaveBeenCalledWith(
+          expect.anything(),
+          'subscription_order_blocked',
+          expect.stringContaining('Stripe refused the pause'),
+        );
+        expect(mockLog.error).toHaveBeenCalledWith(
+          expect.stringContaining('Stripe refused to pause collection (permanent)'),
+          expect.anything(),
+        );
+      });
+
+      // A transient CT failure on the flag is redelivered (ADR-015); the pause is idempotent, so repeating it is safe.
+      // A real commercetools version conflict carries ConcurrentModification / 409 in `code` and `statusCode`, not in
+      // its message (utils.ts isRetryableCtError) — so the test uses that shape, not a message that spells the words.
+      test.each([
+        [
+          'a real commercetools 409 (structured fields only)',
+          Object.assign(new Error('Object pay-1 has a different version than expected. Expected: 3 - Actual: 4.'), {
+            code: 'ConcurrentModification',
+            statusCode: 409,
+          }),
+        ],
+        ['a 503', Object.assign(new Error('Service Unavailable'), { statusCode: 503 })],
+      ])(
+        'a transient failure of the CT flag (%s) makes the webhook fail, so Stripe redelivers',
+        async (_case, ctError) => {
+          jest.spyOn(PaymentClient, 'setPaymentStatusInterface').mockRejectedValue(ctError);
+
+          await expect(runPaidEvent(guardedInvoice(), guardedCart({ centAmount: 7000 }))).rejects.toMatchObject({
+            name: 'SubscriptionHoldFailedError',
+          });
+          expect(Stripe.prototype.subscriptions.update).toHaveBeenCalledTimes(1);
+        },
+      );
+
+      test('a permanent failure of the CT flag is logged and does not fail the webhook (the Stripe metadata records the case)', async () => {
+        jest.spyOn(PaymentClient, 'setPaymentStatusInterface').mockRejectedValue(new Error('ct down'));
+
+        await expect(runPaidEvent(guardedInvoice(), guardedCart({ centAmount: 7000 }))).resolves.toBeDefined();
+        expect(Stripe.prototype.subscriptions.update).toHaveBeenCalledTimes(1);
+        expect(mockLog.error).toHaveBeenCalledWith(
+          expect.stringContaining('flagging the commercetools payment failed'),
+          expect.anything(),
+        );
+      });
+
+      // When Stripe refused the pause, no metadata exists, so a failed flag leaves the log as the only record: it must
+      // carry everything the runbook needs to find the subscription.
+      test('a refused pause plus a failed CT flag logs the only record, with the cart, payment, invoice and subscription', async () => {
+        (Stripe.prototype.subscriptions.update as jest.Mock).mockImplementation(() =>
+          Promise.reject(Object.assign(new Error('canceled'), { type: 'StripeInvalidRequestError', statusCode: 400 })),
+        );
+        jest.spyOn(PaymentClient, 'setPaymentStatusInterface').mockRejectedValue(new Error('ct down'));
+
+        await expect(runPaidEvent(guardedInvoice(), guardedCart({ centAmount: 7000 }))).resolves.toBeDefined();
+        expect(mockLog.error).toHaveBeenCalledWith(
+          expect.stringContaining('this log is the only record'),
+          expect.objectContaining({
+            ctCartId: expect.any(String),
+            paymentId: expect.any(String),
+            invoiceId: expect.any(String),
+            stripeSubscriptionId: expect.any(String),
+          }),
+        );
+      });
+    });
+
     test('blocks the order when the currency does not match', async () => {
       const createOrderSpy = await runPaidEvent(guardedInvoice({ currency: 'eur' }), guardedCart({ centAmount: 2000 }));
 
@@ -844,7 +1008,7 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
 
     // The legitimate-divergence matrix. In each of these a first invoice may differ from the cart
     // total by design, so the guard must log and still create the order — blocking here would reject
-    // honest business, which is the KI-047 failure mode.
+    // honest business, which is the false-positive failure mode.
     test.each([
       ['a trial subscription', guardedInvoice({ trial_end: 1800000000 })],
       ['a recurring cycle', guardedInvoice({ billing_reason: 'subscription_cycle' })],
@@ -860,16 +1024,149 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
       );
     });
 
-    test('logs but still creates the order when the INVOICE itself carries a discount', async () => {
+    // ADR-026: a discounted invoice no longer exempts the amount guard. The subscription rule refuses every
+    // non-total-price discount upstream, so a discounted first invoice must still equal the cart total.
+    test('blocks the order when a discounted invoice collected less than the cart total (ADR-026)', async () => {
       const createOrderSpy = await runPaidEvent(
         guardedInvoice({ total_discount_amounts: [{ amount: 500, discount: 'di_1' }] }),
         guardedCart({ centAmount: 7000 }),
       );
 
+      expect(createOrderSpy).not.toHaveBeenCalled();
+      expect(mockLog.error).toHaveBeenCalledWith(
+        expect.stringContaining('order NOT created'),
+        expect.objectContaining({ stripeAmountPaid: 2000, cartTotalCentAmount: 7000 }),
+      );
+    });
+
+    test('creates the order when a discounted invoice matches the cart total', async () => {
+      const createOrderSpy = await runPaidEvent(
+        guardedInvoice({ total_discount_amounts: [{ amount: 500, discount: 'di_1' }] }),
+        guardedCart({ centAmount: 2000 }),
+      );
+
+      expect(createOrderSpy).toHaveBeenCalledWith(expect.objectContaining({ paymentState: 'Paid' }));
+    });
+
+    // Stripe rounds a percentage coupon once, half-up, on the subtotal; commercetools rounds HalfEven by default.
+    // They meet within one minor unit whatever the number of lines (measured in test mode), so the tolerance on
+    // a discounted invoice is a constant 1 (ADR-026 addendum, A8).
+    test('allows a 1-minor-unit rounding difference on a discounted invoice, and logs it', async () => {
+      const createOrderSpy = await runPaidEvent(
+        guardedInvoice({ amount_paid: 1999, discounts: ['di_1'], lines: { data: [{ id: 'il_1' }, { id: 'il_2' }] } }),
+        guardedCart({ centAmount: 2000 }),
+      );
+      expect(createOrderSpy).toHaveBeenCalled();
+      // The rounding cent is accepted but surfaced, never swallowed (a provider/platform divergence is logged).
+      expect(mockLog.warn).toHaveBeenCalledWith(
+        expect.stringContaining('within the rounding tolerance'),
+        expect.objectContaining({ rawDifference: -1, toleranceMinorUnits: 1 }),
+      );
+    });
+
+    test('blocks a 2-minor-unit difference on a discounted invoice, however many lines it has', async () => {
+      const createOrderSpy = await runPaidEvent(
+        guardedInvoice({
+          amount_paid: 1998,
+          discounts: ['di_1'],
+          lines: { data: [{ id: 'il_1' }, { id: 'il_2' }, { id: 'il_3' }] },
+        }),
+        guardedCart({ centAmount: 2000 }),
+      );
+      expect(createOrderSpy).not.toHaveBeenCalled();
+      expect(mockLog.error).toHaveBeenCalledWith(
+        expect.stringContaining('order NOT created'),
+        expect.objectContaining({ rawDifference: -2, toleranceMinorUnits: 1 }),
+      );
+    });
+
+    test('allows no rounding difference on an undiscounted invoice', async () => {
+      const createOrderSpy = await runPaidEvent(
+        guardedInvoice({ amount_paid: 1999 }),
+        guardedCart({ centAmount: 2000 }),
+      );
+      expect(createOrderSpy).not.toHaveBeenCalled();
+    });
+
+    test('an exact-match discounted invoice logs nothing about a rounding difference', async () => {
+      await runPaidEvent(
+        guardedInvoice({ amount_paid: 2000, discounts: ['di_1'], lines: { data: [{ id: 'il_1' }, { id: 'il_2' }] } }),
+        guardedCart({ centAmount: 2000 }),
+      );
+      expect(mockLog.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining('within the rounding tolerance'),
+        expect.anything(),
+      );
+    });
+
+    // A7: the guard compares the invoice total, not what the customer balance left to collect (measured in test
+    // mode: a −500 credit leaves total 2000 and amount_paid 1500; a +300 debt, amount_paid 2300).
+    test.each([
+      ['a partial credit balance', 1500],
+      ['a debt balance', 2300],
+      ['a full credit balance (nothing collected)', 0],
+    ])('creates the order when %s moves amount_paid but the total matches the cart', async (_case, amountPaid) => {
+      const createOrderSpy = await runPaidEvent(
+        guardedInvoice({ amount_paid: amountPaid, total: 2000, starting_balance: amountPaid - 2000 }),
+        guardedCart({ centAmount: 2000 }),
+      );
       expect(createOrderSpy).toHaveBeenCalled();
       expect(mockLog.warn).toHaveBeenCalledWith(
-        expect.stringContaining('flagged for reconciliation'),
-        expect.anything(),
+        expect.stringContaining('customer balance applied'),
+        expect.objectContaining({ stripeTotal: 2000, stripeAmountPaid: amountPaid }),
+      );
+    });
+
+    test('still blocks a fully-credited invoice whose total does not match the cart', async () => {
+      const createOrderSpy = await runPaidEvent(
+        guardedInvoice({ amount_paid: 0, total: 1000, starting_balance: -1000 }),
+        guardedCart({ centAmount: 2000 }),
+      );
+      expect(createOrderSpy).not.toHaveBeenCalled();
+    });
+
+    // A3: a first invoice Stripe prorated up to a billing anchor is not the cart's full price by design.
+    test.each([
+      [
+        'a line Stripe marks as a proration',
+        guardedInvoice({
+          amount_paid: 968,
+          lines: { data: [{ id: 'il_1', parent: { subscription_item_details: { proration: true } } }] },
+        }),
+      ],
+      [
+        'an anchor that is not the start date',
+        (() => {
+          const invoice = guardedInvoice({ amount_paid: 968 });
+          const subscription = invoice.parent.subscription_details.subscription as Record<string, unknown>;
+          subscription.billing_cycle_anchor = 1800000000;
+          subscription.start_date = 1799000000;
+          return invoice;
+        })(),
+      ],
+    ])('creates the order for a prorated first invoice (%s)', async (_case, invoice) => {
+      const createOrderSpy = await runPaidEvent(invoice, guardedCart({ centAmount: 4000 }));
+      expect(createOrderSpy).toHaveBeenCalled();
+    });
+
+    test('still blocks a non-prorated first invoice that does not match the cart', async () => {
+      const invoice = guardedInvoice({ amount_paid: 968, lines: { data: [{ id: 'il_1', parent: null }] } });
+      const subscription = invoice.parent.subscription_details.subscription as Record<string, unknown>;
+      subscription.billing_cycle_anchor = 1799000000;
+      subscription.start_date = 1799000000;
+      const createOrderSpy = await runPaidEvent(invoice, guardedCart({ centAmount: 4000 }));
+      expect(createOrderSpy).not.toHaveBeenCalled();
+    });
+
+    test('still blocks a gap larger than the rounding tolerance on a discounted invoice', async () => {
+      const createOrderSpy = await runPaidEvent(
+        guardedInvoice({ amount_paid: 1000, discounts: ['di_1'], lines: { data: [{ id: 'il_1' }, { id: 'il_2' }] } }),
+        guardedCart({ centAmount: 2000 }),
+      );
+      expect(createOrderSpy).not.toHaveBeenCalled();
+      expect(mockLog.error).toHaveBeenCalledWith(
+        expect.stringContaining('order NOT created'),
+        expect.objectContaining({ stripeAmountPaid: 1000, cartTotalCentAmount: 2000 }),
       );
     });
 
@@ -908,7 +1205,7 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
     });
   });
 
-  describe('Cart drift guard — the discount exemption is not attacker-selectable', () => {
+  describe('Cart drift guard — the discount exemption is not selectable by an untrusted caller', () => {
     beforeEach(() => {
       const cartClient = require('../../src/services/commerce-tools/cart-client');
       cartClient.isCartFrozen.mockReturnValue(false); // shopper released it via /shipping-methods/remove
@@ -970,27 +1267,49 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
       expect(createOrderSpy).toHaveBeenCalledWith(expect.objectContaining({ paymentState: 'Paid' }));
     });
 
-    // The drift guard must not swallow the legitimate-divergence matrix: with an honest cart, a
-    // discounted invoice whose amount differs from the cart total still creates the order.
-    test('still allows a discounted invoice to diverge in AMOUNT when the cart has not moved', async () => {
+    // ADR-026: with the discounted-invoice exemption removed, the amount guard blocks a divergence even when
+    // the cart has not moved (so the drift guard sees no drift). amount_paid 2000 vs cart total 7000.
+    test('BLOCKS a discounted invoice that diverges in AMOUNT even when the cart has not moved (ADR-026)', async () => {
       const createOrderSpy = await runPaidEvent(
         guardedInvoice({ discounts: ['di_legit_10pct'], sealedTotal: 7000 }),
         guardedCart({ centAmount: 7000 }),
       );
 
-      expect(createOrderSpy).toHaveBeenCalled();
-      expect(mockLog.warn).toHaveBeenCalledWith(
-        expect.stringContaining('flagged for reconciliation'),
-        expect.anything(),
+      expect(createOrderSpy).not.toHaveBeenCalled();
+      expect(mockLog.error).toHaveBeenCalledWith(
+        expect.stringContaining('order NOT created'),
+        expect.objectContaining({ stripeAmountPaid: 2000, cartTotalCentAmount: 7000 }),
       );
     });
 
-    // Rule 7 is evaluated on the cart as read at webhook time, BEFORE updateCartAddress. The seal predates
-    // any address, so a shipping rate that legitimately changes once the destination is known must not
-    // read as drift. Every other test here returns the same cart from updateCartAddress, so without this
-    // one the check could move after the address write and the suite would stay green.
-    test('does not treat a total that moves only on the address write as drift', async () => {
-      const invoice = guardedInvoice({ discounts: ['di_legit_10pct'], sealedTotal: 2000 });
+    // An honest order whose shipping total moved on the address write. Stripe billed from the sealed,
+    // pre-address cart (2000), so it collected 2000; after updateCartAddress the cart totals 2500. The drift
+    // guard reads the PRE-address cart (2000 == seal 2000) and does NOT fire; the amount guard, now active on
+    // discounted invoices (ADR-026), validates the POST-address total (2500) against what Stripe collected
+    // (2000) and blocks. Decided 2026-11-04 (tech lead): block always, discounted or not — this was already
+    // the behaviour for undiscounted invoices, and commercetools requires a shipping address before a method,
+    // so the case is rare. The order is not created; the shopper's 2000 is a paid-without-order to reconcile.
+    // A2: the first-cycle address write keeps a complete checkout shipping address, so the shipping rate cannot
+    // move under the guard for such a cart. The test below remains for a cart that had no complete address.
+    test('asks the first-cycle address write to keep a complete shipping address (A2)', async () => {
+      jest
+        .spyOn(CtPaymentCreationService.prototype, 'getStripeInvoiceExpanded')
+        .mockResolvedValue(guardedInvoice() as any);
+      jest
+        .spyOn(paymentSDK.ctCartService, 'getCartByPaymentId')
+        .mockResolvedValue(guardedCart({ centAmount: 2000 }) as any);
+      const addressSpy = jest
+        .spyOn(StripePaymentService.prototype, 'updateCartAddress')
+        .mockResolvedValue(guardedCart({ centAmount: 2000 }) as any);
+      jest.spyOn(StripePaymentService.prototype, 'createOrder').mockResolvedValue(undefined);
+
+      await stripeSubscriptionService.processSubscriptionEventPaid(mockEvent__invoice_paid__simple);
+
+      expect(addressSpy).toHaveBeenCalledWith(expect.anything(), expect.anything(), { preserveExistingAddress: true });
+    });
+
+    test('blocks an honest order whose shipping moved on the address write (amount guard, not drift)', async () => {
+      const invoice = guardedInvoice({ discounts: ['di_legit_10pct'], sealedTotal: 2000, amount_paid: 2000 });
       jest.spyOn(CtPaymentCreationService.prototype, 'getStripeInvoiceExpanded').mockResolvedValue(invoice as any);
       jest
         .spyOn(paymentSDK.ctCartService, 'getCartByPaymentId')
@@ -1002,23 +1321,26 @@ describe('Subscription Order Creation Fixes (SUB-ORDER-FIX-05)', () => {
 
       await stripeSubscriptionService.processSubscriptionEventPaid(mockEvent__invoice_paid__simple);
 
+      // Drift guard silent (pre-address 2000 == seal 2000); amount guard blocks (paid 2000 != post-address 2500).
       expect(mockLog.error).not.toHaveBeenCalledWith(expect.stringContaining('cart drift guard'), expect.anything());
-      expect(createOrderSpy).toHaveBeenCalled();
+      expect(mockLog.error).toHaveBeenCalledWith(expect.stringContaining('order NOT created'), expect.anything());
+      expect(createOrderSpy).not.toHaveBeenCalled();
     });
 
-    // Subscriptions created before this shipped carry no seal. They must keep their previous
-    // behaviour rather than being blocked wholesale on their next invoice.
+    // Subscriptions created before the seal shipped carry none. The drift guard must fall back (not block
+    // on drift it cannot compute); the amount here matches the cart total so the amount guard — which now
+    // runs on discounted invoices (ADR-026) — passes, isolating the no-seal drift fallback.
     test('falls back to the previous behaviour when the subscription carries no seal', async () => {
       const createOrderSpy = await runPaidEvent(
         guardedInvoice({ discounts: ['di_legit_10pct'] }),
-        guardedCart({ centAmount: 7000 }),
+        guardedCart({ centAmount: 2000 }),
       );
 
       expect(createOrderSpy).toHaveBeenCalled();
     });
 
     // amount_paid === 0 is one of the amount guard's exemptions (free anchor days). Drift is a
-    // separate question and must still be asked, or the exemption list stays attacker-reachable.
+    // separate question and must still be asked, or the exemption list stays reachable by an untrusted caller.
     test('BLOCKS a drifted cart on a zero first invoice, which the amount guard exempts', async () => {
       const createOrderSpy = await runPaidEvent(
         guardedInvoice({ sealedTotal: 2000, amount_paid: 0 }),

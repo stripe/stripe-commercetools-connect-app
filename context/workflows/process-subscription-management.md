@@ -2,7 +2,7 @@
 
 **Trigger:** Merchant calls subscription management endpoints (cancel, update, advanced update).
 **Actors:** Merchant backend / admin, Processor, Stripe API, CT API.
-**Outcome:** Stripe subscription modified. Cancel cancels the subscription in Stripe; the cart is unfrozen afterwards by the `customer.subscription.deleted` webhook (below). Update creates a **new, separate** CT cart holding the new variant only to resolve the Stripe price (`createCartWithProduct()`, `processor/src/services/commerce-tools/cart-client.ts:73-116`, called at `processor/src/services/stripe-subscription.service.ts:1328-1335`), then updates Stripe (`processor/src/services/stripe-subscription.service.ts:1342-1356`). Advanced update calls Stripe only (`processor/src/services/stripe-subscription.service.ts:1431-1433`).
+**Outcome:** Stripe subscription modified. Cancel cancels the subscription in Stripe; the cart is unfrozen afterwards by the `customer.subscription.deleted` webhook (below). Update creates a **new, separate** CT cart holding the new variant only to resolve the Stripe price (`createCartWithProduct()`, `processor/src/services/commerce-tools/cart-client.ts:74-117`, called from `updateSubscription()`), then updates Stripe. Advanced update calls Stripe only (`patchSubscription()`).
 
 ---
 
@@ -77,7 +77,7 @@ Merchant                  Processor                        Stripe          CT
   |                           | (subscription-mapper.ts)       |              |
   |                           | get CT price by newPriceId     |              |
   |                           |---------------------------------------------->|
-  |                           | getCreateSubscriptionPriceId() (stripe-subscription.service.ts:671) |
+  |                           | getCreateSubscriptionPriceId() |
   |                           |   → search existing Stripe prices by variant   |
   |                           |     SKU + CT price ID metadata (AND query)     |
   |                           |   → if match (active, same amount/interval/    |
@@ -119,17 +119,17 @@ Merchant                  Processor                        Stripe
 
 Advanced update passes raw Stripe params directly. No CT product lookup or price management. Only an
 idempotency key is forwarded: `options.idempotencyKey` if given, else a random UUID; the rest of `options`
-is deliberately dropped (`processor/src/services/stripe-subscription.service.ts:1423, 1427-1433`). Used for
-billing cycle changes, trial extensions, and other Stripe-native operations.
+is deliberately dropped (`patchSubscription()`). Used for billing cycle changes, trial extensions, and
+other Stripe-native operations.
 
 ---
 
 ## Subscription Update: Price Management Detail
 
-When changing subscription variant/price, `getCreateSubscriptionPriceId()` (`stripe-subscription.service.ts:671-694`) follows this logic — the same function used at subscription creation:
+When changing subscription variant/price, `getCreateSubscriptionPriceId()` follows this logic — the same function used at subscription creation:
 
 ```
-1. Search Stripe prices via getStripePriceByMetadata() (:796-801): an AND query on
+1. Search Stripe prices via getStripePriceByMetadata(): an AND query on
    metadata['ct_variant_sku'] == <variant SKU> AND metadata['ct_price_id'] == <CT price id>
 
 2. CASE: match found, active AND same amount AND same interval AND same interval_count
@@ -154,7 +154,7 @@ When changing subscription variant/price, `getCreateSubscriptionPriceId()` (`str
 
 | Point | Condition | Path |
 |---|---|---|
-| Cancel timing | Always | `cancelSubscription()` calls `stripe.subscriptions.cancel(subscriptionId, { invoice_now: false, prorate: true })` unconditionally (`:923-928`) — there is no `cancel_at_period_end` branch; cancellation is always immediate. |
+| Cancel timing | Always | `cancelSubscription()` calls `stripe.subscriptions.cancel(subscriptionId, { invoice_now: false, prorate: true })` unconditionally — there is no `cancel_at_period_end` branch; cancellation is always immediate. |
 | Price change | Same amount + interval | Reuse existing Stripe price |
 | Price change | Different amount | Deprecate old, create new |
 | Proration | `proration_behavior` on variant | Applied per variant configuration |

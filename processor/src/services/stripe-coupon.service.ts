@@ -2,7 +2,7 @@ import Stripe from 'stripe';
 import { DiscountCode, DiscountCodeInfo, Cart } from '@commercetools/platform-sdk';
 import { Errorx } from '@commercetools/connect-payments-sdk';
 import { stripeApi } from '../clients/stripe.client';
-import { convertDateToUnixTimestamp, getLocalizedString } from '../utils';
+import { convertDateToUnixTimestamp, getLocalizedString, redactError } from '../utils';
 import { log } from '../libs/logger';
 
 const stripe = stripeApi();
@@ -48,8 +48,28 @@ export class StripeCouponService {
         throw new Error(`Discount "${code.discountCode.id}" has multiple cart discounts. Not supported by Stripe.`);
       }
 
+      // The coupon created here discounts the WHOLE first invoice, so it can only stand in for a discount
+      // commercetools applied to the cart total. An applicable code with any other target is refused here —
+      // not skipped — so the rule holds even for a caller that reaches getStripeCoupons without first running
+      // prepareSubscriptionData's assertion. This is the single authority on which codes translate (ADR-018,
+      // ADR-026); "skip" (not applied) is handled above by appliesToCart, "refuse" (not representable) here.
+      if (!this.translatesToWholeInvoiceCoupon(code, cart)) {
+        const target = discountCode.cartDiscounts[0]?.obj?.target?.type ?? 'unknown';
+        log.warn('Subscription creation rejected: a discount code does not target the cart total.', {
+          ctCartId: cart.id,
+          ctDiscountCodeId: code.discountCode.id,
+          discountTarget: target,
+        });
+        throw StripeCouponService.unsupportedSubscriptionDiscountError('unsupported-code-target');
+      }
+
+      // The Stripe coupon id is the CT discount code id. Only a discount whose scope is the whole first invoice
+      // reaches here — a total-price code, or the single-line relative code of `translatesToWholeInvoiceCoupon`
+      // (refused above and in prepareSubscriptionData otherwise) — so an invoice-wide coupon reproduces it.
       const stripeDiscount = await this.getStripeCouponById(discountCode.id);
-      coupons.push({ coupon: await this.resolveStripeCoupon(discountCode, stripeDiscount, cartCurrency) });
+      coupons.push({
+        coupon: await this.resolveStripeCoupon(discountCode, stripeDiscount, cartCurrency),
+      });
     }
 
     // Every code on the cart may have been skipped. Report that the same way as a cart that carries no
@@ -131,6 +151,100 @@ export class StripeCouponService {
   }
 
   /**
+   * Whether this connector can represent `code` exactly on the subscription's first invoice. The Stripe
+   * coupon this service creates is **invoice-wide** — it discounts every line of the first invoice — so it
+   * can faithfully stand in for a commercetools discount only when that discount's scope is, too, the whole
+   * first invoice:
+   *
+   *   - a discount on the cart total (`target: 'totalPrice'`), on any cart; or
+   *   - a **relative** line-item discount on a cart whose first invoice holds nothing but that one line
+   *     (`isSingleLineRelativeCode`) — there the line *is* the invoice, so the coupon reduces the same scope.
+   *
+   * Every other target — line items on a cart with anything else billed, shipping, custom line items, a
+   * multi-buy set, a pattern, or an absolute line-item amount — reduces a different scope than an
+   * invoice-wide coupon would, which is why those are refused upstream rather than translated (ADR-026 and
+   * its 2026-11-10 addendum, `mixed-carts.md` Rule 5).
+   *
+   * This is the single authority on which codes translate; the subscription flow refuses what this rejects,
+   * rather than re-deriving the rule itself (ADR-018: the coupon service owns coupon translation). A code
+   * commercetools does not apply (`appliesToCart` false) is not translatable either.
+   */
+  public translatesToWholeInvoiceCoupon(code: DiscountCodeInfo, cart: Cart): boolean {
+    if (!this.appliesToCart(code)) {
+      return false;
+    }
+    const cartDiscounts = code.discountCode.obj?.cartDiscounts;
+    // An unexpanded discount (target unreadable) is treated as NOT translatable, so the cart is refused
+    // rather than billed on an assumption.
+    if (!cartDiscounts?.length) {
+      return false;
+    }
+    if (cartDiscounts.every((cartDiscount) => cartDiscount.obj?.target?.type === 'totalPrice')) {
+      return true;
+    }
+    return this.isSingleLineRelativeCode(code, cart);
+  }
+
+  /**
+   * The base case of the ADR-026 addendum (2026-11-10): one relative (percentage) line-item discount on a cart
+   * whose first invoice bills exactly one line — a single line item, quantity 1, no shipping charge, no
+   * positive custom line item — and that commercetools actually applied to that line's one unit.
+   *
+   * Why each condition:
+   *   - one line, quantity 1: commercetools rounds a line-item discount per unit, Stripe rounds a coupon once on
+   *     the invoice subtotal. On one unit the two meet within the guard's 1-minor-unit tolerance (measured in
+   *     test mode: 5 % of 1003 → 953 on both); on 1010 × 3 they differ by 2, so quantity > 1 stays refused;
+   *   - no shipping charge and no positive fee: the coupon would discount those lines too, the code does not;
+   *   - applied by commercetools: a line-item code whose cart predicate matches but whose line predicate does
+   *     not reaches no line — the coupon would then discount what commercetools did not. commercetools is the
+   *     authority on what a code reached, so its per-quantity result is read, never re-derived;
+   *   - relative only: an absolute line-item amount is per unit in commercetools; kept out until measured.
+   *
+   * Trial and billing-anchor timing are not decided here: they refuse a code of any target, in the subscription
+   * service, where the subscription's attributes are read.
+   */
+  private isSingleLineRelativeCode(code: DiscountCodeInfo, cart: Cart): boolean {
+    const cartDiscounts = code.discountCode.obj?.cartDiscounts ?? [];
+    const cartDiscount = cartDiscounts.length === 1 ? cartDiscounts[0] : undefined;
+    if (cartDiscount?.obj?.target?.type !== 'lineItems' || cartDiscount.obj.value?.type !== 'relative') {
+      return false;
+    }
+
+    const [onlyLine, ...otherLines] = cart.lineItems;
+    if (!onlyLine || otherLines.length || onlyLine.quantity !== 1) {
+      return false;
+    }
+
+    const chargesShipping =
+      (cart.shippingInfo?.price.centAmount ?? 0) > 0 ||
+      (cart.shipping ?? []).some((shipping) => shipping.shippingInfo.price.centAmount > 0);
+    const chargesFee = (cart.customLineItems ?? []).some((item) => item.totalPrice.centAmount > 0);
+    if (chargesShipping || chargesFee) {
+      return false;
+    }
+
+    return (onlyLine.discountedPricePerQuantity ?? []).some(
+      (perQuantity) =>
+        perQuantity.quantity === onlyLine.quantity &&
+        perQuantity.discountedPrice.includedDiscounts.some((portion) => portion.discount.id === cartDiscount.id),
+    );
+  }
+
+  /**
+   * The one refusal a shopper sees when a subscription cart carries a discount Stripe cannot bill as the cart
+   * says. The body carries a stable `code` and a `reason` only: the cart, code and discount ids stay in the
+   * caller's warn log, not in an HTTP response a storefront may echo (ADR-026 addendum, 2026-11-10).
+   */
+  public static unsupportedSubscriptionDiscountError(reason: string): Errorx {
+    return new Errorx({
+      code: 'UnsupportedCartDiscountForSubscription',
+      message: 'This discount cannot be applied to a subscription purchase. Remove the discount code and try again.',
+      httpErrorStatus: 400,
+      fields: { reason },
+    });
+  }
+
+  /**
    * Resolves the Stripe coupon that carries a CT discount code onto the subscription invoice.
    *
    * A coupon Stripe reports as no longer applicable is NOT a re-sync trigger. Only a coupon whose
@@ -159,7 +273,7 @@ export class StripeCouponService {
 
     // In sync with CT, yet Stripe will not apply it. Reissuing would discount the invoice past what
     // Stripe still permits; dropping it would charge the shopper more than the CT cart says. Neither
-    // is ours to choose silently, so the subscription creation fails and the operator reconciles.
+    // is ours to choose, so the subscription creation fails and the operator reconciles.
     throw new Error(
       `Stripe coupon "${discount.id}" matches its commercetools discount code but Stripe reports it as ` +
         `no longer applicable. Refusing to reissue or drop it.`,
@@ -197,7 +311,7 @@ export class StripeCouponService {
   }
 
   /**
-   * Deletion failures are surfaced, not swallowed (KI-007). The coupon id is the CT discount code id,
+   * Deletion failures are surfaced, not swallowed. The coupon id is the CT discount code id,
    * so a delete that quietly failed left the following create failing on a duplicate id, with the
    * cause already logged away and gone.
    */
@@ -206,7 +320,7 @@ export class StripeCouponService {
       await stripe.coupons.del(id);
       log.info(`Stripe coupon "${id}" deleted; it no longer matched its commercetools discount code.`);
     } catch (error) {
-      log.error(`Failed to delete Stripe discount code: "${id}"`, error);
+      log.error(`Failed to delete Stripe discount code: "${id}"`, { error: redactError(error) });
       throw error;
     }
   }

@@ -66,34 +66,33 @@ Stripe                    Processor                        Stripe          CT
 The webhook route awaits `processSubscriptionEventUpcoming()` and replies `200` only after it returns
 (`processor/src/routes/stripe-payment.route.ts:370-373`, `processor/src/routes/stripe-payment.route.ts:383`).
 The Stripe Product used for `prices.create` is found by `findStripeProductById()` — a
-`stripe.products.search` on `metadata['ct_product_id']`
-(`processor/src/services/stripe-subscription.service.ts:859-871`), not a `products.retrieve`.
+`stripe.products.search` on `metadata['ct_product_id']`, not a `products.retrieve`.
 
 ---
 
 ## Steps Detail
 
 ### 1. Guard check
-- If `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=false` → return immediately (no-op). `processSubscriptionEventUpcoming()`, `stripe-subscription.service.ts:2452-2459`.
+- If `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=false` → return immediately (no-op). `processSubscriptionEventUpcoming()`.
 
 ### 2. Subscription retrieval
-- Extract the subscription ID from `invoice.parent.subscription_details.subscription` (`:2463-2464`) — not from a top-level `invoice.subscription` field.
-- Retrieve the current subscription from Stripe (`:2471`) to get its items and current price.
+- Extract the subscription ID from `invoice.parent.subscription_details.subscription` (`processSubscriptionEventUpcoming()`) — not from a top-level `invoice.subscription` field.
+- Retrieve the current subscription from Stripe to get its items and current price.
 
 ### 3. CT price lookup — via the Stripe **Product**, not the Price
-- Take `subscriptionItem.price.product` (a Stripe **Product** id) from the current subscription item (`:2491-2493`).
-- Retrieve that Stripe Product (`stripe.products.retrieve()`, `:2494`) and read its `ct_product_id` metadata (`METADATA_PRODUCT_ID_FIELD`, `:2501`) — **not** a `ct_price_id` read off the Price's own metadata.
-- Call `getCommercetoolsProductPrice(ctProductId)` (`:2507`), which internally calls `getProductMasterPrice(ctProductId)` — a CT lookup by product ID, not by a price ID.
+- Take `subscriptionItem.price.product` (a Stripe **Product** id) from the current subscription item (`synchronizeSubscriptionPrice()`).
+- Retrieve that Stripe Product (`stripe.products.retrieve()`) and read its `ct_product_id` metadata (`METADATA_PRODUCT_ID_FIELD`) — **not** a `ct_price_id` read off the Price's own metadata.
+- Call `getCommercetoolsProductPrice(ctProductId)`, which internally calls `getProductMasterPrice(ctProductId)` — a real CT lookup by product ID, not by a price ID.
 
 ### 4. Price comparison
-- Compare `currentStripePrice.unit_amount` vs the CT master price's `centAmount` (`:2521`).
+- Compare `currentStripePrice.unit_amount` vs the CT master price's `centAmount`.
 - Same → log "already synchronized", return. Different → proceed.
 
-### 5. Price creation (`getOrCreateStripePriceForProduct()`, `:2580-2649`)
-- When the amount differs, a new Stripe price is created (`:2618-2634`) with `unit_amount` = the new CT amount, and `recurring.interval`/`interval_count` copied from the current subscription item's price.
+### 5. Price creation (`getOrCreateStripePriceForProduct()`)
+- When the amount differs, a new Stripe price is created with `unit_amount` = the new CT amount, and `recurring.interval`/`interval_count` copied from the current subscription item's price.
 
 ### 6. Subscription update
-- `updateSubscriptionPrice()` (`:2704-2735`) updates the subscription item to the new price ID with `proration_behavior: 'none'` and `billing_cycle_anchor: 'unchanged'`.
+- `updateSubscriptionPrice()` updates the subscription item to the new price ID with `proration_behavior: 'none'` and `billing_cycle_anchor: 'unchanged'`.
 
 ---
 
@@ -116,3 +115,13 @@ This is an inherent limitation of the Stripe event model. It is not an error —
 | Price comparison | CT amount == Stripe amount | No action |
 | Price comparison | CT amount != Stripe amount | Create new Stripe price + update subscription |
 | CT product not found | Product deleted in CT | `getCommercetoolsProductPrice()` returns `undefined`; `synchronizeSubscriptionPrice()` logs a warning and returns |
+
+---
+
+## Error Paths
+
+| Error | Cause | Effect |
+|---|---|---|
+| No `ct_product_id` on the Stripe Product | Product created without this metadata | `synchronizeSubscriptionPrice()` logs a warning and returns; sync skipped for this subscription |
+| CT product not found | Product deleted | Sync skipped; old price used for next cycle |
+| Stripe price creation fails | Stripe API error | Old price remains; subscriber charged old amount |

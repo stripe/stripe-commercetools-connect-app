@@ -9,10 +9,12 @@ import {
   isMicrodepositNextAction,
   isFromSubscriptionInvoice,
   isRetryableCtError,
+  isTransientStripeError,
   isValidUUID,
   paidAmountMatchesTotal,
   parseJSON,
   parseTimeString,
+  redactError,
   transformVariantAttributes,
 } from '../../src/utils';
 import { PaymentOutcome } from '../../src/dtos/mock-payment.dto';
@@ -375,12 +377,12 @@ describe('paidAmountMatchesTotal', () => {
     expect(paidAmountMatchesTotal(2000, 'usd', usd(2000))).toBe(true);
   });
 
-  test('rejects underpayment', () => {
+  test('rejects an amount shortfall', () => {
     expect(paidAmountMatchesTotal(2000, 'usd', usd(7000))).toBe(false);
   });
 
-  // Equality, not ">=": an overpayment is as much a divergence as an underpayment and must not
-  // silently mint an order either.
+  // Equality, not ">=": an overpayment is as much a divergence as an amount shortfall and must not
+  // mint an order either.
   test('rejects overpayment', () => {
     expect(paidAmountMatchesTotal(7000, 'usd', usd(2000))).toBe(false);
   });
@@ -399,7 +401,7 @@ describe('paidAmountMatchesTotal', () => {
 /**
  * A realistic commercetools-SDK optimistic-locking error: an `Error` whose structured fields carry the
  * signal (`code`/`statusCode`) while the human `message` does NOT contain "ConcurrentModification" or
- * "409". This is the exact shape that escaped classification in the SB3-227 live repro — the tests below
+ * "409". This is the exact shape that escaped classification in the live repro — the tests below
  * exist to keep message-only classification from ever being reintroduced.
  */
 const realConcurrentModificationError = (): Error => {
@@ -410,6 +412,15 @@ const realConcurrentModificationError = (): Error => {
 };
 
 describe('isRetryableCtError', () => {
+  // ADR-027: the payments SDK's own errors (e.g. getPayment) carry the HTTP status in `httpErrorStatus`.
+  test.each([502, 503, 429, 409])('classifies a payments-SDK error with httpErrorStatus %s as retryable', (status) => {
+    expect(isRetryableCtError(Object.assign(new Error('General error'), { httpErrorStatus: status }))).toBe(true);
+  });
+
+  test('keeps a payments-SDK 404 (httpErrorStatus) permanent', () => {
+    expect(isRetryableCtError(Object.assign(new Error('Not found'), { httpErrorStatus: 404 }))).toBe(false);
+  });
+
   // The regression guard: a REAL CT 409 carries the signal only on its structured fields.
   test('classifies a realistic ConcurrentModification (code + statusCode 409, no token in message) as retryable', () => {
     expect(isRetryableCtError(realConcurrentModificationError())).toBe(true);
@@ -459,5 +470,127 @@ describe('isConcurrentModificationError', () => {
 
   test('still matches a legacy token in the message', () => {
     expect(isConcurrentModificationError(new Error('ConcurrentModification'))).toBe(true);
+  });
+});
+
+describe('redactError', () => {
+  const SENTINEL = 'pi_SENTINEL_secret_DO_NOT_LOG';
+
+  const buildStripeError = (): Error => {
+    const err = Object.assign(new Error('Your card was declined.'), {
+      name: 'StripeCardError',
+      code: 'card_declined',
+      statusCode: 402,
+      decline_code: 'generic_decline',
+      requestId: 'req_123',
+      // own-enumerable Stripe props that a naive { error } would serialize
+      payment_intent: { id: 'pi_123', client_secret: SENTINEL },
+      raw: { payment_intent: { id: 'pi_123', client_secret: SENTINEL }, code: 'card_declined', statusCode: 402 },
+    });
+    return err;
+  };
+
+  test('keeps the diagnostic whitelist and drops the raw/payment_intent that carry client_secret', () => {
+    const safe = redactError(buildStripeError());
+
+    // classification survives
+    expect(safe).toMatchObject({
+      name: 'StripeCardError',
+      code: 'card_declined',
+      statusCode: 402,
+      decline_code: 'generic_decline',
+      requestId: 'req_123',
+    });
+    // the secret and its carriers never appear
+    expect(safe).not.toHaveProperty('payment_intent');
+    expect(safe).not.toHaveProperty('raw');
+    expect(JSON.stringify(safe)).not.toContain(SENTINEL);
+  });
+
+  test('is pure — never mutates the live error (downstream classification reads the live object)', () => {
+    const err = buildStripeError() as Error & { payment_intent: { client_secret: string } };
+    redactError(err);
+    expect(err.payment_intent.client_secret).toBe(SENTINEL);
+  });
+
+  test('surfaces safe fields off a wrapped .cause without serializing its raw payload', () => {
+    const wrapped = Object.assign(new Error('Stripe API call failed'), {
+      name: 'StripeApiError',
+      cause: buildStripeError(),
+    });
+    const safe = redactError(wrapped) as { cause?: Record<string, unknown> };
+    expect(safe.cause).toMatchObject({ code: 'card_declined' });
+    expect(JSON.stringify(safe)).not.toContain(SENTINEL);
+  });
+
+  test('terminates on a cyclic cause chain instead of overflowing the stack', () => {
+    const a = new Error('A') as Error & { cause?: unknown };
+    const b = new Error('B') as Error & { cause?: unknown };
+    a.cause = b;
+    b.cause = a;
+    expect(() => redactError(a)).not.toThrow();
+    expect(JSON.stringify(redactError(a))).toContain('"name"');
+  });
+
+  test('handles non-Error throwables without leaking', () => {
+    expect(redactError('boom')).toEqual({ message: 'boom' });
+    expect(redactError({ secret: SENTINEL })).toEqual({ message: 'Non-Error thrown value' });
+  });
+
+  test('keeps httpErrorStatus for a non-Stripe Errorx (which has no statusCode)', () => {
+    // connect-payments-sdk's Errorx carries the HTTP status on `httpErrorStatus`, not `statusCode`.
+    // Without it in the whitelist, the redacted log would drop the status for non-Stripe errors.
+    const errorx = Object.assign(new Error('Invalid field'), {
+      name: 'ErrorGeneral',
+      code: 'InvalidInput',
+      httpErrorStatus: 400,
+    });
+    const safe = redactError(errorx);
+    expect(safe).toMatchObject({ name: 'ErrorGeneral', code: 'InvalidInput', httpErrorStatus: 400 });
+    expect(safe).not.toHaveProperty('statusCode');
+  });
+
+  test('does not surface the private Errorx diagnostics privateMessage / privateFields', () => {
+    const errorx = Object.assign(new Error('Auth failed'), {
+      name: 'ErrorAuthErrorResponse',
+      code: 'invalid_token',
+      httpErrorStatus: 401,
+      privateMessage: 'expected issuer https://a, got https://b',
+      privateFields: { issuer: 'https://b', clientId: 'cid', session: '{"customerId":"c1"}' },
+    });
+    const safe = redactError(errorx) as Record<string, unknown>;
+    expect(safe).toMatchObject({ code: 'invalid_token', httpErrorStatus: 401 });
+    expect(safe).not.toHaveProperty('privateMessage');
+    expect(safe).not.toHaveProperty('privateFields');
+  });
+});
+
+// ADR-027: which failures of the hold's Stripe call are worth a webhook redelivery.
+describe('isTransientStripeError', () => {
+  test.each([
+    ['a connection error', { type: 'StripeConnectionError' }],
+    ['a Stripe-side error', { type: 'StripeAPIError', statusCode: 500 }],
+    ['a rate limit or lock timeout', { type: 'StripeRateLimitError', statusCode: 429 }],
+    ['a conflict', { type: 'StripeInvalidRequestError', statusCode: 409 }],
+    ['an untyped 503', { statusCode: 503 }],
+  ])('is transient for %s', (_case, error) => {
+    expect(isTransientStripeError(error)).toBe(true);
+  });
+
+  test.each([
+    [
+      'a canceled subscription (measured)',
+      { type: 'StripeInvalidRequestError', statusCode: 400, code: 'invalid_canceled_subscription_fields' },
+    ],
+    [
+      'a missing subscription (measured)',
+      { type: 'StripeInvalidRequestError', statusCode: 404, code: 'resource_missing' },
+    ],
+    ['an authentication error', { type: 'StripeAuthenticationError', statusCode: 401 }],
+    ['an idempotency mismatch', { type: 'StripeIdempotencyError', statusCode: 400 }],
+    ['an unknown value', new Error('boom')],
+    ['nothing', undefined],
+  ])('is permanent for %s', (_case, error) => {
+    expect(isTransientStripeError(error)).toBe(false);
   });
 });

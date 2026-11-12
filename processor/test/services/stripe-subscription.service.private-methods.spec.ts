@@ -251,9 +251,11 @@ describe('StripeSubscriptionService - Private Methods', () => {
         mockCustomer,
         mockSubscription,
       );
+      // A2: the renewal keeps the original order's shipping address instead of the card's billing address.
       expect(StripePaymentService.prototype.updateCartAddress).toHaveBeenCalledWith(
         mockInvoiceExpanded.charge as any,
         mockCart as any,
+        { preserveExistingAddress: true },
       );
       expect(CtPaymentCreationService.prototype.handleCtPaymentCreation).toHaveBeenCalled();
       expect(StripePaymentService.prototype.createOrder).toHaveBeenCalled();

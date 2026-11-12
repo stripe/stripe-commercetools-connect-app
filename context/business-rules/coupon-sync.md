@@ -12,7 +12,7 @@ Discount codes applied to a CT cart are synchronized to Stripe coupons when a su
 
 **Invariant:** Coupons are applied once, at subscription creation. Changes to CT discount codes after subscription creation are NOT automatically reflected on the Stripe subscription.
 
-**Implementation:** `stripe-subscription.service.ts` lines 193 and 299 — `discounts: await this.stripeCouponService.getStripeCoupons(cart)`.
+**Implementation:** `stripe-subscription.service.ts` — the `discounts: await this.stripeCouponService.getStripeCoupons(cart)` argument built for each `subscriptions.create()` call (the direct and SetupIntent paths). The Stripe coupon id is the CT discount code id, unscoped (`stripe-coupon.service.ts` → `createStripeDiscountCode`). This service owns **which** codes translate: `translatesToWholeInvoiceCoupon(code, cart)` is true only for a `MatchesCart` code targeting the cart total, or a single percentage line-item code on a cart whose only billed line is the subscription (quantity 1, no shipping charge, no positive fee, and commercetools applied the code to it, read from `discountedPricePerQuantity`). The subscription flow refuses what it rejects rather than re-deriving the rule; only those codes reach `getStripeCoupons`, the rest refused upstream (`mixed-carts.md` Rule 5). The refusal (`UnsupportedCartDiscountForSubscription`, 400) is built in one place, `StripeCouponService.unsupportedSubscriptionDiscountError(reason)`: its body carries `code` and `reason` only, the ids go to the warn log.
 
 ---
 
@@ -28,7 +28,7 @@ Discount codes applied to a CT cart are synchronized to Stripe coupons when a su
 
 ## Rule 3: commercetools decides whether a discount code applies; the connector never re-derives that
 
-**What:** A discount code is translated into a Stripe coupon only when its `DiscountCodeInfo.state` on the cart is `MatchesCart`. No other state is translated, and none reaches a Stripe API call: `ApplicationStoppedByGroupBestDeal` is logged and skipped (`appliesToCart()`, `stripe-coupon.service.ts:121-131`); every other state — `MaxApplicationReached`, `DoesNotMatchCart`, `NotActive`, `NotValid`, `ApplicationStoppedByPreviousDiscount`, and any state not on the whitelist at `stripe-coupon.service.ts:70` — is refused before that, by Rule 3b, which throws `DiscountCodeNonApplicable` (HTTP 400) (`stripe-coupon.service.ts:35`, `:70`, `:91-109`). If every code on the cart is skipped, `getStripeCoupons()` returns `undefined`, exactly as for a cart carrying no codes (`stripe-coupon.service.ts:57`).
+**What:** A discount code is translated into a Stripe coupon only when its `DiscountCodeInfo.state` on the cart is `MatchesCart`. No other state is translated, and none reaches a Stripe API call: `ApplicationStoppedByGroupBestDeal` is logged and skipped (`appliesToCart()`); every other state — `MaxApplicationReached`, `DoesNotMatchCart`, `NotActive`, `NotValid`, `ApplicationStoppedByPreviousDiscount`, and any state not on the `ORDERABLE_STATES` whitelist — is refused before that, by Rule 3b, which throws `DiscountCodeNonApplicable` (HTTP 400) (`assertOrderableWithCode()`). If every code on the cart is skipped, `getStripeCoupons()` returns `undefined`, exactly as for a cart carrying no codes.
 
 **Why:** Hub rule — the commerce platform is the source of truth for cart state. `MatchesCart` is the only state in which the discount is part of the CT cart total.
 
@@ -112,7 +112,11 @@ Whether Stripe considers the coupon usable (`valid`) is a **separate** question,
 inspect `stackingMode` and does not stop early.
 
 **Invariant:** The set of coupons on the subscription equals the set of codes commercetools reports as
-`MatchesCart`. Nothing else decides membership.
+`MatchesCart` — except that a `MatchesCart` code the invoice-wide coupon cannot reproduce **refuses the cart**:
+any target but the cart total, save a single percentage line-item code when the subscription is the only
+billed line; and any code on a trial that bills one-time charges or on a prorating anchor. So it never
+becomes a coupon. The target is read only to refuse, never to skip a code commercetools applied: among the
+codes that are translated, nothing but the `MatchesCart` verdict decides membership.
 
 **Where the stacking outcome actually comes from:** commercetools reports it. Anything it stopped
 carries `ApplicationStoppedByPreviousDiscount`, which Rule 3b refuses before the loop — so a stopped
@@ -151,9 +155,9 @@ threaded from `getStripeCoupons` through `resolveStripeCoupon`, `hasDivergentCon
 |---|---|---|
 | `discount.id` | `coupon.id` | Used as the Stripe coupon ID — enables lookup without metadata |
 | `cartDiscount.value.permyriad / 100` | `percent_off` | Only when `type = 'relative'` |
-| `cartDiscount.value.money[]` entry whose `currencyCode` equals the cart's `totalPrice.currencyCode` → `.centAmount` | `amount_off` | Only when `type = 'absolute'`; no entry for the cart currency throws `DiscountCodeCurrencyMismatch` (`stripe-coupon.service.ts:273-292`) |
-| the same cart-currency entry → `.currencyCode` | `currency` | Only when `type = 'absolute'` (`stripe-coupon.service.ts:293`) |
+| `cartDiscount.value.money[]` entry whose `currencyCode` equals the cart's `totalPrice.currencyCode` → `.centAmount` | `amount_off` | Only when `type = 'absolute'`; no entry for the cart currency throws `DiscountCodeCurrencyMismatch` (`getDiscountConfig()`) |
+| the same cart-currency entry → `.currencyCode` | `currency` | Only when `type = 'absolute'` (`getDiscountConfig()`) |
 | `discount.validUntil` (converted to Unix timestamp) | `redeem_by` | Optional |
 | `discount.maxApplications` | _(not mapped)_ | Deliberately not mirrored — see Rule 5 |
-| `discount.name` (the DiscountCode's localized name, via `getLocalizedString`) | `name` | Display name on Stripe invoice (`stripe-coupon.service.ts:262`) |
+| `discount.name` (the DiscountCode's localized name, via `getLocalizedString`) | `name` | Display name on Stripe invoice (`getDiscountConfig()`) |
 | _(always)_ | `duration: 'once'` | Discount applies to first invoice only. commercetools has no field expressing how many billing cycles a discount spans, so there is nothing to map this from |

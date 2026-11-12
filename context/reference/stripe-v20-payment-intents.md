@@ -15,7 +15,7 @@ const setupIntent = await stripe.setupIntents.create({
 // Returns: { client_secret: 'seti_xxx_secret_xxx' }
 ```
 
-The metadata is `getPaymentMetadata(cart)` (`processor/src/services/stripe-subscription.service.ts:966`;
+The metadata is `getPaymentMetadata(cart)` (set in `createStripeSetupIntent`;
 keys built at `processor/src/services/ct-payment-creation.service.ts:156-158`, names in
 `processor/src/constants.ts:1-5`).
 
@@ -37,11 +37,11 @@ await stripe.subscriptions.create({
 ```
 
 At create, the metadata is `sealCartTotal(cart, getPaymentMetadata(cart))`
-(`processor/src/services/stripe-subscription.service.ts:192`, `processor/src/services/stripe-subscription.service.ts:298`, `processor/src/services/stripe-subscription.service.ts:1691-1696`) — the cart keys of
+(`createSubscription`, `createSubscriptionFromSetupIntent`, and `updateSubscriptionMetadata`) — the cart keys of
 `processor/src/services/ct-payment-creation.service.ts:156-158` plus the sealed cart total. Keys are added to the
 subscription afterwards: `ct_payment_id` once the CT payment exists
 (`processor/src/services/ct-payment-creation.service.ts:134-140`), and `ct_order_id` once the order is created
-(`processor/src/services/stripe-payment.service.ts:2084-2089`).
+(`processor/src/services/stripe-payment.service.ts:2087-2092`).
 
 ### Key subscription statuses
 
@@ -64,14 +64,17 @@ subscription afterwards: `ct_payment_id` once the CT payment exists
 | `charge.succeeded` | Registered, but **dropped** when it originates from a subscription invoice (`isFromSubscriptionInvoice()`) — `invoice.paid` is the single source of truth for recurring payments |
 | `payment_intent.payment_failed` | On a subscription invoice that had **already** settled, this is an ACH late return: flags the CT payment with `paymentStatus.interfaceCode='ach_late_return'`. No transaction or order change |
 
+> A commercetools write that fails with a transient error inside `invoice.paid` / `invoice.payment_failed`
+> is rethrown so Stripe redelivers.
+
 ## Subscription Product Attribute Mapping
 
-Products must belong to a product type with `stripeConnector_` prefixed attributes. The mapper `getSubscriptionAttributes` (`processor/src/mappers/subscription-mapper.ts:6-41`) translates most of them to Stripe subscription params. The two recurring attributes are **not** read by the mapper: they go into the standalone recurring Price the connector creates with `stripe.prices.create` (`processor/src/services/stripe-subscription.service.ts:903-919`; the shipping Price likewise, `processor/src/services/stripe-subscription.service.ts:931-941`), and the subscription's `items[]` references that Price by id (`processor/src/services/stripe-subscription.service.ts:185`). This table is not a complete list of the mapped attributes:
+Products must belong to a product type with `stripeConnector_` prefixed attributes. The mapper `getSubscriptionAttributes` (`processor/src/mappers/subscription-mapper.ts:6-41`) translates most of them to Stripe subscription params. The two recurring attributes are **not** read by the mapper: they go into the standalone recurring Price the connector creates with `stripe.prices.create` (`createStripePrice`; the shipping Price likewise, `createStripeShippingPrice`), and the subscription's `items[]` references that Price by id (`createSubscription`). An existing Price is reused only when its interval and count still match (`getCreateSubscriptionPriceId`). This table is not a complete list of the mapped attributes:
 
 | CT attribute | Stripe param |
 |---|---|
-| `stripeConnector_recurring_interval` | `prices.create` → `recurring.interval` (`processor/src/services/stripe-subscription.service.ts:913`, `processor/src/services/stripe-subscription.service.ts:939`) |
-| `stripeConnector_recurring_interval_count` | `prices.create` → `recurring.interval_count` (`processor/src/services/stripe-subscription.service.ts:914`, `processor/src/services/stripe-subscription.service.ts:940`) |
+| `stripeConnector_recurring_interval` | `prices.create` → `recurring.interval` (`createStripePrice`, `createStripeShippingPrice`) |
+| `stripeConnector_recurring_interval_count` | `prices.create` → `recurring.interval_count` (`createStripePrice`, `createStripeShippingPrice`) |
 | `stripeConnector_trial_period_days` | `trial_period_days` |
 | `stripeConnector_proration_behavior` | `proration_behavior` on update |
 

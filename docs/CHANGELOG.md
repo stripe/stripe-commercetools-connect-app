@@ -6,6 +6,25 @@
 
 ## Latest
 
+### v1.7.11
+
+**Changed:**
+
+- Documentation and maintenance updates.
+
+**Fixed:**
+
+- When a paid subscription's first invoice is not confirmed as an order, the Stripe subscription's collection is paused (kept as draft) and the commercetools payment is flagged, instead of the subscription renewing with no order behind it. The hold is reversible; clearing the flag resumes later cycles. Applies only to the subscription-creation invoice.
+- Subscription first-cycle and renewal invoices preserve the complete checkout shipping address instead of overwriting it with the card's billing address; a cart without a complete address still receives the charge address.
+- The subscription first-cycle amount check compares the full invoice total (after discounts), runs only when positive, tolerates a one-minor-unit rounding difference on discounted invoices, and exempts Stripe-prorated invoices, so a customer balance no longer blocks a legitimate order.
+- On a subscription cart, a discount the connector cannot represent exactly on Stripe's first invoice is refused with HTTP 400 before any Stripe object is created: a single relative code on a single-line subscription is accepted, while codes on prorated anchors, trials that also bill fees, automatic or code-less discounts, and more than one total-price code are refused. Stripe's first-invoice collection must equal the cart total.
+- Custom-line-item invoice pricing — no double/over-discount, reject credits
+- A cart with more than one subscription line item is refused with HTTP 400 before any Stripe object is created.
+- Custom line items on a subscription cart (for example a setup fee or service charge) are billed on the subscription's first invoice at their total price, using a Stripe product reused per slug; non-positive items are skipped.
+- Error objects in the processor's logs are redacted to a diagnostic whitelist, so logs never contain payment client secrets or bank-transfer instructions; HTTP responses are unchanged.
+
+---
+
 ### v1.7.10
 
 **Changed:**

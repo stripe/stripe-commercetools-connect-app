@@ -6,7 +6,7 @@
 
 ## Rule 1: Cart is frozen immediately after subscription creation
 
-**What:** After `POST /subscription` creates the Stripe subscription and CT Payment, `freezeCart()` is called, which issues a CT `freezeCart` update action (`cart-client.ts:141-148`). This sets the cart's `cartState` to `'Frozen'` — CT has no boolean `frozen` field; `isCartFrozen()` (`:171`) checks `cart.cartState === 'Frozen'`.
+**What:** After `POST /subscription` creates the Stripe subscription and CT Payment, `freezeCart()` is called, which issues a CT `freezeCart` update action (`cart-client.ts:146-153`). This sets the cart's `cartState` to `'Frozen'` — CT has no boolean `frozen` field; `isCartFrozen()` (`:176`) checks `cart.cartState === 'Frozen'`.
 
 **Why:** A subscription is tied to a fixed set of items and prices at creation time. Allowing cart modifications after subscription initiation would create a mismatch between what Stripe charges each cycle and what CT's cart contains.
 
@@ -32,7 +32,7 @@
 
 ## Rule 3: Subscription products are identified by a hardcoded product type name — not by `CT_PRODUCT_TYPE_SUBSCRIPTION_KEY`
 
-**What:** A line item is considered a subscription item when `item.productType.obj?.name === productTypeSubscription.name` (`stripe-subscription.service.ts:1186`, and the mixed-cart split at `:782`), where `productTypeSubscription.name` is the **literal string** `'payment-connector-subscription-information'` (`custom-types.ts:84`) — never derived from `CT_PRODUCT_TYPE_SUBSCRIPTION_KEY`. That env var only sets the product type's `key` (`custom-types.ts:85`), which is used solely by post-deploy for CT API lookups (`getTypeByKey()`), not by this runtime discriminator.
+**What:** A line item is considered a subscription item when `item.productType.obj?.name === productTypeSubscription.name` (`findSubscriptionLineItem()` / `assertSingleSubscriptionLineItem()`, and the mixed-cart split in `getAllLineItemPrices()`), where `productTypeSubscription.name` is the **literal string** `'payment-connector-subscription-information'` (`custom-types.ts:84`) — never derived from `CT_PRODUCT_TYPE_SUBSCRIPTION_KEY`. That env var only sets the product type's `key` (`custom-types.ts:85`), which is used solely by post-deploy for CT API lookups (`getTypeByKey()`), not by this runtime discriminator.
 
 **Why:** Mixed carts can contain both subscription and one-time items. The product type is the discriminator. Without it, the connector cannot separate what should recur from what should be charged once. Post-deploy always creates the type with this same hardcoded `name`, regardless of the configured `key`; overriding the env var changes the type's `key`, not the value this runtime check compares against.
 

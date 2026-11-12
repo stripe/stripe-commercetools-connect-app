@@ -200,6 +200,46 @@ describe('stripe-payment.service', () => {
       expect(result?.checks[1]?.details).toBeDefined();
       expect(result?.checks[1]?.message).toBeDefined();
     });
+
+    test('redacts the Stripe DOWN-branch details.error, leaking no client_secret (SB3-237)', async () => {
+      // The /operations/status DOWN branch now serializes `details.error` through `redactError`
+      // (ADR-023 amendment): it must carry the diagnostic whitelist, never the raw thrown value's
+      // `payment_intent`/`client_secret`. Reproduce the stripe-node leak shape so this fails on a revert.
+      const SENTINEL_SECRET = 'pi_SENTINEL_secret_DO_NOT_LOG';
+      const stripeError = Object.assign(new Error('Stripe is down.'), {
+        type: 'StripeAPIError',
+        code: 'api_error',
+        statusCode: 500,
+        requestId: 'req_down123',
+        payment_intent: { id: 'pi_down', client_secret: SENTINEL_SECRET, status: 'requires_payment_method' },
+        raw: { payment_intent: { id: 'pi_down', client_secret: SENTINEL_SECRET } },
+      });
+
+      // CoCo permissions UP so only the Stripe check goes DOWN.
+      const mockHealthCheckFunction: () => Promise<HealthCheckResult> = async () => ({
+        name: 'CoCo Permissions',
+        status: 'UP',
+        message: 'CoCo Permissions are available',
+        details: {},
+      });
+      jest.spyOn(StatusHandler, 'healthCheckCommercetoolsPermissions').mockReturnValue(mockHealthCheckFunction);
+      Stripe.prototype.paymentMethods = {
+        list: jest.fn<() => Promise<Stripe.ApiList<Stripe.PaymentMethod>>>().mockRejectedValue(stripeError),
+      } as unknown as Stripe.PaymentMethodsResource;
+
+      const paymentService: AbstractPaymentService = new StripePaymentService(opts);
+      const result: StatusResponse = await paymentService.status();
+
+      const stripeCheck = result?.checks?.find((check) => check?.name === 'Stripe Status check');
+      expect(stripeCheck?.status).toStrictEqual('DOWN');
+      const details = stripeCheck?.details as { error: Record<string, unknown> };
+      // Redacted whitelist shape, not the raw thrown value.
+      expect(details.error.message).toBe('Stripe is down.');
+      expect(details.error.statusCode).toBe(500);
+      expect(details.error).not.toHaveProperty('payment_intent');
+      expect(details.error).not.toHaveProperty('raw');
+      expect(JSON.stringify(details.error)).not.toContain(SENTINEL_SECRET);
+    });
   });
 
   describe('method modifyPayment', () => {
@@ -459,6 +499,74 @@ describe('stripe-payment.service', () => {
       expect(getPaymentMock).toHaveBeenCalled();
       expect(updatePaymentMock).toHaveBeenCalledTimes(0);
       expect(stripeRetrieveMock).toHaveBeenCalled();
+    });
+
+    test('redacts a Stripe error client_secret from the capture failure log while preserving classification (SB3-237)', async () => {
+      // A real stripe-node StripeError attaches `payment_intent` / `raw` as OWN-ENUMERABLE props (so a
+      // naive `{ error }` or `JSON.stringify(error)` serializes `client_secret`) while keeping `message`
+      // NON-ENUMERABLE (so it is dropped). Reproduce that exact shape so this test fails if the sink ever
+      // serializes the raw error again — the quote-free sentinel detects even a JSON-escaped revert.
+      const SENTINEL_SECRET = 'pi_SENTINEL_secret_DO_NOT_LOG';
+      const stripeError = Object.assign(new Error('Your card was declined.'), {
+        type: 'StripeCardError',
+        code: 'card_declined',
+        decline_code: 'generic_decline',
+        param: 'payment_method',
+        doc_url: 'https://stripe.com/docs/error-codes/card-declined',
+        statusCode: 402,
+        requestId: 'req_abc123',
+        // own-enumerable sub-objects stripe-node copies onto the error instance → the leak vector
+        payment_intent: { id: 'pi_123', client_secret: SENTINEL_SECRET, status: 'requires_payment_method' },
+        raw: {
+          message: 'Your card was declined.',
+          type: 'card_error',
+          code: 'card_declined',
+          payment_intent: { id: 'pi_123', client_secret: SENTINEL_SECRET },
+        },
+      });
+
+      const modifyPaymentOpts: ModifyPayment = {
+        paymentId: 'dummy-paymentId',
+        data: {
+          actions: [{ action: 'capturePayment', amount: { centAmount: 150000, currencyCode: 'USD' } }],
+        },
+      };
+
+      jest.spyOn(DefaultPaymentService.prototype, 'getPayment').mockReturnValue(Promise.resolve(mockGetPaymentResult));
+      jest.spyOn(Stripe.prototype.paymentIntents, 'retrieve').mockImplementation(() => {
+        throw stripeError;
+      });
+
+      const result = await paymentService.modifyPayment(modifyPaymentOpts);
+
+      // Behaviour unchanged: the capture is still rejected.
+      expect(result?.outcome).toStrictEqual('rejected');
+
+      // The sink fired...
+      expect(Logger.log.error).toHaveBeenCalledWith('Error capturing payment in Stripe', expect.any(Object));
+
+      // ...but NO log call carries the client_secret (would FAIL with the pre-fix `{ error }`).
+      const loggedBlob = (Logger.log.error as jest.Mock).mock.calls.map((args) => JSON.stringify(args)).join('\n');
+      expect(loggedBlob).not.toContain(SENTINEL_SECRET);
+
+      // ...and classification is preserved — downstream reads code/statusCode off the error.
+      const sinkCall = (Logger.log.error as jest.Mock).mock.calls.find(
+        (args) => args[0] === 'Error capturing payment in Stripe',
+      );
+      const logged = (sinkCall?.[1] as { error: Record<string, unknown> }).error;
+      expect(logged.code).toBe('card_declined');
+      expect(logged.statusCode).toBe(402);
+      expect(logged.type).toBe('StripeCardError');
+      expect(logged.decline_code).toBe('generic_decline');
+      expect(logged.message).toBe('Your card was declined.');
+      // The secret-bearing raw props never reach the whitelist.
+      expect(logged).not.toHaveProperty('payment_intent');
+      expect(logged).not.toHaveProperty('raw');
+
+      // The live error object is NOT mutated — classification downstream still sees the live fields.
+      expect(
+        (stripeError as unknown as { payment_intent: { client_secret: string } }).payment_intent.client_secret,
+      ).toBe(SENTINEL_SECRET);
     });
 
     test('should refund a payment successfully', async () => {
@@ -3521,7 +3629,7 @@ describe('stripe-payment.service', () => {
       expect(mockRefundsList).toHaveBeenCalled();
       expect(updatePaymentMock).not.toHaveBeenCalled();
       expect(Logger.log.error).toHaveBeenCalledWith('Error processing refund notification', {
-        error: expect.any(Error),
+        error: expect.objectContaining({ name: 'Error', message: 'Stripe API error' }),
       });
     });
 
@@ -3590,7 +3698,7 @@ describe('stripe-payment.service', () => {
       expect(mockRefundsList).toHaveBeenCalled();
       expect(updatePaymentMock).toHaveBeenCalled();
       expect(Logger.log.error).toHaveBeenCalledWith('Error processing refund notification', {
-        error: expect.any(Error),
+        error: expect.objectContaining({ name: 'Error', message: 'Payment update failed' }),
       });
     });
   });

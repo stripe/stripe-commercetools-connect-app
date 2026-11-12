@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { Cart, DiscountCodeInfo, LineItem } from '@commercetools/platform-sdk';
+import { customLineItem, lineItem, mockGetSubscriptionCartWithVariant, shippingInfo } from '../utils/mock-cart-data';
 
 // Mock the dependencies
 const mockStripeApi = jest.fn();
@@ -24,6 +26,8 @@ jest.doMock('../../src/libs/logger', () => ({
 jest.doMock('../../src/utils', () => ({
   convertDateToUnixTimestamp: mockConvertDateToUnixTimestamp,
   getLocalizedString: mockGetLocalizedString,
+  redactError: (error: unknown) =>
+    error instanceof Error ? { name: error.name, message: error.message } : { message: String(error) },
 }));
 
 describe('StripeCouponService', () => {
@@ -54,6 +58,36 @@ describe('StripeCouponService', () => {
   });
 
   describe('getStripeCoupons', () => {
+    // ADR-026 addendum (2026-11-10): the refusal body carries a stable code and a reason, never the cart,
+    // discount code or discount ids — those stay in the warn log.
+    it('refuses a non-representable code with a body of code + reason only, ids in the log', async () => {
+      const cart = {
+        ...mockGetSubscriptionCartWithVariant(1),
+        discountCodes: [
+          {
+            state: 'MatchesCart',
+            discountCode: {
+              typeId: 'discount-code',
+              id: 'discount-123',
+              obj: { id: 'discount-123', cartDiscounts: [{ id: 'cd-1', obj: { target: { type: 'shipping' } } }] },
+            },
+          },
+        ],
+      };
+
+      const error: any = await service.getStripeCoupons(cart).catch((e: unknown) => e);
+
+      expect(error.code).toBe('UnsupportedCartDiscountForSubscription');
+      expect(error.httpErrorStatus).toBe(400);
+      expect(error.fields).toEqual({ reason: 'unsupported-code-target' });
+      expect(error.message).not.toMatch(/discount-123|cd-1|shipping/);
+      expect(mockLog.warn).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ ctDiscountCodeId: 'discount-123', discountTarget: 'shipping' }),
+      );
+      expect(mockStripe.coupons.create).not.toHaveBeenCalled();
+    });
+
     it('should return undefined when cart has no discount codes', async () => {
       const cart = { discountCodes: [] };
       const result = await service.getStripeCoupons(cart);
@@ -127,6 +161,7 @@ describe('StripeCouponService', () => {
                         type: 'relative',
                         permyriad: 1000,
                       },
+                      target: { type: 'totalPrice' },
                     },
                   },
                 ],
@@ -165,7 +200,9 @@ describe('StripeCouponService', () => {
               id: 'discount-123',
               obj: {
                 id: 'discount-123',
-                cartDiscounts: [{ obj: { value: { type: 'relative', permyriad: 1000 } } }],
+                cartDiscounts: [
+                  { obj: { value: { type: 'relative', permyriad: 1000 }, target: { type: 'totalPrice' } } },
+                ],
               },
             },
           },
@@ -204,7 +241,9 @@ describe('StripeCouponService', () => {
               id: 'discount-123',
               obj: {
                 id: 'discount-123',
-                cartDiscounts: [{ obj: { value: { type: 'relative', permyriad: 1000 } } }],
+                cartDiscounts: [
+                  { obj: { value: { type: 'relative', permyriad: 1000 }, target: { type: 'totalPrice' } } },
+                ],
               },
             },
           },
@@ -240,7 +279,9 @@ describe('StripeCouponService', () => {
               obj: {
                 id: 'discount-123',
                 validUntil: '2023-12-31T23:59:59Z',
-                cartDiscounts: [{ obj: { value: { type: 'relative', permyriad: 1000 } } }],
+                cartDiscounts: [
+                  { obj: { value: { type: 'relative', permyriad: 1000 }, target: { type: 'totalPrice' } } },
+                ],
               },
             },
           },
@@ -280,7 +321,12 @@ describe('StripeCouponService', () => {
               state: 'MatchesCart',
               discountCode: {
                 id: 'discount-123',
-                obj: { id: 'discount-123', cartDiscounts: [{ obj: { value: { type: 'relative', permyriad: 1000 } } }] },
+                obj: {
+                  id: 'discount-123',
+                  cartDiscounts: [
+                    { obj: { value: { type: 'relative', permyriad: 1000 }, target: { type: 'totalPrice' } } },
+                  ],
+                },
               },
             },
           ],
@@ -315,7 +361,9 @@ describe('StripeCouponService', () => {
               obj: {
                 id: 'discount-123',
                 maxApplications: 1,
-                cartDiscounts: [{ obj: { value: { type: 'relative', permyriad: 1000 } } }],
+                cartDiscounts: [
+                  { obj: { value: { type: 'relative', permyriad: 1000 }, target: { type: 'totalPrice' } } },
+                ],
               },
             },
           },
@@ -352,6 +400,7 @@ describe('StripeCouponService', () => {
                         type: 'relative',
                         permyriad: 1000,
                       },
+                      target: { type: 'totalPrice' },
                     },
                   },
                 ],
@@ -393,6 +442,7 @@ describe('StripeCouponService', () => {
                         type: 'relative',
                         permyriad: 1000,
                       },
+                      target: { type: 'totalPrice' },
                       stackingMode: 'StopAfterThisDiscount',
                     },
                   },
@@ -413,6 +463,7 @@ describe('StripeCouponService', () => {
                         type: 'relative',
                         permyriad: 1500,
                       },
+                      target: { type: 'totalPrice' },
                     },
                   },
                 ],
@@ -460,7 +511,9 @@ describe('StripeCouponService', () => {
               id: 'discount-123',
               obj: {
                 id: 'discount-123',
-                cartDiscounts: [{ obj: { value: { type: 'relative', permyriad: 1000 } } }],
+                cartDiscounts: [
+                  { obj: { value: { type: 'relative', permyriad: 1000 }, target: { type: 'totalPrice' } } },
+                ],
               },
             },
           },
@@ -488,7 +541,9 @@ describe('StripeCouponService', () => {
               id: 'discount-123',
               obj: {
                 id: 'discount-123',
-                cartDiscounts: [{ obj: { value: { type: 'relative', permyriad: 1000 } } }],
+                cartDiscounts: [
+                  { obj: { value: { type: 'relative', permyriad: 1000 }, target: { type: 'totalPrice' } } },
+                ],
               },
             },
           },
@@ -515,7 +570,9 @@ describe('StripeCouponService', () => {
               id: 'discount-capped',
               obj: {
                 id: 'discount-capped',
-                cartDiscounts: [{ obj: { value: { type: 'relative', permyriad: 3000 } } }],
+                cartDiscounts: [
+                  { obj: { value: { type: 'relative', permyriad: 3000 }, target: { type: 'totalPrice' } } },
+                ],
               },
             },
           },
@@ -525,7 +582,9 @@ describe('StripeCouponService', () => {
               id: 'discount-123',
               obj: {
                 id: 'discount-123',
-                cartDiscounts: [{ obj: { value: { type: 'relative', permyriad: 1000 } } }],
+                cartDiscounts: [
+                  { obj: { value: { type: 'relative', permyriad: 1000 }, target: { type: 'totalPrice' } } },
+                ],
               },
             },
           },
@@ -548,6 +607,40 @@ describe('StripeCouponService', () => {
     });
   });
 
+  // The Stripe coupon id is the CT discount code id, with no `applies_to` scoping. A cart carrying custom
+  // line items only reaches here with a total-price discount (any other target is refused upstream in
+  // prepareSubscriptionData), so the invoice-wide coupon discounts the whole first invoice correctly.
+  describe('getStripeCoupons — coupon id is the discount code id, unscoped', () => {
+    const cartWith = (targetType: string) => ({
+      id: 'cart-xyz',
+      totalPrice: { type: 'centPrecision', currencyCode: 'USD', centAmount: 10000, fractionDigits: 2 },
+      customLineItems: [{ id: 'cli-1', money: { centAmount: 500, currencyCode: 'USD' } }],
+      discountCodes: [
+        {
+          state: 'MatchesCart',
+          discountCode: {
+            id: 'discount-123',
+            obj: {
+              id: 'discount-123',
+              cartDiscounts: [{ obj: { value: { type: 'relative', permyriad: 1000 }, target: { type: targetType } } }],
+            },
+          },
+        },
+      ],
+    });
+
+    it('creates the coupon under the discount code id with no applies_to, on a fee cart', async () => {
+      mockStripe.coupons.retrieve.mockRejectedValue(new Error('No such coupon')); // forces create
+      mockStripe.coupons.create.mockResolvedValue({ id: 'discount-123' });
+
+      const result = await service.getStripeCoupons(cartWith('totalPrice'));
+
+      expect(result).toEqual([{ coupon: 'discount-123' }]);
+      expect(mockStripe.coupons.create).toHaveBeenCalledWith(expect.objectContaining({ id: 'discount-123' }));
+      expect(mockStripe.coupons.create.mock.calls[0][0]).not.toHaveProperty('applies_to');
+    });
+  });
+
   describe('appliesToCart', () => {
     it('should accept a code commercetools applies to the cart', () => {
       const applies = service.appliesToCart({ state: 'MatchesCart', discountCode: { id: 'discount-123' } });
@@ -567,6 +660,121 @@ describe('StripeCouponService', () => {
         expect.stringContaining('commercetools does not apply it to this cart'),
         expect.objectContaining({ ctDiscountCodeId: 'discount-123', discountCodeState: 'MaxApplicationReached' }),
       );
+    });
+  });
+
+  // ADR-026 / point 7: the coupon service owns which codes it can represent as an invoice-wide coupon. The
+  // subscription flow refuses what this rejects rather than re-deriving the target rule itself.
+  describe('translatesToWholeInvoiceCoupon', () => {
+    const codeWith = (state: string, targetType?: string) => ({
+      state,
+      discountCode: {
+        id: 'discount-123',
+        obj: targetType ? { cartDiscounts: [{ obj: { target: { type: targetType } } }] } : { cartDiscounts: undefined },
+      },
+    });
+
+    const anyCart = mockGetSubscriptionCartWithVariant(1);
+    const translates = (code: unknown, cart: Cart = anyCart) =>
+      service.translatesToWholeInvoiceCoupon(code as DiscountCodeInfo, cart);
+
+    it('is true only for a MatchesCart code whose single cart discount targets the cart total', () => {
+      expect(translates(codeWith('MatchesCart', 'totalPrice'))).toBe(true);
+    });
+
+    it('is false for a non-total target (lineItems, shipping, customLineItems, pattern)', () => {
+      for (const target of ['lineItems', 'shipping', 'customLineItems', 'pattern', 'multiBuyLineItems']) {
+        expect(translates(codeWith('MatchesCart', target))).toBe(false);
+      }
+    });
+
+    it('is false for an unexpanded discount whose target cannot be read', () => {
+      expect(translates(codeWith('MatchesCart'))).toBe(false);
+    });
+
+    it('is false for a code commercetools does not apply (state != MatchesCart)', () => {
+      expect(translates(codeWith('DoesNotMatchCart', 'totalPrice'))).toBe(false);
+    });
+
+    // ADR-026 addendum (2026-11-10), the base case: a relative line-item code on a cart whose first invoice is
+    // that one line. Measured in Stripe test mode: 5 % of 1003 bills 953, as commercetools' line discount does.
+    describe('the single-line relative code (base case)', () => {
+      const money = (centAmount: number) =>
+        ({ type: 'centPrecision', currencyCode: 'USD', centAmount, fractionDigits: 2 }) as const;
+      const lineCode = (valueType: 'relative' | 'absolute' = 'relative') =>
+        ({
+          state: 'MatchesCart',
+          discountCode: {
+            typeId: 'discount-code',
+            id: 'dc-1',
+            obj: {
+              cartDiscounts: [
+                {
+                  typeId: 'cart-discount',
+                  id: 'cd-dc-1',
+                  obj: { target: { type: 'lineItems' }, value: { type: valueType, permyriad: 500 } },
+                },
+              ],
+            },
+          },
+        }) as unknown as DiscountCodeInfo;
+      const reachedBy = (discountId: string, quantity = 1) => [
+        {
+          quantity,
+          discountedPrice: {
+            value: money(953),
+            includedDiscounts: [{ discount: { typeId: 'cart-discount', id: discountId }, discountedAmount: money(50) }],
+          },
+        },
+      ];
+      const baseCart = (overrides: Partial<Cart> = {}, lineOverrides: Partial<LineItem> = {}): Cart => {
+        const cart = mockGetSubscriptionCartWithVariant(1);
+        return {
+          ...cart,
+          shippingInfo: undefined,
+          customLineItems: [],
+          lineItems: [
+            { ...cart.lineItems[0], quantity: 1, discountedPricePerQuantity: reachedBy('cd-dc-1'), ...lineOverrides },
+          ],
+          ...overrides,
+        };
+      };
+
+      it('accepts it when the only line, quantity 1, carries the code’s discount and nothing else is billed', () => {
+        expect(translates(lineCode(), baseCart())).toBe(true);
+      });
+
+      it('accepts a zero shipping charge and a zero fee (nothing for the coupon to over-discount)', () => {
+        const cart = baseCart({
+          shippingInfo: { ...shippingInfo, price: money(0) },
+          customLineItems: [{ ...customLineItem, totalPrice: money(0) }],
+        });
+        expect(translates(lineCode(), cart)).toBe(true);
+      });
+
+      it.each<[string, Cart]>([
+        [
+          'quantity 2 (per-unit vs subtotal rounding)',
+          baseCart({}, { quantity: 2, discountedPricePerQuantity: reachedBy('cd-dc-1', 2) }),
+        ],
+        ['a shipping charge', baseCart({ shippingInfo })],
+        ['a positive fee', baseCart({ customLineItems: [customLineItem] })],
+        ['a second line item', { ...baseCart(), lineItems: [...baseCart().lineItems, lineItem] }],
+        [
+          'a line the code did not reach (cart predicate matched, line predicate did not)',
+          baseCart({}, { discountedPricePerQuantity: [] }),
+        ],
+        [
+          'a line reached by another discount only',
+          baseCart({}, { discountedPricePerQuantity: reachedBy('cd-other') }),
+        ],
+      ])('refuses it with %s', (_name, cart) => {
+        expect(translates(lineCode(), cart)).toBe(false);
+      });
+
+      it('refuses an absolute line-item amount even in the base case (not measured)', () => {
+        expect(translates(lineCode('absolute'), baseCart())).toBe(false);
+      });
     });
   });
 
@@ -644,6 +852,7 @@ describe('StripeCouponService', () => {
                 type: 'relative',
                 permyriad: 1000,
               },
+              target: { type: 'totalPrice' },
             },
           },
         ],
@@ -717,6 +926,7 @@ describe('StripeCouponService', () => {
                 type: 'relative',
                 permyriad: 1000,
               },
+              target: { type: 'totalPrice' },
             },
           },
         ],
@@ -753,6 +963,7 @@ describe('StripeCouponService', () => {
                 type: 'relative',
                 permyriad: 1000,
               },
+              target: { type: 'totalPrice' },
             },
           },
         ],
@@ -787,7 +998,7 @@ describe('StripeCouponService', () => {
       expect(mockStripe.coupons.del).toHaveBeenCalledWith('coupon-123');
     });
 
-    // KI-007: a swallowed failure here left the following create failing on a duplicate id, with the
+    // a swallowed failure here left the following create failing on a duplicate id, with the
     // real cause already logged away.
     it('should surface a deletion failure instead of swallowing it', async () => {
       const mockError = new Error('Deletion failed');
@@ -818,7 +1029,9 @@ describe('StripeCouponService', () => {
               id: 'discount-123',
               obj: {
                 id: 'discount-123',
-                cartDiscounts: [{ obj: { value: { type: 'relative', permyriad: 1000 } } }],
+                cartDiscounts: [
+                  { obj: { value: { type: 'relative', permyriad: 1000 }, target: { type: 'totalPrice' } } },
+                ],
               },
             },
           },
@@ -879,7 +1092,7 @@ describe('StripeCouponService', () => {
     it('leaves percentage discounts alone — they carry no currency', () => {
       const relative = {
         id: 'discount-rel',
-        cartDiscounts: [{ obj: { value: { type: 'relative', permyriad: 1500 } } }],
+        cartDiscounts: [{ obj: { value: { type: 'relative', permyriad: 1500 }, target: { type: 'totalPrice' } } }],
       };
 
       const config = service.getDiscountConfig(relative, 'GBP');
@@ -892,7 +1105,7 @@ describe('StripeCouponService', () => {
   describe('hasDivergentConfig', () => {
     const percentageDiscountCode = (overrides = {}) => ({
       id: 'discount-123',
-      cartDiscounts: [{ obj: { value: { type: 'relative', permyriad: 1000 } } }],
+      cartDiscounts: [{ obj: { value: { type: 'relative', permyriad: 1000 }, target: { type: 'totalPrice' } } }],
       name: { en: 'Test Discount' },
       validUntil: '2023-12-31T23:59:59Z',
       maxApplications: 100,
@@ -1017,6 +1230,7 @@ describe('StripeCouponService', () => {
                 type: 'relative',
                 permyriad: 1000,
               },
+              target: { type: 'totalPrice' },
             },
           },
         ],
@@ -1086,6 +1300,7 @@ describe('StripeCouponService', () => {
                 type: 'relative',
                 permyriad: 1000,
               },
+              target: { type: 'totalPrice' },
             },
           },
         ],

@@ -131,7 +131,7 @@ name.
 | Mode | Path | What decides the outcome |
 | --- | --- | --- |
 | One-time (`payment`) | `POST /payments` → Stripe.js confirm → `POST /confirmPayments/:id` | `updatePaymentIntentStripeSuccessful` (`processor/src/services/stripe-payment.service.ts:942`) retrieves the real PaymentIntent and fails closed on a retrieve error (`:971-979`); allows only `succeeded`, `requires_capture`, `processing` (`:982`); compares amount and currency against the cart's live total, `taxedPrice.totalGross ?? totalPrice` (`:1021-1034`); freezes the cart (`:1048-1060`); answers `APPROVED` or, for `processing`, writes `Authorization/Pending` and answers `PENDING` (HTTP 202) |
-| Subscription | `POST /subscription` → Stripe.js confirm → `POST /subscription/confirm` | `confirmSubscriptionPayment` reads the real PaymentIntent: `succeeded`/`requires_capture` → `Charge/Success`; `processing` (ACH) → `Charge/Pending`, settled later by `invoice.paid` or `invoice.payment_failed`; any other status throws. `send_invoice` and trials are Pending by type and skip the status read (`processor/src/services/stripe-subscription.service.ts:1063-1070`) |
+| Subscription | `POST /subscription` → Stripe.js confirm → `POST /subscription/confirm` | `confirmSubscriptionPayment` reads the real PaymentIntent: `succeeded`/`requires_capture` → `Charge/Success`; `processing` (ACH) → `Charge/Pending`, settled later by `invoice.paid` or `invoice.payment_failed`; any other status throws. `send_invoice` and trials are Pending by type and skip the status read (all in `confirmSubscriptionPayment`) |
 | Setup | `POST /setupIntent` → Stripe.js confirm → `POST /subscription/withSetupIntent` → `POST /subscription/confirm` | as Subscription |
 
 Asynchronous rails never reach the confirm gate on the one-time path: a bank transfer or ACH
@@ -142,7 +142,7 @@ are in `workflows/`.
 
 ## 4. Webhook events
 
-**Registered** — the `enabled_events` array post-deploy sends to Stripe, `processor/src/connectors/actions.ts:66-87`
+**Registered** — the `enabled_events` array post-deploy sends to Stripe, `processor/src/connectors/actions.ts:67-88`
 (16 events).
 
 **Dispatched** — the `switch (event.type)` in `processor/src/routes/stripe-payment.route.ts:309-381`.
@@ -161,7 +161,7 @@ response is non-2xx, which is what makes Stripe redeliver.
 | `charge.refunded` | `:70` | `:355` → `handleChargeRefundedEvent` (`:265-273`) | multi-operations off: `processStripeEvent`; on: `processStripeEventRefunded` |
 | `refund.updated`, `refund.failed` | `:75`, `:76` | `:358-359` → `handleRefundOutcomeEvent` (`:241-249`) | acts only on status `failed`/`canceled`; re-throws on write failure |
 | `charge.captured` | `:68` | `:310` | log only |
-| `invoice.paid` | `:83` | `:362` → `processSubscriptionEventPaid` | transactions, then the order (`createOrder`) or a payment added to the first order (`addPaymentToOrder`); sole source of truth for subscription money |
+| `invoice.paid` | `:83` | `:362` → `processSubscriptionEventPaid` | transactions, then the order (`createOrder`) or a payment added to the first order (`addPaymentToOrder`); sole source of truth for subscription money. When a guard blocks a paid first cycle, collection is held instead: the subscription is paused (`keep_as_draft`) and the payment flagged |
 | `invoice.payment_failed` | `:84` | `:366` → `processSubscriptionEventFailed` | failure transaction; cart stays frozen |
 | `invoice.upcoming` | `:86` | `:370` → `processSubscriptionEventUpcoming` | price sync when enabled |
 | `customer.subscription.deleted` | `:85` | `:374` → `processSubscriptionEventDeleted` | unfreezes the cart |
@@ -232,7 +232,7 @@ The freeze/unfreeze contract of these endpoints is in `workflows/process-shippin
 `processorUrl`, `merchantReturnUrl` from the session principal (`processor/src/libs/fastify/context/context.ts:42-65`).
 
 **Processor ← a tax connector, through the cart.** The processor reads
-`connectorStripeTax_calculationReferences` (`processor/src/constants.ts:18`, read at
+`connectorStripeTax_calculationReferences` (`processor/src/constants.ts:25`, read at
 `stripe-payment.service.ts:544`), a `String[]` of Stripe Tax calculation ids that nothing in this
 repository writes. When the array has exactly one element it is passed to the PaymentIntent; zero or
 several are dropped (`business-rules/tax-integration.md` Rule 3). The subscription path never reads it.
@@ -249,11 +249,11 @@ several are dropped (`business-rules/tax-integration.md` Rule 3). The subscripti
 | --- | --- | --- | --- |
 | `payment-connector-stripe-customer-id` (`CT_CUSTOM_TYPE_STRIPE_CUSTOMER_KEY`) | customer | `stripeConnector_stripeCustomerId` | created when its key is absent (`processor/src/services/commerce-tools/custom-type-helper.ts:42-73`) |
 | `payment-connector-subscription-line-item-type` (`CT_CUSTOM_TYPE_SUBSCRIPTION_LINE_ITEM_KEY`) | line item | `stripeConnector_productSubscriptionId`, `stripeConnector_stripeSubscriptionId`, `stripeConnector_stripeSubscriptionError` | created when its key is absent, for line-item types |
-| `payment-connector-subscription-information` (`CT_PRODUCT_TYPE_SUBSCRIPTION_KEY`) | product type | 15 attributes below | created if absent; updated by delete-then-create only when no product uses it (`actions.ts:146-159`) |
-| `payment-launchpad-purchase-order` (`CT_CUSTOM_TYPE_LAUNCHPAD_PURCHASE_ORDER_KEY`) | payment | `launchpadPurchaseOrderNumber`, `launchpadPurchaseOrderInvoiceMemo` | existence check only — never created (`actions.ts:42-47`); must be created by the merchant |
+| `payment-connector-subscription-information` (`CT_PRODUCT_TYPE_SUBSCRIPTION_KEY`) | product type | 15 attributes below | created if absent; updated by delete-then-create only when no product uses it (`actions.ts:147-160`) |
+| `payment-launchpad-purchase-order` (`CT_CUSTOM_TYPE_LAUNCHPAD_PURCHASE_ORDER_KEY`) | payment | `launchpadPurchaseOrderNumber`, `launchpadPurchaseOrderInvoiceMemo` | existence check only — never created (`actions.ts:43-48`); must be created by the merchant |
 
 Subscription line items are detected by the product type's **name**, not by the configurable key
-(`processor/src/services/stripe-subscription.service.ts:782`, `:1186`; `business-rules/subscription-lifecycle.md` Rule 3).
+(`getAllLineItemPrices`, `findSubscriptionLineItem`; `business-rules/subscription-lifecycle.md` Rule 3).
 
 ### Subscription product type attributes
 
@@ -287,6 +287,7 @@ Declared in `processor/src/custom-types/custom-types.ts:83-368`.
 | `ct_variant_sku`, `ct_price_id` | on Stripe Prices |
 | `ct_shipping_price_amount` | on shipping Prices; part of the reuse search |
 | `ct_cart_total_amount`, `ct_cart_total_currency` | the cart total sealed onto a Subscription at creation; read back at `invoice.paid` (`business-rules/payment-confirmation.md` Rule 7) |
+| `ct_order_blocked`, `ct_order_blocked_invoice` | written onto a Subscription whose paid first cycle a guard blocked — the reason (`cart-drift` \| `amount-mismatch`) and the invoice; the commercetools payment gets `paymentStatus.interfaceCode = subscription_order_blocked`. Cleared by hand |
 
 ---
 
@@ -312,8 +313,7 @@ Declared in `processor/src/custom-types/custom-types.ts:83-368`.
   micro-deposits freeze in the `requires_action` handler (`freezeCartForBankTransfer`, `:1857-1886`);
   subscriptions freeze at creation. The confirm gate compares against the cart's live total.
 - **The subscription path does not use the PaymentIntent behaviour rules:** `StripeSubscriptionService`
-  never calls `resolvePaymentBehavior` and runs its own SetupIntent `usage`
-  (`processor/src/services/stripe-subscription.service.ts:965`).
+  never calls `resolvePaymentBehavior` and runs its own SetupIntent `usage` (`createStripeSetupIntent`).
 
 ---
 
@@ -355,9 +355,11 @@ malformed `STRIPE_PAYMENT_BEHAVIOR_RULES`. `connect.yaml` marks some keys requir
 | Not supported | What the code shows |
 | --- | --- |
 | Subscription pause | no pause route among the subscription routes (`processor/src/routes/stripe-subscription.route.ts:108-297`) |
-| A free trial without collecting a payment method | both create paths need a payment method: a `default_incomplete` PaymentIntent (`stripe-subscription.service.ts:189`) or the SetupIntent's method (`:289`) |
-| Changing a subscription's quantity | updates keep the current quantity (`:1349`, `:2715`, `:3039`) |
-| More than one subscription product per cart | only the first is subscribed |
+| A free trial without collecting a payment method | both create paths need a payment method: a `default_incomplete` PaymentIntent (`createSubscription`) or the SetupIntent's method (`createSubscriptionFromSetupIntent`) |
+| Changing a subscription's quantity | updates keep the current quantity (`updateSubscription`, `updateSubscriptionPrice`, `updateSubscriptionPriceIfNeeded`) |
+| More than one subscription product per cart | rejected at subscription creation with a 400 (`assertSingleSubscriptionLineItem`, called from `prepareSubscriptionData`, before any Stripe object) |
+| A negative (credit) custom line item on a subscription cart | rejected with a 400 `NegativeCustomLineItemNotSupported` (`assertNoNegativeCustomLineItem`, in `prepareSubscriptionData`, before any Stripe object) |
+| A subscription cart discount that does not target the cart total | rejected with a 400 `UnsupportedCartDiscountForSubscription` — a non-cart-total code, **more than one** cart-total code, or an **automatic/code-less direct discount** on the total, a line item or shipping (`assertSupportedSubscriptionDiscounts`, in `prepareSubscriptionData`, before any Stripe object); only a single cart-total discount is supported — or a single percentage line-item code when the subscription is the only billed line; a code on a trial billing one-time charges or a prorating anchor is refused — a discount only on custom line items is allowed |
 | Bank transfer on a subscription | subscription-invoice events are skipped by the bank-transfer handler (`processor/src/routes/stripe-payment.route.ts:190-193`), by decision |
 | ACH micro-deposit verification on a subscription | the subscription confirm throws on `requires_action` |
 | Guest checkout for subscriptions or bank transfer | one-time payments work for a guest cart; subscriptions and bank transfer need a customer (`host-integration.md` §2) |

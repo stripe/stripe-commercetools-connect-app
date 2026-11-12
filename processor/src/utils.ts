@@ -39,7 +39,7 @@ export const isValidUUID = (uuid: string): boolean => {
  * real subscription charge on API version 2026-06-24.dahlia, where BOTH came back `null` while the
  * invoice genuinely owned the PaymentIntent (confirmed by expanding `invoice.payments`).
  *
- * So the old guard evaluated `!!undefined` on every event and silently returned false forever. It did
+ * So the old guard evaluated `!!undefined` on every event and returned false forever. It did
  * not throw, it did not log, and TypeScript could not catch it because the field was hand-declared in
  * an inline intersection type — which is what let a removed API field keep type-checking. That is the
  * failure this doc comment exists to stop anyone from reintroducing.
@@ -61,7 +61,7 @@ export const isValidUUID = (uuid: string): boolean => {
  *      recognised. In practice the update runs during payment creation, before the shopper can
  *      confirm, so the window is small — but it is not zero, and it did not exist when the signal
  *      was a Stripe-native field set atomically.
- *   2. If that producer ever stops writing the key, this silently returns false again. Both sides
+ *   2. If that producer ever stops writing the key, this returns false again. Both sides
  *      therefore share METADATA_SUBSCRIPTION_ID_FIELD rather than repeating a string literal, so a
  *      rename moves them together.
  *
@@ -130,11 +130,11 @@ export const isEventRefund = (event: Stripe.Event): boolean => {
 };
 
 /**
- * Single implementation of the underpayment comparison shared by every order-creating path.
+ * Single implementation of the amount comparison shared by every order-creating path.
  *
  * WHY THE EXPECTED TOTAL IS A PARAMETER AND NOT DERIVED FROM THE CART HERE. The two flows do not
  * charge the same figure, and hard-coding either convention inside this function is what would
- * produce the duplicate-guard divergence that KI-050/KI-054 are both instances of:
+ * produce the duplicate-guard divergence this helper exists to prevent:
  *   - One-time (`payment_intent.succeeded`): the PaymentIntent is created for the cart's payable
  *     amount, which is `taxedPrice.totalGross` when tax was calculated — so the caller passes that.
  *   - Subscription (`invoice.paid`): the invoice is assembled from Stripe Prices built off
@@ -142,28 +142,34 @@ export const isEventRefund = (event: Stripe.Event): boolean => {
  *     `automatic_tax` nor passes a Stripe Tax calculation on the subscription path — so the invoice
  *     carries NO tax and the caller passes `cart.totalPrice`. Comparing a subscription invoice
  *     against `totalGross` would reject every legitimate order in a tax-on-top configuration
- *     (the KI-047 false-positive failure mode, from the other direction).
+ *     (the false-positive failure mode, from the other direction).
  *
  * Integer comparison in the currency's minor unit, NOT divided by 100: commercetools `centAmount`
  * already respects the currency's fractionDigits and so does Stripe's amount, so this is correct for
- * USD and for zero-decimal currencies (JPY). Equality rejects both under- and over-payment.
+ * USD and for zero-decimal currencies (JPY). Equality rejects both a shortfall and an overpayment.
  */
 export const paidAmountMatchesTotal = (
   paidAmount: number,
   paidCurrency: string,
   expectedTotal: { centAmount: number; currencyCode: string },
+  // Minor-unit slack allowed between the two amounts. Defaults to 0 (exact equality). A positive value (1) is
+  // used only for a discounted subscription invoice (ADR-026 and its 2026-11-10 addendum): Stripe rounds a
+  // percentage coupon once, half-up, on the invoice subtotal, while commercetools rounds with the project's
+  // priceRoundingMode (HalfEven by default), so the two can differ by one minor unit. The tolerance absorbs
+  // that without widening enough to admit a real mischarge, which is bounded below by a whole discount amount.
+  toleranceMinorUnits = 0,
 ): boolean => {
-  const amountMatches = paidAmount === expectedTotal.centAmount;
+  const amountMatches = Math.abs(paidAmount - expectedTotal.centAmount) <= toleranceMinorUnits;
   const currencyMatches = paidCurrency.toLowerCase() === expectedTotal.currencyCode.toLowerCase();
   return amountMatches && currencyMatches;
 };
 
 /**
- * ADR-015 / KI-003: which commercetools-write failures are worth re-raising so the webhook route
+ * ADR-015: which commercetools-write failures are worth re-raising so the webhook route
  * returns non-2xx and Stripe redelivers. Only transient/retryable failures match — a permanent error
  * (auth, not-found, validation, a terminal 400 such as MissingTaxRateForCountry / InvalidField) would
  * just redeliver in vain (a retry storm). Shared by the subscription webhook handlers and the one-time
- * `payment_intent.succeeded` path so the two classify "retryable" identically (SB3-227 reuses ADR-015).
+ * `payment_intent.succeeded` path so the two classify "retryable" identically (reuses ADR-015).
  */
 export const RETRYABLE_CT_ERROR = /ConcurrentModification|409|429|50[23]|ETIMEDOUT|ECONNRESET/i;
 
@@ -176,21 +182,44 @@ export const RETRYABLE_CT_ERROR = /ConcurrentModification|409|429|50[23]|ETIMEDO
  * 12." — it contains NEITHER "ConcurrentModification" NOR "409". Those live on `error.code`
  * (`'ConcurrentModification'`), `error.statusCode`/`error.status` (`409`) and `error.name`. Testing the
  * message alone classified a genuine 409 as terminal and dropped a captured-but-orderless payment
- * (the SB3-227 live repro). So RETRYABLE_CT_ERROR is tested against `code + statusCode + status + name +
- * message` joined together — structured signals and legacy message forms both match. A non-Error value
- * still falls back to its JSON so unknown shapes are not silently misclassified.
+ * (the live repro). So RETRYABLE_CT_ERROR is tested against `code + statusCode + status +
+ * httpErrorStatus + name + message` joined together — structured signals and legacy message forms both match.
+ * `httpErrorStatus` is where the payments SDK's own errors (e.g. from `getPayment`) carry the HTTP status
+ * (added 2026-11-10, ADR-027: a 502/503/429 on that read was classified as permanent). A non-Error value
+ * still falls back to its JSON so unknown shapes are not misclassified.
  */
 export const isRetryableCtError = (error: unknown): boolean => {
   if (error instanceof Error) {
-    const { name, message, code, statusCode, status } = error as Error & {
+    const { name, message, code, statusCode, status, httpErrorStatus } = error as Error & {
       code?: unknown;
       statusCode?: unknown;
       status?: unknown;
+      httpErrorStatus?: unknown;
     };
-    const haystack = [code, statusCode, status, name, message].filter((part) => part !== undefined).join(' ');
+    const haystack = [code, statusCode, status, httpErrorStatus, name, message]
+      .filter((part) => part !== undefined)
+      .join(' ');
     return RETRYABLE_CT_ERROR.test(haystack);
   }
   return RETRYABLE_CT_ERROR.test(JSON.stringify(error));
+};
+
+/**
+ * ADR-027: a Stripe failure worth a webhook redelivery — a connection error, a Stripe-side error (5xx), a rate
+ * limit or lock timeout (429), or a conflict (409). stripe-node retries some of these itself before they reach
+ * here (`RequestSender._shouldRetry`, twice by default): connection errors always; a 409 or a 5xx unless Stripe's
+ * `stripe-should-retry` header says `false` (Stripe usually does for a 500); a 429 only when that header says
+ * `true` (lock timeouts). Anything else (an invalid request, authentication,
+ * permission, an idempotency mismatch) is permanent: repeating the same request cannot succeed (measured:
+ * pausing a canceled or missing subscription answers `invalid_request_error`). The same split as ADR-015's
+ * for commercetools writes.
+ */
+export const isTransientStripeError = (error: unknown): boolean => {
+  const { type, statusCode } = (error ?? {}) as { type?: string; statusCode?: number };
+  if (type === 'StripeConnectionError' || type === 'StripeAPIError' || type === 'StripeRateLimitError') {
+    return true;
+  }
+  return statusCode === 409 || statusCode === 429 || (statusCode !== undefined && statusCode >= 500);
 };
 
 /**
@@ -220,22 +249,82 @@ export const isConcurrentModificationError = (error: unknown): boolean => {
 };
 
 /**
- * Reduces an unknown thrown value to a log-safe shape — `name` / `message` / `code` / `statusCode`
- * only. Used on the paid-without-order path, where the raw error can be a commercetools 400 whose body
- * echoes the shopper's address PII: that body must never be logged verbatim (connector rule — never log
- * sensitive payloads). SB3-227.
+ * Reduces an unknown thrown value to a log-safe shape — a fixed whitelist of diagnostic fields only.
+ * Used wherever a raw error would otherwise reach the Connect logs (the paid-without-order path, and
+ * processor-wide). The raw error must never be logged verbatim: a stripe-node `StripeError`
+ * exposes `raw` / `payment_intent` / `setup_intent` / `charge` / `payload` as own-enumerable props, so a
+ * naive `{ error }` or `JSON.stringify(error)` leaks `client_secret` (and bank-transfer IBAN/BIC) while
+ * dropping the non-enumerable `message`; a commercetools 400's body can echo the shopper's address PII.
+ *
+ * Whitelist (included only when present): `name`, `message`, `code`, `statusCode`, `httpErrorStatus`,
+ * `type`, `requestId`, `decline_code`, `param`, `doc_url`. Stripe nests the structured fields under `.raw`, so each field is
+ * read from the error first and from `.raw` as a fallback. A wrapped error (ErrorGeneral / StripeApiError)
+ * can carry the original provider error under `.cause`; its safe fields are surfaced recursively so the
+ * global handler keeps classification without serializing the raw cause.
+ *
+ * Pure: never mutates `error`, its `.raw`, or its `.cause` — downstream classification depends on the live
+ * `code` / `statusCode`, so the live object is left intact. ADR-023.
  */
-export const redactError = (error: unknown): Record<string, unknown> => {
-  if (error instanceof Error) {
-    const { name, message, code, statusCode } = error as Error & { code?: unknown; statusCode?: unknown };
-    return {
-      name,
-      message,
-      ...(code !== undefined ? { code } : {}),
-      ...(statusCode !== undefined ? { statusCode } : {}),
-    };
+// Safe-to-log fields a Stripe/commercetools error may carry — read from the error, then from `.raw`.
+// `httpErrorStatus` is where connect-payments-sdk's `Errorx` keeps the HTTP status (it has no
+// `statusCode`); without it the redacted log drops the status for non-Stripe errors.
+// The Errorx server-side diagnostics `privateMessage` / `privateFields` are deliberately NOT whitelisted:
+// the helper is scoped to type/message/code/statusCode/requestId/decline_code and keeps private
+// Errorx fields out of the logs. (They carry commercetools/auth diagnostics, not secrets, but the ticket's
+// scope excludes them; logging a specific field is a separate, scoped decision.)
+const SAFE_ERROR_FIELDS = [
+  'code',
+  'statusCode',
+  'httpErrorStatus',
+  'type',
+  'requestId',
+  'decline_code',
+  'param',
+  'doc_url',
+] as const;
+
+// Surface an Error's whitelisted fields (name/message + SAFE_ERROR_FIELDS, each read from the error
+// then from `.raw`) and, recursively, a wrapped provider error under `.cause`. Guards cyclic cause
+// chains (A.cause=B, B.cause=A) via `seen` so an error-handler logging path cannot overflow the stack.
+// Module-level (not nested in redactError) so its control structures carry no extra nesting penalty.
+const redactErrorObject = (
+  err: Error & { raw?: unknown; cause?: unknown },
+  seen: WeakSet<object>,
+): Record<string, unknown> => {
+  const raw = (err.raw && typeof err.raw === 'object' ? (err.raw as Record<string, unknown>) : {}) as Record<
+    string,
+    unknown
+  >;
+  const self = err as unknown as Record<string, unknown>;
+
+  const safe: Record<string, unknown> = { name: err.name, message: err.message };
+  for (const key of SAFE_ERROR_FIELDS) {
+    const value = self[key] !== undefined ? self[key] : raw[key];
+    if (value !== undefined) {
+      safe[key] = value;
+    }
   }
-  return { message: typeof error === 'string' ? error : 'Non-Error thrown value' };
+
+  if (err.cause instanceof Error && !seen.has(err.cause)) {
+    seen.add(err.cause);
+    safe.cause = redactErrorValue(err.cause, seen);
+  }
+  return safe;
+};
+
+const redactErrorValue = (input: unknown, seen: WeakSet<object>): Record<string, unknown> => {
+  if (input instanceof Error) {
+    return redactErrorObject(input as Error & { raw?: unknown; cause?: unknown }, seen);
+  }
+  return { message: typeof input === 'string' ? input : 'Non-Error thrown value' };
+};
+
+export const redactError = (error: unknown): Record<string, unknown> => {
+  const seen = new WeakSet<object>();
+  if (error instanceof Error) {
+    seen.add(error);
+  }
+  return redactErrorValue(error, seen);
 };
 
 export const transformVariantAttributes = <T>(attributes?: Attribute[]): T => {
