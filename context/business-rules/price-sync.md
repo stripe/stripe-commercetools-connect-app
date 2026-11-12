@@ -34,4 +34,6 @@ When `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true`, the connector automatically 
 
 **Why:** Not all deployments require automatic price propagation. Some merchants prefer to manage Stripe prices manually or batch pricing changes with explicit subscription updates.
 
+**Invariant:** When disabled, the `processSubscriptionEventUpcoming()` handler must be a no-op.
+
 **Implementation:** `stripe-subscription.service.ts` → `processSubscriptionEventUpcoming()` — early return if flag is false.

@@ -16,6 +16,6 @@ CT payment record — not just that it resolves to *some* valid CT payment.
 own cart.
 
 **Implementation:**
-- `processor/src/services/stripe-subscription.service.ts:1012-1019` — `confirmSubscriptionPayment()`
+- `processor/src/services/stripe-subscription.service.ts` — `confirmSubscriptionPayment()`
   rejects unless `paymentReference` is a member of `cart.paymentInfo.payments[].id` (matched by
   `.id`, present even on the unexpanded cart).

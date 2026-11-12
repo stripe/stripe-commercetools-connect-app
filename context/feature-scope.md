@@ -22,8 +22,8 @@ listed, rather than inferring from what Stripe supports.
 | Feature | Status | Entry point and what it calls |
 | --- | --- | --- |
 | One-time payment | ✅ | `GET/POST /payments` → `stripe.paymentIntents.create` (`processor/src/services/stripe-payment.service.ts:588`); `POST /confirmPayments/:id` → `paymentIntents.retrieve` and the confirm gate (`:942`) |
-| Subscription | ✅ | `POST /subscription` → `stripe.subscriptions.create` with `payment_behavior: 'default_incomplete'` (`processor/src/services/stripe-subscription.service.ts:180-190`); `POST /subscription/confirm` |
-| Save a method, subscribe later | ✅ | `POST /setupIntent` → `setupIntents.create` (`:962`); `POST /subscription/withSetupIntent` → `subscriptions.create` (`:285`) |
+| Subscription | ✅ | `POST /subscription` → `stripe.subscriptions.create` with `payment_behavior: 'default_incomplete'` (`createSubscription` in `stripe-subscription.service.ts`); `POST /subscription/confirm` |
+| Save a method, subscribe later | ✅ | `POST /setupIntent` → `setupIntents.create` (`createStripeSetupIntent`); `POST /subscription/withSetupIntent` → `subscriptions.create` (`createSubscriptionFromSetupIntent`) |
 | Mixed cart (one subscription item + one-time items) | ✅ | one-time items go on the first invoice as `add_invoice_items`; trial and shipping consequences in `business-rules/mixed-carts.md` Rules 1–2 |
 | More than one subscription item per cart | ❌ | — |
 | Guest cart | ⚠️ **one-time only** | subscriptions and bank transfer need a commercetools customer on the cart (`host-integration.md` §2) |
@@ -86,7 +86,7 @@ and 5b).
 | --- | --- | --- |
 | Discount code → Stripe coupon | ✅ | only when commercetools reports the code `MatchesCart`; checkout is refused before money moves when commercetools would not order with the code (`business-rules/coupon-sync.md` Rules 3, 3b) |
 | Usage cap | ✅ enforced by commercetools | not mirrored into Stripe |
-| Coupon duration | fixed `once` | `processor/src/services/stripe-coupon.service.ts:192`; commercetools has no duration to map from |
+| Coupon duration | fixed `once` | `createStripeDiscountCode` (`processor/src/services/stripe-coupon.service.ts`); commercetools has no duration to map from |
 | Price sync on `invoice.upcoming` | ⚠️ opt-in | `STRIPE_SUBSCRIPTION_PRICE_SYNC_ENABLED=true` |
 
 ---

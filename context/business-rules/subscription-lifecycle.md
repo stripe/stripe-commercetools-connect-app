@@ -32,7 +32,7 @@
 
 ## Rule 3: Subscription products are identified by a hardcoded product type name — not by `CT_PRODUCT_TYPE_SUBSCRIPTION_KEY`
 
-**What:** A line item is considered a subscription item when `item.productType.obj?.name === productTypeSubscription.name` (`stripe-subscription.service.ts:1186`, and the mixed-cart split at `:782`), where `productTypeSubscription.name` is the **literal string** `'payment-connector-subscription-information'` (`custom-types.ts:84`) — never derived from `CT_PRODUCT_TYPE_SUBSCRIPTION_KEY`. That env var only sets the product type's `key` (`custom-types.ts:85`), which is used solely by post-deploy for CT API lookups (`getTypeByKey()`), not by this runtime discriminator.
+**What:** A line item is considered a subscription item when `item.productType.obj?.name === productTypeSubscription.name` (`findSubscriptionLineItem()` / `assertSingleSubscriptionLineItem()`, and the mixed-cart split in `getAllLineItemPrices()`), where `productTypeSubscription.name` is the **literal string** `'payment-connector-subscription-information'` (`custom-types.ts:84`) — never derived from `CT_PRODUCT_TYPE_SUBSCRIPTION_KEY`. That env var only sets the product type's `key` (`custom-types.ts:85`), which is used solely by post-deploy for CT API lookups (`getTypeByKey()`), not by this runtime discriminator.
 
 **Why:** Mixed carts can contain both subscription and one-time items. The product type is the discriminator. Without it, the connector cannot separate what should recur from what should be charged once. Post-deploy always creates the type with this same hardcoded `name`, regardless of the configured `key`; overriding the env var changes the type's `key`, not the value this runtime check compares against.
 

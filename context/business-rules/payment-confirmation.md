@@ -59,17 +59,17 @@ Invariants enforced by the one-time synchronous confirmation endpoint (`POST /co
 
 ## Rule 6: The subscription order-creation webhook re-validates the collected amount before creating the order
 
-**What:** `createSubscriptionOrderFromCart` (reached from `invoice.paid` and from `charge.succeeded` on a pending charge) must not create the CT order when `invoice.amount_paid` / `invoice.currency` diverge from the total of the cart the order is minted from — the cart **after** `updateCartAddress`, since the shipping address is shopper-controlled. When it validates, it pins that cart version via `expectedVersion` so a cart that moved after validation cannot still mint an order. It continues to skip cleanly when the cart is already `Ordered` (idempotency).
+**What:** `createSubscriptionOrderFromCart` (reached from `invoice.paid` and from `charge.succeeded` on a pending charge) must not create the CT order when `invoice.total` / `invoice.currency` diverge from the total of the cart the order is minted from — the cart **after** `updateCartAddress`, since the shipping address is shopper-controlled. When it validates, it pins that cart version via `expectedVersion` so a cart that moved after validation cannot still mint an order. It continues to skip cleanly when the cart is already `Ordered` (idempotency).
 
 The comparison is against **`cart.totalPrice`**, not `taxedPrice?.totalGross ?? totalPrice` as in Rules 2 and 5. This is a deliberate divergence, not an inconsistency: the subscription invoice is assembled from Stripe Prices built off the line items' own price values plus the shipping price. `totalPrice` is the figure the invoice is actually built from, in both the tax-included and the tax-on-top configuration.
 
-**Hard block, scoped:** the order is refused only in the configuration where the first invoice *must* equal the cart total — `billing_reason: 'subscription_create'`, `collection_method: 'charge_automatically'`, no trial (`subscription.trial_end` absent), `amount_paid > 0`, and an invoice carrying no discounts (`invoice.discounts` / `invoice.total_discount_amounts` both empty). Outside that configuration the divergence is logged for reconciliation and the order **is** created: trial, free anchor days, `send_invoice` and recurring cycles legitimately produce a first invoice that differs from the cart total.
+**Hard block, scoped:** the order is refused in the configuration where the first invoice *must* equal the cart total — `billing_reason: 'subscription_create'`, `collection_method: 'charge_automatically'`, no trial (`subscription.trial_end` absent), not prorated (no line Stripe marks as a proration, `billing_cycle_anchor = start_date`), `total > 0`. It compares the invoice **`total`** with the cart, not `amount_paid`, so a customer credit or debt balance does not block an honest order. A discounted invoice is not exempt: the subscription rule refuses, before any Stripe object, every cart whose discount the invoice-wide coupon cannot reproduce, so the only coupon that reaches a first invoice reproduces the commercetools discount — and the comparison allows a rounding tolerance of one minor unit on a discounted invoice (Stripe rounds a percentage coupon once on the subtotal, half-up; commercetools HalfEven by default). Outside the guarded configuration (trial, free anchor days, a prorated anchor, `send_invoice`, recurring cycles) a divergence is still logged for reconciliation and the order **is** created. When the guard blocks a paid first cycle, collection is held: the Stripe subscription is paused (`keep_as_draft`) and the CT payment flagged `paymentStatus.interfaceCode = subscription_order_blocked`, so it does not renew into monthly charges with no order; resolution is by hand.
 
 Every condition of this guard is read from Stripe-owned data — the invoice and the subscription — and never from the cart.
 
 Rule 5 enforces this on the one-time path, but it can never run for subscriptions: the webhook dispatcher deliberately drops subscription-invoice `payment_intent.succeeded` and `charge.*` events because `invoice.paid` is the single source of truth for subscription money.
 
-**Invariant:** No CT order is created from a subscription invoice when, in the guarded configuration, `invoice.amount_paid !== cart.totalPrice.centAmount` or the currencies differ.
+**Invariant:** No CT order is created from a subscription invoice when, in the guarded configuration, `invoice.total` differs from `cart.totalPrice.centAmount` beyond the tolerance (1 minor unit on a discounted invoice, 0 otherwise) or the currencies differ.
 
 **Implementation:** `processor/src/services/stripe-subscription.service.ts` — `createSubscriptionOrderFromCart` (amount guard + `expectedVersion` pin) and `isFirstCycleAmountGuardApplicable` (scope). The comparison itself is `paidAmountMatchesTotal` in `processor/src/utils.ts`, shared with Rule 5's `paidAmountMatchesCart`.
 
@@ -77,12 +77,14 @@ Rule 5 enforces this on the one-time path, but it can never run for subscription
 
 ## Rule 7: The cart an order is minted from must be the cart the subscription was priced from
 
-**What:** At `subscriptions.create`, the cart's `totalPrice` and currency are sealed onto the Stripe Subscription's metadata (`ct_cart_total_amount`, `ct_cart_total_currency`). At `invoice.paid`, the cart is compared against that seal inside `createSubscriptionOrderFromCart`, before the cart-address write and before the order (`stripe-subscription.service.ts:1845`, ahead of `updateCartAddress` at `:1870`) — but after `processSubscriptionEventPaid` has already written the invoice's payment transactions to the CT payment (`stripe-subscription.service.ts:1582-1595`, then the call at `:1598`). If it no longer matches, no order is created.
+**What:** At `subscriptions.create`, the cart's `totalPrice` and currency are sealed onto the Stripe Subscription's metadata (`ct_cart_total_amount`, `ct_cart_total_currency`). At `invoice.paid`, the cart is compared against that seal inside `createSubscriptionOrderFromCart`, before the cart-address write and before the order (the `cartDriftedFromPricedTotal` check, ahead of `updateCartAddress`) — but after `processSubscriptionEventPaid` has already written the invoice's payment transactions to the CT payment (then the call to `createSubscriptionOrderFromCart`). If it no longer matches, no order is created.
 
 **Unlike Rule 6, this has no exemptions.**
 
 **Evaluated on the cart as read at webhook time, before `updateCartAddress`.** The seal predates any address, so this compares like with like. Rule 6 still validates the post-address snapshot, because that is the one the order is minted from.
 
 **Invariant:** For any subscription carrying a seal, no CT order is created at `invoice.paid` unless `cart.totalPrice` equals the sealed amount and currency.
+
+**Subscriptions created before this shipped carry no seal and fall back to Rule 6's behaviour.**
 
 **Implementation:** `stripe-subscription.service.ts` — `sealCartTotal` (write, both `subscriptions.create` call sites), `cartDriftedFromPricedTotal` (read), and the block in `createSubscriptionOrderFromCart`.
